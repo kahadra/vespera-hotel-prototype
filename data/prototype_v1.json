@@ -120,7 +120,7 @@
       "cancel_reputation": -3,
       "hard_constraints": [],
       "soft_preferences": [
-        {"type": "ADJACENT_GUEST", "guest_id": "G04_ARU", "points": 4, "label": "Aru와 함께"},
+        {"type": "ADJACENT_GUEST", "guest_id": "G04_ARU", "points": 4, "label": "Aru의 옆방"},
         {"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "높은 층"}
       ]
     },

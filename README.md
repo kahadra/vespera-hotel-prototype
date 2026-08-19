@@ -51,7 +51,7 @@ python -m http.server 8765
 
 - 파일: `build/vespera-hotel-prototype.zip`
 - 형식: ZIP 루트에 `index.html`이 있는 정적 웹 빌드
-- SHA-256: `78D4C73A415BA864A96E848E9EF214C5C3DC6E2AB54DC84C008D5B3CEF7D844A`
+- SHA-256: `08F036A565BA14C9C79AF016C1FEF9D8B35524776725789F25929171AE85FB00`
 - 검증: ZIP을 새 임시 폴더에 풀어 Edge에서 처음부터 최종 결과까지 자동 플레이 PASS
 
 ## 검증
