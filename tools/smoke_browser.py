@@ -188,8 +188,10 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
         client.click('[data-action="start"]')
         require_text(client, "첫 손님을 맞이하세요")
 
+        capture(client, screenshot.with_name(f"{screenshot.stem}-night1-empty.png"))
         place(client, "G01_LUNE", "F3-B")
         place(client, "G02_MORROW", "F1-B")
+        capture(client, screenshot.with_name(f"{screenshot.stem}-night1-partial.png"))
         place(client, "G04_ARU", "F1-C")
         place(client, "G05_FEN", "F3-C")
         require_text(client, "19 / 19")
@@ -198,9 +200,12 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
         require_text(client, "영업 평가")
         require_text(client, "35")
 
+        capture(client, screenshot.with_name(f"{screenshot.stem}-night1-result.png"))
         client.click('[data-action="continue-shop"]')
+        capture(client, screenshot.with_name(f"{screenshot.stem}-shop.png"))
         require_text(client, "다음 영업의 규칙을 고르세요")
         client.click(f'[data-action="buy-facility"][data-facility-id="{facility_id}"]')
+        capture(client, screenshot.with_name(f"{screenshot.stem}-reservation-empty.png"))
         require_text(client, "누구를 맞이하시겠습니까?")
         client.click('[data-action="open-handbook"]')
         client.click('[data-action="handbook-tab"][data-tab="rank"]')
@@ -215,10 +220,13 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
             client.click(f'[data-action="accept"][data-guest-id="{guest_id}"]')
         capture(client, screenshot.with_name(f"{screenshot.stem}-reservation.png"))
         client.click('[data-action="confirm-reservation"]')
+        capture(client, screenshot.with_name(f"{screenshot.stem}-night2-empty.png"))
         require_text(client, "선택한 손님에게 객실을 주세요")
 
-        for guest_id, room_id in route["placements"].items():
+        for index, (guest_id, room_id) in enumerate(route["placements"].items(), start=1):
             place(client, guest_id, room_id)
+            if index == 2:
+                capture(client, screenshot.with_name(f"{screenshot.stem}-night2-partial.png"))
         require_text(client, f'{route["preference"]} / {route["preference"]}')
         capture(client, screenshot.with_name(f"{screenshot.stem}-night2.png"))
         client.click('[data-action="finish-night"]')
