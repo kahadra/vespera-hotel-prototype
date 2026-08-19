@@ -14,6 +14,7 @@ function escapeHtml(value) {
 function phaseLabel(phase) {
   return {
     [PHASES.TITLE]: "영업 준비",
+    [PHASES.TUTORIAL]: "배치 연습",
     [PHASES.NIGHT1_PLACEMENT]: "첫 번째 영업",
     [PHASES.NIGHT1_RESULT]: "첫 영업 정산",
     [PHASES.FACILITY_SHOP]: "호텔 정비",
@@ -54,7 +55,10 @@ function renderTitle() {
         <h1>베스페라 호텔의<br /><em>첫 영업에 초대합니다.</em></h1>
         <p class="lede">손님마다 필요한 숙박 조건을 확인하고, 제한된 객실 안에서 가장 만족스러운 투숙을 준비해 주십시오.</p>
         <div class="invitation-signoff"><span>베스페라 호텔</span><b>총지배인실</b></div>
-        <button class="button primary large" data-action="start">초대 수락</button>
+        <div class="invitation-actions">
+          <button class="button primary large" data-action="start">배치 연습 시작</button>
+          <button class="button secondary" data-action="skip-tutorial">튜토리얼 건너뛰기</button>
+        </div>
       </div>
       <div class="title-rules invitation-enclosure" aria-label="투숙 명부 안내">
         <div class="enclosure-heading"><p class="eyebrow">ENCLOSED · GUEST POLICY</p><h2>투숙 명부를 읽는 법</h2></div>
@@ -182,9 +186,12 @@ function renderPlacement(controller) {
     Object.entries(state.placements).map(([guestId, roomId]) => [roomId, guestId]),
   );
   const waiting = state.acceptedGuestIds.filter((id) => !state.placements[id]);
-  const scenario = controller.currentScenario;
-  const facilityKey = state.selectedFacilityId ?? "NONE";
-  const maxPreference = scenario.validated_max_preference[facilityKey];
+  const isTutorial = state.phase === PHASES.TUTORIAL;
+  const remainingSeconds = Math.ceil((state.serviceTimerMs ?? 0) / 1000);
+  const timerClass = remainingSeconds <= 10 ? "critical" : remainingSeconds <= 30 ? "urgent" : "";
+  const placementStatus = isTutorial
+    ? `<div class="tutorial-status"><small>연습 모드</small><b>시간 제한 없음</b><span>두 손님을 유효하게 배치하세요</span></div>`
+    : `<div class="service-timer ${timerClass}" aria-live="polite"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · 회당 -5초</span></div>`;
   const floorRows = [3, 2, 1]
     .map((floor) => {
       const rooms = data.rooms.filter((room) => room.floor === floor);
@@ -199,8 +206,8 @@ function renderPlacement(controller) {
   return `
     <section class="screen-shell placement-screen">
       <div class="screen-heading">
-        <div><p class="eyebrow">ROOM ASSIGNMENT</p><h1>${state.phase === PHASES.NIGHT1_PLACEMENT ? "첫 손님을 맞이하세요" : "선택한 손님에게 객실을 주세요"}</h1></div>
-        <p>${state.selectedFacilityId ? `${escapeHtml(data.indexes.facilities[state.selectedFacilityId].name)} 적용 중` : "시설 없음"}</p>
+        <div><p class="eyebrow">${isTutorial ? "ROOM ASSIGNMENT · PRACTICE" : "ROOM ASSIGNMENT"}</p><h1>${isTutorial ? "객실 배정을 연습하세요" : state.phase === PHASES.NIGHT1_PLACEMENT ? "첫 손님을 맞이하세요" : "선택한 손님에게 객실을 주세요"}</h1></div>
+        ${placementStatus}
       </div>
       <div class="placement-layout">
         <section class="board-panel">
@@ -217,10 +224,13 @@ function renderPlacement(controller) {
       <footer class="action-bar">
         <div class="score-cluster">
           <span class="status-chip ${evaluation.valid ? "clear" : "warning"}">${evaluation.valid ? "객실 배정 가능" : `배정 불가 ${evaluation.violations.length}건`}</span>
-          <span><small>만족 점수</small><b>${evaluation.placementScore} / ${maxPreference}</b></span>
+          <span><small>만족도 합계</small><b>${evaluation.placementScore}</b></span>
           <span><small>배치 인원</small><b>${Object.keys(state.placements).length} / ${state.acceptedGuestIds.length}</b></span>
         </div>
-        <button class="button primary" data-action="finish-night" ${evaluation.valid ? "" : "disabled"}>밤 마감하기</button>
+        <div class="placement-actions">
+          ${isTutorial ? `<button class="button secondary" data-action="skip-tutorial">연습 건너뛰기</button>` : ""}
+          <button class="button primary" data-action="finish-night" ${evaluation.valid ? "" : "disabled"}>${isTutorial ? "연습 완료 · 첫 영업 시작" : "밤 마감하기"}</button>
+        </div>
       </footer>
     </section>
   `;
@@ -231,9 +241,17 @@ function resultBreakdown(controller, result) {
   const rejectedNames = result.rejectedGuestIds.length
     ? result.rejectedGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
     : "없음";
+  const canceledNames = result.canceledGuestIds?.length
+    ? result.canceledGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
+    : "없음";
+  const emergency = result.emergencyReport;
+  const autoAssignedNames = emergency?.autoAssignedGuestIds?.length
+    ? emergency.autoAssignedGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
+    : "없음";
   return `
+    ${emergency ? `<section class="emergency-report"><div><p class="eyebrow">CHECK-IN DEADLINE</p><h2>마감 후 프런트 긴급 배정</h2></div><p><b>자동 배정</b> ${escapeHtml(autoAssignedNames)}<br /><b>강제 취소</b> ${escapeHtml(canceledNames)}</p></section>` : ""}
     <div class="result-grid">
-      <article><small>만족 점수</small><strong>${result.placementScore}</strong><span>최고 ${result.maxPreference}</span></article>
+      <article><small>만족도 합계</small><strong>${result.placementScore}</strong><span>이번 영업</span></article>
       <article><small>평판 변화</small><strong>${result.reputationDelta >= 0 ? "+" : ""}${result.reputationDelta}</strong><span>수용과 거절 합산</span></article>
       <article><small>기본 숙박비</small><strong>${result.baseFees}G</strong><span>수용 손님</span></article>
       <article><small>팁</small><strong>${result.placementScore}G</strong><span>선호 점수 환산</span></article>
@@ -243,6 +261,7 @@ function resultBreakdown(controller, result) {
     <div class="result-notes">
       <p><b>수용:</b> ${escapeHtml(acceptedNames)}</p>
       <p><b>거절:</b> ${escapeHtml(rejectedNames)}</p>
+      ${result.canceledGuestIds?.length ? `<p class="canceled"><b>수용 후 취소:</b> ${escapeHtml(canceledNames)}</p>` : ""}
     </div>
   `;
 }
@@ -463,7 +482,7 @@ function renderFinal(controller) {
         <article><small>선택 시설</small><strong>${escapeHtml(facility.name)}</strong></article>
         <article><small>총수입</small><strong>${totalIncome}G</strong></article>
         <article><small>총 평판</small><strong>${totalRep >= 0 ? "+" : ""}${totalRep}</strong></article>
-        <article><small>마지막 평가</small><strong>${night2Result.evaluationScore} / ${night2Result.maxEvaluation}</strong></article>
+        <article><small>마지막 평가</small><strong>${night2Result.evaluationScore}</strong></article>
       </div>
       ${resultBreakdown(controller, night2Result)}
       <div class="center-action split-actions">
@@ -478,7 +497,7 @@ export function renderApp(app, controller) {
   const { phase } = controller.state;
   let content = "";
   if (phase === PHASES.TITLE) content = renderTitle();
-  else if ([PHASES.NIGHT1_PLACEMENT, PHASES.NIGHT2_PLACEMENT].includes(phase)) content = renderPlacement(controller);
+  else if ([PHASES.TUTORIAL, PHASES.NIGHT1_PLACEMENT, PHASES.NIGHT2_PLACEMENT].includes(phase)) content = renderPlacement(controller);
   else if (phase === PHASES.NIGHT1_RESULT) content = renderNight1Result(controller);
   else if (phase === PHASES.FACILITY_SHOP) content = renderShop(controller);
   else if (phase === PHASES.NIGHT2_RESERVATION) content = renderReservation(controller);

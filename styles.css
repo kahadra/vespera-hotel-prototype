@@ -86,6 +86,8 @@ button:focus-visible, [data-room-id]:focus-visible { outline: 2px solid var(--go
 .invitation-signoff { position: relative; display: flex; flex-direction: column; margin-bottom: 19px; color: #796a58; font-size: 11px; }
 .invitation-signoff b { margin-top: 2px; color: #3c3024; font: 18px Georgia, "Noto Serif KR", serif; }
 .invitation-letter .button { position: relative; z-index: 1; }
+.invitation-actions { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; }
+.invitation-actions .button { white-space: nowrap; }
 .invitation-enclosure { padding: 21px; border: 1px solid var(--line); background: rgba(20, 18, 16, .65); box-shadow: var(--shadow); }
 .enclosure-heading { padding: 3px 3px 9px; }
 .enclosure-heading h2 { margin: 3px 0 0; font: 27px Georgia, "Noto Serif KR", serif; }
@@ -106,6 +108,18 @@ button:focus-visible, [data-room-id]:focus-visible { outline: 2px solid var(--go
 .screen-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 22px; }
 .screen-heading h1 { margin: 0; font-family: Georgia, "Noto Serif KR", serif; font-size: 31px; font-weight: 500; }
 .screen-heading > p { color: var(--muted); }
+.service-timer, .tutorial-status { min-width: 205px; padding: 9px 13px; display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px 12px; border: 1px solid var(--gold-soft); border-radius: 10px; background: rgba(217, 173, 91, .07); }
+.service-timer small, .tutorial-status small { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .07em; }
+.service-timer b { color: var(--gold); font-size: 22px; font-variant-numeric: tabular-nums; }
+.service-timer span, .tutorial-status span { grid-column: 1 / -1; color: var(--muted); font-size: 10px; }
+.service-timer.urgent { border-color: rgba(216, 111, 105, .72); background: rgba(216, 111, 105, .08); }
+.service-timer.urgent b { color: var(--red); }
+.service-timer.critical { border-color: var(--red); background: rgba(216, 111, 105, .16); animation: timer-pulse .8s ease-in-out infinite alternate; }
+.service-timer.critical b { color: #ff9c95; }
+.tutorial-status { border-color: rgba(127, 187, 147, .55); background: rgba(127, 187, 147, .07); }
+.tutorial-status b { color: var(--green); font-size: 14px; }
+.placement-actions { display: flex; align-items: center; gap: 10px; }
+@keyframes timer-pulse { to { box-shadow: 0 0 18px rgba(216, 111, 105, .25); } }
 
 .placement-layout { display: grid; grid-template-columns: minmax(720px, 1fr) 310px; gap: 18px; }
 .board-panel, .detail-panel { border: 1px solid var(--line-soft); background: rgba(27, 25, 23, .92); border-radius: 14px; box-shadow: var(--shadow); }
@@ -197,6 +211,11 @@ button:focus-visible, [data-room-id]:focus-visible { outline: 2px solid var(--go
 .result-grid span { color: var(--gold); font-size: 11px; }
 .result-notes { margin: 10px 0; padding: 12px 16px; border: 1px solid var(--line-soft); border-radius: 9px; color: var(--muted); font-size: 12px; }
 .result-notes p { margin: 4px 0; }
+.result-notes .canceled { color: var(--red); }
+.emergency-report { margin: 0 0 12px; padding: 13px 16px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border: 1px solid rgba(216, 111, 105, .48); border-radius: 10px; background: rgba(216, 111, 105, .08); }
+.emergency-report h2 { margin: 0; font: 22px Georgia, "Noto Serif KR", serif; }
+.emergency-report > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.emergency-report > p b { display: inline-block; min-width: 62px; color: var(--text); }
 .center-action { display: flex; justify-content: center; margin-top: 20px; }
 .split-actions { gap: 10px; }
 

@@ -11,7 +11,15 @@ async function boot() {
     const controller = new GameController(data);
     const rerender = () => renderApp(app, controller);
     setupInput(app, controller, rerender);
+    window.__vesperaController = controller;
     rerender();
+    let lastTick = performance.now();
+    window.setInterval(() => {
+      const now = performance.now();
+      const elapsed = now - lastTick;
+      lastTick = now;
+      if (controller.advanceTimer(elapsed)) rerender();
+    }, 200);
   } catch (error) {
     console.error(error);
     renderFatalError(app, error);
@@ -19,4 +27,3 @@ async function boot() {
 }
 
 boot();
-

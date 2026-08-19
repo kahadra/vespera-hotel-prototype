@@ -155,6 +155,9 @@ def require_text(client: CdpClient, expected: str):
 
 
 def capture(client: CdpClient, path: Path):
+    # DOM replacements can retain a previous phase's scroll offset. Normalize every
+    # evidence frame so overlay coordinates always use the same 1280x720 origin.
+    client.evaluate("window.scrollTo(0, 0); true")
     image = client.command("Page.captureScreenshot", {"format": "png"})
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(base64.b64decode(image["data"]))
@@ -190,7 +193,12 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
         wait_for(client, "!document.querySelector('.handbook-overlay')")
 
         client.click('[data-action="start"]')
+        require_text(client, "객실 배정을 연습하세요")
+        require_text(client, "시간 제한 없음")
+        capture(client, screenshot.with_name(f"{screenshot.stem}-tutorial.png"))
+        client.click('[data-action="skip-tutorial"]')
         require_text(client, "첫 손님을 맞이하세요")
+        require_text(client, "체크인 마감")
 
         capture(client, screenshot.with_name(f"{screenshot.stem}-night1-empty.png"))
         place(client, "G01_LUNE", "F3-B")
@@ -198,11 +206,15 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
         capture(client, screenshot.with_name(f"{screenshot.stem}-night1-partial.png"))
         place(client, "G04_ARU", "F1-C")
         place(client, "G05_FEN", "F3-C")
-        require_text(client, "19 / 19")
+        require_text(client, "만족도 합계\n19")
+        if "19 / 19" in client.body_text():
+            raise AssertionError("The UI must not reveal the validated maximum preference")
         capture(client, screenshot.with_name(f"{screenshot.stem}-night1.png"))
         client.click('[data-action="finish-night"]')
         require_text(client, "영업 평가")
         require_text(client, "35")
+        if "최고 19" in client.body_text():
+            raise AssertionError("The result screen must not reveal the validated maximum preference")
 
         capture(client, screenshot.with_name(f"{screenshot.stem}-night1-result.png"))
         client.click('[data-action="continue-shop"]')
@@ -226,16 +238,24 @@ def run(url: str, port: int, screenshot: Path, facility_id: str, width: int, hei
         client.click('[data-action="confirm-reservation"]')
         capture(client, screenshot.with_name(f"{screenshot.stem}-night2-empty.png"))
         require_text(client, "선택한 손님에게 객실을 주세요")
+        require_text(client, "체크인 마감")
 
         for index, (guest_id, room_id) in enumerate(route["placements"].items(), start=1):
             place(client, guest_id, room_id)
             if index == 2:
                 capture(client, screenshot.with_name(f"{screenshot.stem}-night2-partial.png"))
-        require_text(client, f'{route["preference"]} / {route["preference"]}')
+        require_text(client, f'만족도 합계\n{route["preference"]}')
+        if f'{route["preference"]} / {route["preference"]}' in client.body_text():
+            raise AssertionError("The UI must not reveal the validated maximum preference")
         capture(client, screenshot.with_name(f"{screenshot.stem}-night2.png"))
         client.click('[data-action="finish-night"]')
         require_text(client, "두 번의 영업을 마쳤습니다")
-        require_text(client, f'{route["evaluation"]} / {route["evaluation"]}')
+        require_text(client, f'마지막 평가\n{route["evaluation"]}')
+        final_text = client.body_text()
+        if f'{route["evaluation"]} / {route["evaluation"]}' in final_text:
+            raise AssertionError("The final screen must not reveal the validated maximum evaluation")
+        if f'최고 {route["preference"]}' in final_text:
+            raise AssertionError("The final screen must not reveal the validated maximum preference")
 
         capture(client, screenshot)
 

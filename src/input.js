@@ -8,6 +8,7 @@ export function setupInput(app, controller, rerender) {
     else if (action === "close-handbook") controller.closeHandbook();
     else if (action === "handbook-tab") controller.selectHandbookTab(target.dataset.tab);
     else if (action === "start") controller.start();
+    else if (action === "skip-tutorial") controller.skipTutorial();
     else if (action === "finish-night") controller.finishNight();
     else if (action === "continue-shop") controller.continueToShop();
     else if (action === "buy-facility") controller.buyFacility(target.dataset.facilityId);

@@ -7,7 +7,9 @@ export function calculateNightResult(
   rejectedGuestIds,
   placements,
   facilityId,
+  options = {},
 ) {
+  const canceledGuestIds = options.canceledGuestIds ?? [];
   const placement = evaluatePlacement(data, acceptedGuestIds, placements, facilityId);
   const baseFees = acceptedGuestIds.reduce(
     (sum, guestId) => sum + data.indexes.guests[guestId].base_fee,
@@ -22,6 +24,10 @@ export function calculateNightResult(
     rejectedGuestIds.reduce(
       (sum, guestId) => sum + data.indexes.guests[guestId].reject_reputation,
       0,
+    ) +
+    canceledGuestIds.reduce(
+      (sum, guestId) => sum + data.indexes.guests[guestId].cancel_reputation,
+      0,
     );
   const evaluationScore =
     placement.placementScore + 2 * reputationDelta + Math.floor(income / 5);
@@ -29,9 +35,9 @@ export function calculateNightResult(
   const maxPreference = scenario.validated_max_preference[facilityKey];
   const maxEvaluation = scenario.validated_max_evaluation[facilityKey];
   const goodThreshold = Math.ceil(maxEvaluation * 0.75);
-  let grade = "가능한 배치";
-  if (evaluationScore >= maxEvaluation) grade = "최고의 배치";
-  else if (evaluationScore >= goodThreshold) grade = "좋은 배치";
+  let grade = "영업 완료";
+  if (evaluationScore >= maxEvaluation) grade = "훌륭한 운영";
+  else if (evaluationScore >= goodThreshold) grade = "좋은 운영";
 
   return {
     ...placement,
@@ -45,8 +51,9 @@ export function calculateNightResult(
     grade,
     acceptedGuestIds: [...acceptedGuestIds],
     rejectedGuestIds: [...rejectedGuestIds],
+    canceledGuestIds: [...canceledGuestIds],
     placements: { ...placements },
     facilityId,
+    emergencyReport: options.emergencyReport ?? null,
   };
 }
-

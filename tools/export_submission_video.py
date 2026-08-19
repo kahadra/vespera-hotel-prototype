@@ -40,6 +40,23 @@ def export(url: str, port: int, output_dir: Path, record: bool, record_start: fl
             capture(client, path)
             previews.append(str(path))
 
+        audits = []
+        audit_dir = ROOT / "submission_video" / "box_audit"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        scene_specs = client.evaluate(
+            "scenes.map((scene, index) => ({index, duration: scene.duration, image: scene.image || scene.type, hasBoxes: Boolean(scene.boxes?.length)}))"
+        )
+        scene_start = 0
+        for scene in scene_specs:
+            if scene["hasBoxes"]:
+                client.evaluate(
+                    f"playhead = {scene_start + scene['duration'] * 0.5}; playing = false; render(); true"
+                )
+                path = audit_dir / f"scene-{scene['index'] + 1:02d}-{scene['image']}.png"
+                capture(client, path)
+                audits.append(str(path))
+            scene_start += scene["duration"]
+
         if record:
             client.evaluate(f"window.automatedExport = true; recordVideo({record_start}); true")
             deadline = time.time() + 175
@@ -120,6 +137,7 @@ def export(url: str, port: int, output_dir: Path, record: bool, record_start: fl
             "status": "PASS",
             "duration_seconds": duration,
             "previews": previews,
+            "box_audits": audits,
             "video": str(video) if video else None,
             "video_bytes": video.stat().st_size if video else None,
             "video_metadata": metadata,
