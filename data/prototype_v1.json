@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "rooms": [
+    {"id": "F1-A", "floor": 1, "wing": 0, "attributes": ["noisy"]},
+    {"id": "F1-B", "floor": 1, "wing": 1, "attributes": ["quiet"]},
+    {"id": "F1-C", "floor": 1, "wing": 2, "attributes": ["sunny"]},
+    {"id": "F2-A", "floor": 2, "wing": 0, "attributes": ["noisy"]},
+    {"id": "F2-B", "floor": 2, "wing": 1, "attributes": ["quiet"]},
+    {"id": "F2-C", "floor": 2, "wing": 2, "attributes": ["sunny"]},
+    {"id": "F3-A", "floor": 3, "wing": 0, "attributes": ["noisy"]},
+    {"id": "F3-B", "floor": 3, "wing": 1, "attributes": ["quiet"]},
+    {"id": "F3-C", "floor": 3, "wing": 2, "attributes": ["sunny"]}
+  ],
+  "species": [
+    {
+      "id": "VAMPIRE",
+      "name": "뱀파이어",
+      "hard_constraints": [
+        {"type": "ROOM_NOT_HAS", "attribute": "sunny", "label": "햇빛이 들지 않는 객실"}
+      ],
+      "soft_preferences": [
+        {"type": "ROOM_HAS", "attribute": "quiet", "points": 2, "label": "조용한 객실"}
+      ]
+    },
+    {
+      "id": "BEASTKIN",
+      "name": "수인",
+      "hard_constraints": [
+        {"type": "ROOM_NOT_HAS", "attribute": "noisy", "label": "소음이 없는 객실"}
+      ],
+      "soft_preferences": [
+        {"type": "ROOM_HAS", "attribute": "sunny", "points": 2, "label": "햇빛 객실"}
+      ]
+    }
+  ],
+  "ranks": [
+    {
+      "id": "COMMON",
+      "name": "일반",
+      "description": "별도의 등급 필수 조건이 없습니다.",
+      "hard_constraints": [],
+      "soft_preferences": []
+    },
+    {
+      "id": "VIP",
+      "name": "귀빈",
+      "description": "조용한 동선을 위해 양옆 객실을 비워야 합니다.",
+      "hard_constraints": [
+        {"type": "NO_OCCUPIED_ADJACENT", "label": "양옆 객실이 비어 있을 것"}
+      ],
+      "soft_preferences": []
+    }
+  ],
+  "guests": [
+    {
+      "id": "G01_LUNE",
+      "name": "Lune",
+      "species": "VAMPIRE",
+      "rank": "COMMON",
+      "base_fee": 6,
+      "satisfied_reputation": 1,
+      "reject_reputation": -1,
+      "cancel_reputation": -3,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "높은 층"}
+      ]
+    },
+    {
+      "id": "G02_MORROW",
+      "name": "Morrow",
+      "species": "VAMPIRE",
+      "rank": "COMMON",
+      "base_fee": 6,
+      "satisfied_reputation": 1,
+      "reject_reputation": -1,
+      "cancel_reputation": -3,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 2, "label": "엘리베이터에서 떨어진 방"}
+      ]
+    },
+    {
+      "id": "G03_LADY_NOX",
+      "name": "Lady Nox",
+      "species": "VAMPIRE",
+      "rank": "VIP",
+      "base_fee": 15,
+      "satisfied_reputation": 4,
+      "reject_reputation": -4,
+      "cancel_reputation": -7,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 4, "label": "엘리베이터에서 떨어진 방"},
+        {"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "최상층"}
+      ]
+    },
+    {
+      "id": "G04_ARU",
+      "name": "Aru",
+      "species": "BEASTKIN",
+      "rank": "COMMON",
+      "base_fee": 6,
+      "satisfied_reputation": 1,
+      "reject_reputation": -1,
+      "cancel_reputation": -3,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "FLOOR_IS", "floor": 1, "points": 3, "label": "낮은 층"}
+      ]
+    },
+    {
+      "id": "G05_FEN",
+      "name": "Fen",
+      "species": "BEASTKIN",
+      "rank": "COMMON",
+      "base_fee": 5,
+      "satisfied_reputation": 1,
+      "reject_reputation": -1,
+      "cancel_reputation": -3,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "ADJACENT_GUEST", "guest_id": "G04_ARU", "points": 4, "label": "Aru와 함께"},
+        {"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "높은 층"}
+      ]
+    },
+    {
+      "id": "G06_GARR",
+      "name": "Garr",
+      "species": "BEASTKIN",
+      "rank": "VIP",
+      "base_fee": 14,
+      "satisfied_reputation": 4,
+      "reject_reputation": -4,
+      "cancel_reputation": -7,
+      "hard_constraints": [],
+      "soft_preferences": [
+        {"type": "NEAR_FACILITY", "facility_id": "LOUNGE", "points": 5, "label": "라운지 옆"},
+        {"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 0, "points": 5, "label": "엘리베이터 바로 옆"},
+        {"type": "FLOOR_IS", "floor": 2, "points": 3, "label": "2층"}
+      ]
+    }
+  ],
+  "facilities": [
+    {
+      "id": "SOUNDPROOFING",
+      "name": "방음 객실",
+      "cost": 25,
+      "description": "F2-A의 소음을 없애고 조용한 객실로 바꿉니다.",
+      "room_attribute_changes": [
+        {"room_id": "F2-A", "remove": ["noisy"], "add": ["quiet"]}
+      ],
+      "blocked_rooms": [],
+      "adjacency_links": [],
+      "room_bonuses": []
+    },
+    {
+      "id": "LOUNGE",
+      "name": "라운지",
+      "cost": 30,
+      "description": "F2-B를 라운지로 바꾸고 양옆 객실에 시설 선호를 제공합니다.",
+      "room_attribute_changes": [],
+      "blocked_rooms": ["F2-B"],
+      "adjacency_links": [],
+      "room_bonuses": []
+    },
+    {
+      "id": "SECRET_PASSAGE",
+      "name": "비밀 통로",
+      "cost": 35,
+      "description": "F1-B와 F3-C를 이웃으로 연결하고 양끝 손님에게 +3을 줍니다.",
+      "room_attribute_changes": [],
+      "blocked_rooms": [],
+      "adjacency_links": [["F1-B", "F3-C"]],
+      "room_bonuses": [
+        {"room_id": "F1-B", "points": 3, "label": "비밀 이동로"},
+        {"room_id": "F3-C", "points": 3, "label": "비밀 이동로"}
+      ]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "NIGHT_1",
+      "name": "첫 영업",
+      "capacity": 5,
+      "fixed_guests": ["G01_LUNE", "G02_MORROW", "G04_ARU", "G05_FEN"],
+      "applicants": [],
+      "facility_options": [null],
+      "validated_max_preference": {"NONE": 19},
+      "validated_max_evaluation": {"NONE": 35}
+    },
+    {
+      "id": "NIGHT_2",
+      "name": "시설 선택 후 영업",
+      "capacity": 5,
+      "fixed_guests": ["G01_LUNE", "G04_ARU"],
+      "applicants": ["G02_MORROW", "G05_FEN", "G03_LADY_NOX", "G06_GARR"],
+      "facility_options": ["SOUNDPROOFING", "LOUNGE", "SECRET_PASSAGE"],
+      "validated_max_preference": {"SOUNDPROOFING": 26, "LOUNGE": 28, "SECRET_PASSAGE": 28},
+      "validated_max_evaluation": {"SOUNDPROOFING": 60, "LOUNGE": 63, "SECRET_PASSAGE": 62}
+    }
+  ]
+}
