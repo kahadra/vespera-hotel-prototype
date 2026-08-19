@@ -1,0 +1,283 @@
+{
+  "seed": 20260819,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "frames": {
+    "title.png": [
+      {
+        "target": "title-invitation",
+        "x": 50,
+        "y": 87,
+        "width": 617,
+        "height": 582,
+        "visible": true
+      },
+      {
+        "target": "showcase-summary",
+        "x": 705,
+        "y": 133,
+        "width": 525,
+        "height": 490,
+        "visible": true
+      }
+    ],
+    "handbook-ranks.png": [
+      {
+        "target": "rank-handbook",
+        "x": 176,
+        "y": 308,
+        "width": 913,
+        "height": 387,
+        "visible": true
+      }
+    ],
+    "tutorial.png": [
+      {
+        "target": "tutorial-clock",
+        "x": 1041,
+        "y": 80,
+        "width": 205,
+        "height": 57,
+        "visible": true
+      },
+      {
+        "target": "species-effects",
+        "x": 34,
+        "y": 135,
+        "width": 1212,
+        "height": 28,
+        "visible": true
+      },
+      {
+        "target": "hotel-board",
+        "x": 34,
+        "y": 169,
+        "width": 884,
+        "height": 446,
+        "visible": true
+      }
+    ],
+    "night1.png": [
+      {
+        "target": "service-timer",
+        "x": 1041,
+        "y": 80,
+        "width": 205,
+        "height": 69,
+        "visible": true
+      },
+      {
+        "target": "species-effects",
+        "x": 34,
+        "y": 147,
+        "width": 1212,
+        "height": 28,
+        "visible": true
+      },
+      {
+        "target": "hotel-board",
+        "x": 34,
+        "y": 181,
+        "width": 884,
+        "height": 446,
+        "visible": true
+      }
+    ],
+    "result1.png": [
+      {
+        "target": "night-result",
+        "x": 120,
+        "y": 193,
+        "width": 1040,
+        "height": 174,
+        "visible": true
+      },
+      {
+        "target": "next-rank-odds",
+        "x": 120,
+        "y": 504,
+        "width": 1040,
+        "height": 50,
+        "visible": true
+      }
+    ],
+    "upgrade-r.png": [
+      {
+        "target": "upgrade-rank-odds",
+        "x": 34,
+        "y": 149,
+        "width": 1212,
+        "height": 56,
+        "visible": true
+      },
+      {
+        "target": "upgrade-offers",
+        "x": 34,
+        "y": 296,
+        "width": 1212,
+        "height": 362,
+        "visible": true
+      }
+    ],
+    "reservation2.png": [
+      {
+        "target": "reservation-rank-odds",
+        "x": 34,
+        "y": 181,
+        "width": 1212,
+        "height": 50,
+        "visible": true
+      },
+      {
+        "target": "reservation-capacity",
+        "x": 34,
+        "y": 593,
+        "width": 1212,
+        "height": 64,
+        "visible": true
+      }
+    ],
+    "upgrade-expansion.png": [
+      {
+        "target": "upgrade-rank-odds",
+        "x": 34,
+        "y": 66,
+        "width": 1197,
+        "height": 56,
+        "visible": true
+      },
+      {
+        "target": "upgrade-offers",
+        "x": 34,
+        "y": 258,
+        "width": 1197,
+        "height": 403,
+        "visible": true
+      }
+    ],
+    "result3-discovery.png": [
+      {
+        "target": "night-result",
+        "x": 120,
+        "y": 193,
+        "width": 1040,
+        "height": 174,
+        "visible": true
+      },
+      {
+        "target": "hidden-preference-discovery",
+        "x": 120,
+        "y": 431,
+        "width": 517,
+        "height": 95,
+        "visible": true
+      },
+      {
+        "target": "next-rank-odds",
+        "x": 120,
+        "y": 532,
+        "width": 1040,
+        "height": 50,
+        "visible": true
+      }
+    ],
+    "night4-synergy.png": [
+      {
+        "target": "service-timer",
+        "x": 1041,
+        "y": 80,
+        "width": 205,
+        "height": 69,
+        "visible": true
+      },
+      {
+        "target": "species-effects",
+        "x": 34,
+        "y": 147,
+        "width": 1212,
+        "height": 28,
+        "visible": true
+      },
+      {
+        "target": "hotel-board",
+        "x": 34,
+        "y": 181,
+        "width": 884,
+        "height": 446,
+        "visible": true
+      }
+    ],
+    "reservation5-ssr.png": [
+      {
+        "target": "reservation-rank-odds",
+        "x": 34,
+        "y": 181,
+        "width": 1212,
+        "height": 50,
+        "visible": true
+      },
+      {
+        "target": "ssr-invite",
+        "x": 34,
+        "y": 237,
+        "width": 295,
+        "height": 350,
+        "visible": true
+      },
+      {
+        "target": "reservation-capacity",
+        "x": 34,
+        "y": 593,
+        "width": 1212,
+        "height": 64,
+        "visible": true
+      }
+    ],
+    "night5.png": [
+      {
+        "target": "service-timer",
+        "x": 1041,
+        "y": 80,
+        "width": 205,
+        "height": 69,
+        "visible": true
+      },
+      {
+        "target": "species-effects",
+        "x": 34,
+        "y": 147,
+        "width": 1212,
+        "height": 28,
+        "visible": true
+      },
+      {
+        "target": "hotel-board",
+        "x": 34,
+        "y": 181,
+        "width": 884,
+        "height": 446,
+        "visible": true
+      }
+    ],
+    "final.png": [
+      {
+        "target": "showcase-final",
+        "x": 120,
+        "y": 83,
+        "width": 1040,
+        "height": 102,
+        "visible": true
+      },
+      {
+        "target": "night-result",
+        "x": 120,
+        "y": 267,
+        "width": 1040,
+        "height": 174,
+        "visible": true
+      }
+    ]
+  }
+}

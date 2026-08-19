@@ -1,8 +1,108 @@
-# 세로 단면 기술 설계
+# 프로토타입 기술 설계
 
-- 상태: READY FOR IMPLEMENTATION
+- 상태: `v2 IMPLEMENTED`
 - 대상: 의존성 없는 정적 웹 앱
 - 현재 환경 확인: Python 사용 가능, Node.js/npm 없음
+
+## v2 현재 구조
+
+### 런타임과 배포
+
+- HTML5, CSS, 브라우저 표준 JavaScript ES Modules, JSON만으로 실행한다.
+- 공개 빌드는 GitHub Pages 같은 정적 호스팅에 올리며 플레이어에게 Python이나 빌드 도구를 요구하지 않는다.
+- 로컬 정적 서버와 Python 도구는 개발 검증 전용이다.
+- `data/prototype_v1.json` 파일명은 배포 경로 호환성을 위해 유지하지만 현재 내용은 v2 5영업 스키마다.
+
+### v2 모듈 책임
+
+| 모듈 | 책임 |
+|---|---|
+| `data.js` | JSON 로딩, 인덱스, 시설이 병합된 개선 객체, 교차참조·확률·단계·숨은 선호 검증 |
+| `random.js` | JSON으로 직렬화 가능한 순수 시드 난수 상태와 가중 선택 |
+| `progression.js` | 단계·평판 잠금을 적용한 등급 확률, 손님 신청 생성, 보장·특별 초대 |
+| `upgrades.js` | 공사 제안 생성, 선행조건·비용 검사, 구매 결과 |
+| `rules.js` | 객실·관계·필수 조건·공개/숨은 선호·재방문·시너지·상극 평가 |
+| `scoring.js` | 수입, 평판, 현재 만족도와 결과 설명 |
+| `emergency.js` | 시간 만료 시 연박 고정을 지키는 비최적 긴급 배정·강제 취소 |
+| `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 객실 상태, 발견, 누적 개선, 계약 한도 |
+| `render.js` | 초대장, 수첩, 예약 한도·기존 객실도, 객실 배정, 결산, 영업 준비·공사 계약, 종합 결과 |
+| `input.js` | 손님 클릭 정보 열람, 드래그 전용 배정·교환·해제, 수용·거절, 정비·계약, 수첩과 주요 전환 |
+
+### v2 상태 전환
+
+```text
+TITLE → TUTORIAL ─┐
+  └──── skip ─────┴→ NIGHT_1_PLACEMENT → RESULT
+RESULT → PREPARATION_CONTRACT → RESERVATION → PLACEMENT → RESULT
+                                      ↑ 2~5회차 반복 ↓
+RESULT(5회차) → FINAL
+```
+
+`PREPARATION_CONTRACT`는 플레이어에게 `영업 준비 / 공사 계약`으로 표시한다. 같은 화면에서 빈 객실을 정비하고 `동관 증축`과 `시설·인테리어`를 분리해 제안한다. 각 분류는 영업 사이 최대 1건 계약하며, 계약 여부와 관계없이 명시적인 `다음 영업` 행동으로 진행한다.
+
+### v2 핵심 상태
+
+```js
+{
+  phase,
+  currentNightIndex,
+  gold,
+  hotelReputation,
+  runSeed,
+  rngState,
+  currentRankOdds,
+  currentGuestOfferIds,
+  specialInviteGuestIds,
+  reservationBoardOpen,
+  applicantDecisions,
+  acceptedGuestIds,
+  rejectedGuestIds,
+  placements,
+  stayovers,
+  lockedGuestIds,
+  roomConditions,
+  ownedUpgradeIds,
+  currentUpgradeOfferIds,
+  preparationContracts,
+  guestHistory,
+  seenSpeciesIds,
+  seenRankIds,
+  discoveredHiddenPreferenceIds,
+  nightResults
+}
+```
+
+- `rngState`는 매 선택 뒤 새 값으로 교체하므로 저장·재현 가능하다.
+- 연박은 `{ guestId: { roomId, remainingNights } }`로 첫 객실을 고정한다.
+- 객실 상태는 `{ roomId: { cleanliness, durability } }`로 영업 사이 유지한다.
+- 공개 종족·등급은 첫 신청에서 `seen*Ids`에 기록하고, 종족×등급 숨은 선호는 결산에서만 `discoveredHiddenPreferenceIds`에 기록한다.
+- 숨은 선호는 별도 배열로 평가해 공개 `soft` 목록에 중복 합산하지 않는다.
+
+### 시드 제안과 공정성
+
+- `rankOddsFor(data, stage, reputation)`는 평판 구간을 고른 뒤 아직 열리지 않은 등급 확률을 하위 등급으로 이동한다.
+- 각 확률 행은 N/R/SR/SSR 합계 100을 유지한다.
+- 2회차 R, 3회차 SR 보장은 쇼케이스 진행을 위한 명시적 예외다.
+- 5회차 SSR 특별 초대는 일반 확률이나 영구 해금 상태를 변경하지 않는다.
+- `generateGuestOffer`와 공사 제안 생성은 동일 입력·동일 시드에서 동일 결과를 반환한다.
+- 동관 증축은 `F1-D → F2-D → F3-D` 선행조건을 검증한다. 시설·인테리어는 함께 보유할 수 있다.
+- 공사가 직접 건드리는 객실 집합과 현재 연박 객실이 겹치면 해당 시설·인테리어 계약을 거부한다.
+- `roomCapacitySummary()`는 완공 객실 수, 기본 5명+증축 객실 수의 `serviceLimit`, 구조·상태 차단을 제외한 `physicalPlacementLimit`, 연박 점유와 남은 빈 객실을 한 번에 계산한다.
+- `reservationSummary()`는 연박·사전 확정·신청 수용 명단을 중복 없이 합치고 응대 한도와 물리 객실 한도를 각각 검사한다. 필수 숙박 조건의 조합 가능성은 예약 단계에서 선판정하지 않는다.
+- 예약 객실도는 배치 화면을 재사용하지 않고 board state와 `stayovers`만 읽는 전용 읽기 뷰다. 미증축·사용 불가·연박 고정·빈 객실 상태를 객실당 하나만 표시한다.
+
+### 데이터 불변 조건
+
+- 등급은 정확히 N/R/SR/SSR, 시나리오는 정확히 5개다.
+- 종족은 4개, 손님은 12명 이상, 공사 항목은 8개 이상이다.
+- 종족×등급 숨은 선호는 지원되는 soft 규칙, 고유 ID, 양수 점수만 허용한다.
+- 손님 객체의 개인 `hidden_*` 필드와 모든 숨은 hard/감점 형식을 거부한다.
+- 연박 객실 고정, 마모 기준, 공사 교차참조와 순환 선행조건을 검증한다.
+- 완공된 증축 객실 한 실이 예약 응대 한도를 정확히 1명 높이고, 연박 손님이 응대 인원과 물리 점유에 각각 한 번만 포함되는지 검증한다.
+
+## v1 보존 기록 — 2영업 기술 설계
+
+아래 구조와 고정 최고점은 최초 2영업 빌드의 구현 계획·검증 기록이다. 현재 상태 머신, 무작위성, 콘텐츠 상한으로 사용하지 않는다.
 
 ## 1. 기술 선택
 
@@ -102,7 +202,7 @@ F:\Game\
 
 ### `input.js`
 
-- 클릭 배치
+- v1 당시 클릭 배치
 - 드래그 앤 드롭
 - 수용·거절 전환
 - 주요 버튼 이벤트
@@ -230,5 +330,5 @@ python -m http.server 8000
 - 손님별 조건을 JavaScript에 하드코딩
 - Python과 JavaScript가 다른 점수 공식을 사용
 - 검산되지 않은 새 손님이나 시설 추가
-- 숨은 성향 시스템 선행 구현
+- 숨은 선호 시스템 선행 구현
 - 외부 UI 프레임워크 설치

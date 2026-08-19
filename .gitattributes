@@ -1,2 +1,7 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Keep repository text files on LF regardless of each developer's Git settings.
+* text=auto eol=lf
+
+# Generated media and distributable archives are binary.
+*.png binary
+*.webm binary
+*.zip binary

@@ -1,9 +1,11 @@
 import { getGuestRules } from "./data.js";
-import { attributeLabel } from "./rules.js";
+import { attributeLabel, revisitBonusFor } from "./rules.js";
+import { rankOddsFor } from "./progression.js";
+import { canPurchaseUpgrade } from "./upgrades.js";
 import { PHASES } from "./state.js";
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -11,95 +13,112 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function phaseLabel(phase) {
+function signed(value) {
+  return value > 0 ? `+${value}` : String(value);
+}
+
+function phaseLabel(controller) {
+  const { phase } = controller.state;
+  const night = controller.currentNightNumber;
   return {
     [PHASES.TITLE]: "영업 준비",
     [PHASES.TUTORIAL]: "배치 연습",
-    [PHASES.NIGHT1_PLACEMENT]: "첫 번째 영업",
-    [PHASES.NIGHT1_RESULT]: "첫 영업 정산",
-    [PHASES.FACILITY_SHOP]: "호텔 정비",
-    [PHASES.NIGHT2_RESERVATION]: "두 번째 예약",
-    [PHASES.NIGHT2_PLACEMENT]: "두 번째 영업",
-    [PHASES.FINAL_RESULT]: "최종 평가",
+    [PHASES.RESERVATION]: `예약 ${night} / ${controller.totalNights}`,
+    [PHASES.PLACEMENT]: `영업 ${night} / ${controller.totalNights}`,
+    [PHASES.RESULT]: `정산 ${night} / ${controller.totalNights}`,
+    [PHASES.UPGRADE]: "영업 준비",
+    [PHASES.FINAL]: "초청 영업 완료",
   }[phase];
+}
+
+function rankOf(data, rankId) {
+  return data.indexes.ranks[rankId] ?? { id: rankId, name: rankId, symbol: "•", color: "#8B9099" };
+}
+
+function rankTag(data, rankId, extra = "") {
+  const rank = rankOf(data, rankId);
+  return `<span class="rank-tag rank-${rank.id.toLowerCase()} ${extra}" style="--rank-color:${escapeHtml(rank.color)}"><i>${escapeHtml(rank.symbol)}</i><b>${escapeHtml(rank.id)}</b><small>${escapeHtml(rank.name)}</small></span>`;
+}
+
+function speciesOf(data, speciesId) {
+  return data.indexes.species[speciesId] ?? { id: speciesId, name: speciesId, icon: "◇" };
 }
 
 function renderHeader(controller) {
   const { state } = controller;
+  const inRun = ![PHASES.TITLE, PHASES.TUTORIAL].includes(state.phase);
+  const progressNight = state.phase === PHASES.UPGRADE
+    ? Math.min(controller.currentNightNumber + 1, controller.totalNights)
+    : controller.currentNightNumber;
   return `
     <header class="topbar">
       <div class="brand-lockup">
         <span class="brand-mark" aria-hidden="true">◆</span>
-        <div>
-          <p class="eyebrow">HOTEL VESPERA</p>
-          <strong>베스페라 호텔</strong>
-        </div>
+        <div><p class="eyebrow">HOTEL VESPERA</p><strong>베스페라 호텔</strong></div>
       </div>
-      <div class="phase-pill">${escapeHtml(phaseLabel(state.phase))}</div>
+      <div class="phase-stack">
+        <div class="phase-pill">${escapeHtml(phaseLabel(controller))}</div>
+        <span class="showcase-mini">개장 전 초청 영업${inRun ? ` · ${progressNight}/5` : ""}</span>
+      </div>
       <div class="resources" aria-label="현재 자원">
         <button class="handbook-trigger" data-action="open-handbook" aria-label="운영 수첩 열기" title="운영 수첩"><span class="handbook-icon" aria-hidden="true">▤</span><span class="handbook-label">운영 수첩</span></button>
         <span><small>골드</small><b>${state.gold}G</b></span>
-        <span><small>평판</small><b>${state.hotelReputation >= 0 ? "+" : ""}${state.hotelReputation}</b></span>
+        <span><small>평판</small><b>${signed(state.hotelReputation)}</b></span>
       </div>
-    </header>
-  `;
+    </header>`;
 }
 
-function renderTitle() {
+function renderTitle(controller) {
+  const notice = controller.data.prototype_mode?.notice
+    ?? "정식 개장 전 다섯 밤 동안 호텔의 운영을 점검하는 초청 행사입니다.";
   return `
     <section class="title-screen">
-      <div class="title-copy invitation-letter">
+      <div class="title-copy invitation-letter" data-video-target="title-invitation">
         <span class="invitation-crest" aria-hidden="true">◆</span>
         <p class="invitation-hotel">HOTEL VESPERA</p>
         <p class="invitation-recipient">새 지배인 귀하</p>
-        <h1>베스페라 호텔의<br /><em>첫 영업에 초대합니다.</em></h1>
-        <p class="lede">손님마다 필요한 숙박 조건을 확인하고, 제한된 객실 안에서 가장 만족스러운 투숙을 준비해 주십시오.</p>
+        <h1>개장 전 초청 영업에<br /><em>귀하를 모십니다.</em></h1>
+        <p class="lede">손님의 조건을 읽고, 제한된 객실과 시간 안에서 가장 가치 높은 밤을 준비해 주십시오.</p>
+        <div class="showcase-notice"><b>PRE-OPENING INVITATIONAL · 5 NIGHTS</b><span>${escapeHtml(notice)}</span></div>
         <div class="invitation-signoff"><span>베스페라 호텔</span><b>총지배인실</b></div>
         <div class="invitation-actions">
           <button class="button primary large" data-action="start">배치 연습 시작</button>
           <button class="button secondary" data-action="skip-tutorial">튜토리얼 건너뛰기</button>
         </div>
       </div>
-      <div class="title-rules invitation-enclosure" aria-label="투숙 명부 안내">
-        <div class="enclosure-heading"><p class="eyebrow">ENCLOSED · GUEST POLICY</p><h2>투숙 명부를 읽는 법</h2></div>
-        <article><span>01</span><div><strong>종족별 숙박 조건</strong><p>같은 종족의 모든 손님에게 적용되며, 반드시 맞아야 합니다.</p></div></article>
-        <article><span>02</span><div><strong>등급별 응대 규정</strong><p>귀빈처럼 특정 등급에 공통으로 적용되는 조건입니다.</p></div></article>
-        <article><span>03</span><div><strong>개인 선호</strong><p>손님 카드에 적혀 있으며, 만족할수록 팁과 평가가 올라갑니다.</p></div></article>
+      <div class="title-rules invitation-enclosure" aria-label="개장 전 초청 영업 안내" data-video-target="showcase-summary">
+        <div class="enclosure-heading"><p class="eyebrow">PRE-OPENING PROGRAM</p><h2>다섯 밤의 시범 운영</h2></div>
+        <article><span>01</span><div><strong>규칙을 익히고 배치</strong><p>시간 제한 없는 연습 뒤 실제 영업은 2분 안에 진행합니다.</p></div></article>
+        <article><span>02</span><div><strong>평판으로 새 등급 발견</strong><p>N·R·SR·SSR 손님과 시설의 위험과 보상을 차례로 점검합니다.</p></div></article>
+        <article><span>03</span><div><strong>시설·증축·객실 상태 누적</strong><p>선택한 호텔 구조와 연박 객실이 다음 영업에 그대로 이어집니다.</p></div></article>
       </div>
-    </section>
-  `;
-}
-
-function rankLabel(rank) {
-  return rank === "VIP" ? "귀빈" : "일반";
-}
-
-function speciesIcon(species) {
-  return species === "VAMPIRE" ? "☾" : "△";
+    </section>`;
 }
 
 function renderRuleRows(rules, sourceLabel, withPoints = false) {
-  return rules
-    .map(
-      (rule) => `<p><span class="rule-source">${escapeHtml(sourceLabel)}</span>${escapeHtml(rule.label)}${withPoints ? ` <b>+${rule.points}</b>` : ""}</p>`,
-    )
-    .join("");
+  if (!rules?.length) return `<p><span class="rule-source">${escapeHtml(sourceLabel)}</span>추가 조건 없음</p>`;
+  return rules.map((rule) => {
+    const pointText = withPoints ? ` <b>${signed(rule.points)}</b>` : "";
+    return `<p><span class="rule-source">${escapeHtml(sourceLabel)}</span>${escapeHtml(rule.label)}${pointText}</p>`;
+  }).join("");
 }
 
-function renderGuestChip(data, guestId, options = {}) {
+function renderGuestChip(data, guestId, controller, options = {}) {
   const guest = data.indexes.guests[guestId];
+  const species = speciesOf(data, guest.species);
   const selected = options.selected ? " selected" : "";
   const invalid = options.invalid ? " invalid" : "";
+  const locked = controller.isLockedGuest(guestId);
   const score = options.score ?? null;
+  const history = controller.state.guestHistory[guestId];
+  const drag = locked ? "" : `data-drag-guest="${guest.id}" draggable="true"`;
   return `
-    <button class="guest-chip ${guest.species.toLowerCase()}${selected}${invalid}"
-      data-guest-id="${guest.id}" data-drag-guest="${guest.id}" draggable="true"
-      title="${escapeHtml(guest.name)} 선택">
-      <span class="guest-symbol" aria-hidden="true">${speciesIcon(guest.species)}</span>
-      <span class="guest-chip-copy"><b>${escapeHtml(guest.name)}</b><small>${rankLabel(guest.rank)}</small></span>
-      ${score === null ? "" : `<span class="guest-score">+${score}</span>`}
-    </button>
-  `;
+    <button class="guest-chip ${guest.species.toLowerCase()} rank-border-${guest.rank.toLowerCase()}${selected}${invalid}${locked ? " stayover" : ""}"
+      data-guest-id="${guest.id}" ${drag} title="${escapeHtml(guest.name)} 선택">
+      <span class="guest-symbol" aria-hidden="true">${escapeHtml(species.icon)}</span>
+      <span class="guest-chip-copy"><b>${history?.visits && !locked ? "↻ " : ""}${escapeHtml(guest.name)}</b><small>${escapeHtml(species.name)} · ${guest.rank}${locked ? " · 연박 고정" : history?.visits ? ` · 재방문 ${history.visits + 1}회차` : ""}</small></span>
+      ${score === null ? "" : `<span class="guest-score ${score < 0 ? "negative" : ""}">${signed(score)}</span>`}
+    </button>`;
 }
 
 function renderRoom(data, room, board, occupantId, controller, evaluation) {
@@ -107,116 +126,110 @@ function renderRoom(data, room, board, occupantId, controller, evaluation) {
   const selected = occupantId && occupantId === controller.state.selectedGuestId;
   const invalidGuestIds = new Set(evaluation.violations.map((item) => item.guestId));
   const attrs = [...room.attributes];
-  const attrText = attrs.map(attributeLabel).join(" · ");
-  const secretEndpoint = board.facility?.room_bonuses?.some((bonus) => bonus.room_id === room.id);
+  const attrText = attrs.map(attributeLabel).join(" · ") || "일반";
+  const condition = controller.state.roomConditions[room.id] ?? { cleanliness: 100, durability: 100 };
   const classes = ["room-card"];
   if (blocked) classes.push("blocked");
   if (selected) classes.push("selected-room");
-  if (secretEndpoint) classes.push("secret-endpoint");
   if (occupantId && invalidGuestIds.has(occupantId)) classes.push("has-violation");
+  if (controller.isLockedGuest(occupantId)) classes.push("stayover-room");
   const roomAction = blocked ? "" : `data-room-id="${room.id}"`;
-
+  const bonuses = board.roomBonuses.filter((bonus) => bonus.room_id === room.id);
   return `
     <article class="${classes.join(" ")}" ${roomAction}>
       <div class="room-heading"><b>${room.id}</b><span>${escapeHtml(attrText)}</span></div>
+      <div class="room-condition" title="청결 ${condition.cleanliness}, 내구도 ${condition.durability}"><span>C ${condition.cleanliness}</span><span>D ${condition.durability}</span></div>
       <div class="room-body">
-        ${
-          blocked
-            ? `<div class="facility-in-room"><span>◈</span><b>${escapeHtml(board.facility.name)}</b></div>`
-            : occupantId
-              ? renderGuestChip(data, occupantId, {
-                  selected,
-                  invalid: invalidGuestIds.has(occupantId),
-                  score: evaluation.guestScores[occupantId]?.total ?? 0,
-                })
-              : `<span class="empty-room">빈 객실</span>`
-        }
+        ${blocked
+          ? `<div class="facility-in-room"><span>${board.unlockedRooms.has(room.id) ? "◇" : "＋"}</span><b>${escapeHtml(board.blockedReasons.get(room.id) ?? "사용 불가")}</b></div>`
+          : occupantId
+            ? renderGuestChip(data, occupantId, controller, { selected, invalid: invalidGuestIds.has(occupantId), score: evaluation.guestScores[occupantId]?.total ?? 0 })
+            : `<span class="empty-room">빈 객실</span>`}
       </div>
-      ${secretEndpoint ? `<span class="room-bonus">비밀 통로 +3</span>` : ""}
-    </article>
-  `;
+      ${bonuses.length ? `<span class="room-bonus">${bonuses.map((item) => `${escapeHtml(item.label)} ${signed(item.points)}`).join(" · ")}</span>` : ""}
+    </article>`;
 }
 
 function renderGuestDetail(controller, evaluation) {
   const { data, state } = controller;
   const guestId = state.selectedGuestId;
-  if (!guestId) {
-    return `<div class="empty-detail"><span>◇</span><p>손님을 선택하면<br />필수 조건과 선호 사항이 표시됩니다.</p></div>`;
-  }
+  if (!guestId) return `<div class="empty-detail"><span>◇</span><p>손님을 선택하면<br />등급과 개인 선호가 표시됩니다.</p></div>`;
   const guest = data.indexes.guests[guestId];
-  const species = data.indexes.species[guest.species];
+  const species = speciesOf(data, guest.species);
   const rules = getGuestRules(data, guestId);
   const score = evaluation.guestScores[guestId]?.total ?? 0;
   const placedRoom = state.placements[guestId];
   const guestViolations = evaluation.violations.filter((item) => item.guestId === guestId);
-
+  const locked = controller.isLockedGuest(guestId);
+  const history = state.guestHistory[guestId];
+  const revisitBonus = revisitBonusFor(data, history);
+  const hiddenPreferences = rules.hiddenPreferences ?? [];
+  const knownHidden = hiddenPreferences.filter((rule, index) =>
+    state.discoveredHiddenPreferenceIds.includes(rule.id ?? `${guestId}:hidden:${index}`));
+  const unreadHiddenCount = hiddenPreferences.length - knownHidden.length;
   return `
     <div class="detail-heading">
-      <span class="detail-symbol">${speciesIcon(guest.species)}</span>
-      <div><p>${escapeHtml(species.name)} · ${rankLabel(guest.rank)}</p><h2>${escapeHtml(guest.name)}</h2></div>
-      <strong class="detail-score">+${score}</strong>
+      <span class="detail-symbol">${escapeHtml(species.icon)}</span>
+      <div><p>${escapeHtml(species.name)} · ${guest.rank}${locked ? " · 연박" : ""}</p><h2>${escapeHtml(guest.name)}</h2></div>
+      <strong class="detail-score ${score < 0 ? "negative" : ""}">${signed(score)}</strong>
     </div>
+    <div class="detail-rank">${rankTag(data, guest.rank)}</div>
     <div class="mini-stats">
       <span><small>숙박비</small><b>${guest.base_fee}G</b></span>
-      <span><small>만족 평판</small><b>+${guest.satisfied_reputation}</b></span>
+      <span><small>숙박</small><b>${guest.stay_nights ?? 1}박</b></span>
       <span><small>객실</small><b>${placedRoom ?? "대기"}</b></span>
     </div>
     <div class="inheritance-strip">
-      <button data-action="open-handbook"><small>종족</small>${escapeHtml(species.name)} 규정 <span>↗</span></button>
-      <button data-action="open-handbook"><small>등급</small>${rankLabel(guest.rank)} 규정 <span>↗</span></button>
+      <button data-action="open-handbook" data-tab="species"><small>종족</small>${escapeHtml(species.name)} 규정 <span>↗</span></button>
+      <button data-action="open-handbook" data-tab="rank"><small>등급</small>${guest.rank} 규정 <span>↗</span></button>
     </div>
-    <section class="rule-group">
-      <h3><span class="rule-dot soft"></span> 개인 선호 <small>손님 카드 정보</small></h3>
-      ${renderRuleRows(rules.personalPreferences, "개인", true)}
-    </section>
-    ${
-      guestViolations.length
-        ? `<section class="violation-box"><h3>객실을 배정할 수 없는 이유</h3>${guestViolations.map((item) => `<p>! ${escapeHtml(item.message)}</p>`).join("")}</section>`
-        : `<p class="all-clear">✓ 수첩에 기록된 공통 규정에 맞는 객실입니다.</p>`
-    }
-    ${placedRoom ? `<button class="text-button" data-action="unplace" data-guest-id="${guestId}">객실에서 빼기</button>` : ""}
-  `;
+    <section class="rule-group"><h3><span class="rule-dot soft"></span> 개인 선호 <small>손님 카드 정보</small></h3>${renderRuleRows(rules.personalPreferences, "개인", true)}</section>
+    ${hiddenPreferences.length ? `<section class="rule-group hidden-preference-group"><h3><span class="rule-dot hidden"></span> ${escapeHtml(species.name)} ${guest.rank} 숨은 선호 <small>${unreadHiddenCount ? `결산 전 ${unreadHiddenCount}` : "열람 완료"}</small></h3>${knownHidden.length ? renderRuleRows(knownHidden, "열람", true) : `<p class="unread-preference">첫 투숙 결산 뒤 같은 종족·등급의 공통 선호로 열람됩니다.</p>`}</section>` : ""}
+    ${locked ? `<p class="revisit-bonus">연박은 같은 예약으로 이어지며 재방문 보너스는 중복되지 않습니다.</p>` : history?.visits ? `<p class="revisit-bonus">↻ 지난 만족 ${history.lastSatisfaction} · 재방문 보너스 ${signed(revisitBonus)}</p>` : ""}
+    ${guestViolations.length
+      ? `<section class="violation-box"><h3>객실을 배정할 수 없는 이유</h3>${guestViolations.map((item) => `<p>! ${escapeHtml(item.message)}</p>`).join("")}</section>`
+      : `<p class="all-clear">✓ 수첩에 기록된 공통 규정에 맞는 객실입니다.</p>`}
+    ${locked
+      ? `<p class="stayover-lock">연박 중인 손님은 첫날 객실을 유지합니다.</p>`
+      : `<p class="drag-instruction">${placedRoom ? "대기 명단으로 드래그하면 객실에서 뺄 수 있습니다." : "객실로 드래그해 배정합니다."}</p>`}`;
+}
+
+function renderGroupEffects(evaluation) {
+  if (!evaluation.groupEffects.length) return "";
+  return evaluation.groupEffects.map((effect) =>
+    `<span class="effect-chip ${effect.type}"><b>${effect.type === "synergy" ? "시너지" : "상극"}</b>${escapeHtml(effect.label)} ${signed(effect.points)}</span>`,
+  ).join("");
 }
 
 function renderPlacement(controller) {
   const { data, state } = controller;
   const evaluation = controller.currentEvaluation();
   const board = evaluation.board;
-  const occupantByRoom = Object.fromEntries(
-    Object.entries(state.placements).map(([guestId, roomId]) => [roomId, guestId]),
-  );
+  const occupantByRoom = Object.fromEntries(Object.entries(state.placements).map(([guestId, roomId]) => [roomId, guestId]));
   const waiting = state.acceptedGuestIds.filter((id) => !state.placements[id]);
   const isTutorial = state.phase === PHASES.TUTORIAL;
   const remainingSeconds = Math.ceil((state.serviceTimerMs ?? 0) / 1000);
   const timerClass = remainingSeconds <= 10 ? "critical" : remainingSeconds <= 30 ? "urgent" : "";
   const placementStatus = isTutorial
-    ? `<div class="tutorial-status"><small>연습 모드</small><b>시간 제한 없음</b><span>두 손님을 유효하게 배치하세요</span></div>`
-    : `<div class="service-timer ${timerClass}" aria-live="polite"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · 회당 -5초</span></div>`;
-  const floorRows = [3, 2, 1]
-    .map((floor) => {
-      const rooms = data.rooms.filter((room) => room.floor === floor);
-      return `
-        <div class="floor-row">
-          <div class="floor-label"><b>F${floor}</b><span>${floor === 1 ? "로비층" : `${floor}층`}</span></div>
-          ${rooms.map((sourceRoom) => renderRoom(data, board.rooms[sourceRoom.id], board, occupantByRoom[sourceRoom.id], controller, evaluation)).join("")}
-        </div>`;
-    })
-    .join("");
-
+    ? `<div class="tutorial-status" data-video-target="tutorial-clock"><small>연습 모드</small><b>시간 제한 없음</b><span>두 손님을 유효하게 배치하세요</span></div>`
+    : `<div class="service-timer ${timerClass}" aria-live="polite" data-video-target="service-timer"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · 회당 -5초</span></div>`;
+  const floorRows = [...new Set(data.rooms.map((room) => room.floor))].sort((a, b) => b - a).map((floor) => {
+    const rooms = data.rooms.filter((room) => room.floor === floor).sort((a, b) => a.wing - b.wing);
+    return `<div class="floor-row"><div class="floor-label"><b>F${floor}</b><span>${floor === 1 ? "로비층" : `${floor}층`}</span></div>${rooms.map((sourceRoom) => renderRoom(data, board.rooms[sourceRoom.id], board, occupantByRoom[sourceRoom.id], controller, evaluation)).join("")}</div>`;
+  }).join("");
   return `
     <section class="screen-shell placement-screen">
       <div class="screen-heading">
-        <div><p class="eyebrow">${isTutorial ? "ROOM ASSIGNMENT · PRACTICE" : "ROOM ASSIGNMENT"}</p><h1>${isTutorial ? "객실 배정을 연습하세요" : state.phase === PHASES.NIGHT1_PLACEMENT ? "첫 손님을 맞이하세요" : "선택한 손님에게 객실을 주세요"}</h1></div>
+        <div><p class="eyebrow">${isTutorial ? "ROOM ASSIGNMENT · PRACTICE" : `INVITATIONAL NIGHT ${controller.currentNightNumber} OF ${controller.totalNights}`}</p><h1>${isTutorial ? "객실 배정을 연습하세요" : `${controller.currentScenario.name} · 손님을 배치하세요`}</h1></div>
         ${placementStatus}
       </div>
+      <div class="effect-strip" data-video-target="species-effects">${renderGroupEffects(evaluation)}</div>
       <div class="placement-layout">
-        <section class="board-panel">
+        <section class="board-panel" data-video-target="hotel-board">
           <div class="hotel-board">${floorRows}</div>
           <div class="waiting-zone" data-waiting-zone>
-            <div class="waiting-label"><b>대기 중</b><span>드래그하거나 손님 → 객실 순서로 클릭</span></div>
-            <div class="waiting-guests">
-              ${waiting.length ? waiting.map((id) => renderGuestChip(data, id, { selected: id === state.selectedGuestId, invalid: true, score: 0 })).join("") : `<span class="all-placed">모든 손님이 객실에 들어갔습니다.</span>`}
-            </div>
+            <div class="waiting-label"><b>대기 중</b><span>${state.lockedGuestIds.length ? "연박 손님은 객실 고정 · 나머지는 드래그 배정" : "손님 카드를 객실로 드래그"}</span></div>
+            <div class="waiting-guests">${waiting.length ? waiting.map((id) => renderGuestChip(data, id, controller, { selected: id === state.selectedGuestId, invalid: true, score: 0 })).join("") : `<span class="all-placed">모든 손님이 객실에 들어갔습니다.</span>`}</div>
           </div>
         </section>
         <aside class="detail-panel">${renderGuestDetail(controller, evaluation)}</aside>
@@ -224,293 +237,290 @@ function renderPlacement(controller) {
       <footer class="action-bar">
         <div class="score-cluster">
           <span class="status-chip ${evaluation.valid ? "clear" : "warning"}">${evaluation.valid ? "객실 배정 가능" : `배정 불가 ${evaluation.violations.length}건`}</span>
-          <span><small>만족도 합계</small><b>${evaluation.placementScore}</b></span>
+          <span><small>현재 만족도 합계</small><b>${evaluation.placementScore}</b></span>
           <span><small>배치 인원</small><b>${Object.keys(state.placements).length} / ${state.acceptedGuestIds.length}</b></span>
         </div>
-        <div class="placement-actions">
-          ${isTutorial ? `<button class="button secondary" data-action="skip-tutorial">연습 건너뛰기</button>` : ""}
-          <button class="button primary" data-action="finish-night" ${evaluation.valid ? "" : "disabled"}>${isTutorial ? "연습 완료 · 첫 영업 시작" : "밤 마감하기"}</button>
-        </div>
+        <div class="placement-actions">${isTutorial ? `<button class="button secondary" data-action="skip-tutorial">연습 건너뛰기</button>` : ""}<button class="button primary" data-action="finish-night" ${evaluation.valid ? "" : "disabled"}>${isTutorial ? "연습 완료 · 첫 영업 시작" : "밤 마감하기"}</button></div>
       </footer>
-    </section>
-  `;
+    </section>`;
+}
+
+function renderOddsStrip(data, odds, target = "rank-odds") {
+  return `<div class="odds-strip" data-video-target="${target}"><div><small>현재 평판 기준</small><b>일반 신청 확률</b></div>${data.ranks.map((rank) => `<span class="odds-rank rank-${rank.id.toLowerCase()}" style="--rank-color:${escapeHtml(rank.color)}"><i>${escapeHtml(rank.symbol)}</i><b>${rank.id}</b><strong>${odds[rank.id] ?? 0}%</strong></span>`).join("")}</div>`;
 }
 
 function resultBreakdown(controller, result) {
-  const acceptedNames = result.acceptedGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ");
-  const rejectedNames = result.rejectedGuestIds.length
-    ? result.rejectedGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
-    : "없음";
-  const canceledNames = result.canceledGuestIds?.length
-    ? result.canceledGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
-    : "없음";
+  const names = (ids) => ids.length ? ids.map((id) => controller.data.indexes.guests[id]?.name ?? id).join(", ") : "없음";
   const emergency = result.emergencyReport;
-  const autoAssignedNames = emergency?.autoAssignedGuestIds?.length
-    ? emergency.autoAssignedGuestIds.map((id) => controller.data.indexes.guests[id].name).join(", ")
-    : "없음";
   return `
-    ${emergency ? `<section class="emergency-report"><div><p class="eyebrow">CHECK-IN DEADLINE</p><h2>마감 후 프런트 긴급 배정</h2></div><p><b>자동 배정</b> ${escapeHtml(autoAssignedNames)}<br /><b>강제 취소</b> ${escapeHtml(canceledNames)}</p></section>` : ""}
-    <div class="result-grid">
-      <article><small>만족도 합계</small><strong>${result.placementScore}</strong><span>이번 영업</span></article>
-      <article><small>평판 변화</small><strong>${result.reputationDelta >= 0 ? "+" : ""}${result.reputationDelta}</strong><span>수용과 거절 합산</span></article>
+    ${emergency ? `<section class="emergency-report"><div><p class="eyebrow">CHECK-IN DEADLINE</p><h2>마감 후 프런트 긴급 배정</h2></div><p><b>자동 배정</b> ${escapeHtml(names(emergency.autoAssignedGuestIds))}<br /><b>강제 취소</b> ${escapeHtml(names(result.canceledGuestIds))}</p></section>` : ""}
+    <div class="result-grid" data-video-target="night-result">
+      <article><small>현재 만족도 합계</small><strong>${result.placementScore}</strong><span>선호·시너지·상극 합산</span></article>
+      <article><small>평판 변화</small><strong>${signed(result.reputationDelta)}</strong><span>수용과 거절 합산</span></article>
       <article><small>기본 숙박비</small><strong>${result.baseFees}G</strong><span>수용 손님</span></article>
-      <article><small>팁</small><strong>${result.placementScore}G</strong><span>선호 점수 환산</span></article>
+      <article><small>팁</small><strong>${result.tips}G</strong><span>현재 만족도 환산</span></article>
       <article class="featured"><small>총수입</small><strong>${result.income}G</strong><span>이번 영업</span></article>
-      <article class="featured"><small>영업 평가</small><strong>${result.evaluationScore}</strong><span>${result.grade}</span></article>
+      <article class="featured"><small>영업 평가</small><strong>${result.evaluationScore}</strong><span>${escapeHtml(result.grade)}</span></article>
     </div>
-    <div class="result-notes">
-      <p><b>수용:</b> ${escapeHtml(acceptedNames)}</p>
-      <p><b>거절:</b> ${escapeHtml(rejectedNames)}</p>
-      ${result.canceledGuestIds?.length ? `<p class="canceled"><b>수용 후 취소:</b> ${escapeHtml(canceledNames)}</p>` : ""}
-    </div>
-  `;
+    <div class="result-notes"><p><b>수용:</b> ${escapeHtml(names(result.acceptedGuestIds))}</p><p><b>거절:</b> ${escapeHtml(names(result.rejectedGuestIds))}</p>${result.canceledGuestIds?.length ? `<p class="canceled"><b>수용 후 취소:</b> ${escapeHtml(names(result.canceledGuestIds))}</p>` : ""}</div>`;
 }
 
-function renderNight1Result(controller) {
+function renderRoomWear(controller) {
+  const rows = controller.state.lastRoomWear.filter((item) => item.cleanlinessLoss || item.durabilityLoss);
+  if (!rows.length) return "";
+  return `<section class="wear-report"><div><p class="eyebrow">ROOM CONDITION</p><h3>오늘 밤 객실 상태 변화</h3></div><div>${rows.slice(0, 5).map((item) => `<span><b>${item.roomId}</b> 청결 -${item.cleanlinessLoss} · 내구 -${item.durabilityLoss}${controller.state.stayovers[item.guestId] ? " · 연박 고정" : ""}</span>`).join("")}</div></section>`;
+}
+
+function renderDiscoveries(controller) {
+  const discoveries = controller.state.lastDiscoveries;
+  if (!discoveries.length) return "";
+  return `<section class="discovery-report" data-video-target="hidden-preference-discovery"><div><p class="eyebrow">SPECIES PREFERENCE REVEALED</p><h3>종족·등급 숨은 선호를 열람했습니다</h3></div><div>${discoveries.map((item) => `<span><b>${escapeHtml(controller.data.indexes.species[item.speciesId]?.name ?? item.speciesId)} · ${escapeHtml(item.rankId)}</b>${escapeHtml(item.label)} ${signed(item.points)}</span>`).join("")}</div></section>`;
+}
+
+function renderResult(controller) {
+  const result = controller.currentResult;
+  const isLast = controller.currentNightNumber >= controller.totalNights;
+  const nextOdds = isLast ? null : rankOddsFor(controller.data, controller.currentNightNumber + 1, controller.state.hotelReputation);
   return `
     <section class="screen-shell result-screen">
-      <div class="result-hero"><p class="eyebrow">NIGHT COMPLETE</p><span class="result-glyph">✦</span><h1>첫 영업을 마쳤습니다.</h1><p>벌어들인 돈으로 호텔의 규칙을 하나 바꿀 수 있습니다.</p></div>
-      ${resultBreakdown(controller, controller.state.night1Result)}
-      <div class="center-action"><button class="button primary large" data-action="continue-shop">시설 제안 보기</button></div>
-    </section>
-  `;
+      <div class="result-hero"><p class="eyebrow">PRE-OPENING NIGHT ${controller.currentNightNumber} COMPLETE</p><span class="result-glyph">✦</span><h1>${controller.currentNightNumber}번째 영업을 마쳤습니다.</h1><p>${isLast ? "개장 전 다섯 밤의 운영 기록을 확인합니다." : "수입과 평판이 다음 손님과 시설 제안의 범위를 바꿉니다."}</p></div>
+      ${resultBreakdown(controller, result)}
+      <div class="result-operational-reports">
+        ${renderDiscoveries(controller)}
+        ${renderRoomWear(controller)}
+      </div>
+      ${nextOdds ? renderOddsStrip(controller.data, nextOdds, "next-rank-odds") : ""}
+      <div class="center-action"><button class="button primary large" data-action="continue-result">${isLast ? "초청 영업 종합 결과" : "객실 정비와 공사 준비"}</button></div>
+    </section>`;
 }
 
-function renderShop(controller) {
+function renderMaintenance(controller) {
+  const cost = controller.data.balance?.room_service_cost ?? 8;
+  const occupied = new Set(Object.values(controller.state.stayovers).map((entry) => entry.roomId));
+  const structurallyBlocked = controller.structuralBoardState().blockedRooms;
+  const worn = Object.entries(controller.state.roomConditions).filter(([roomId, condition]) =>
+    !structurallyBlocked.has(roomId)
+    && (condition.cleanliness < 100 || condition.durability < 100));
+  if (!worn.length) return `<p class="maintenance-clear">모든 객실 상태가 양호합니다.</p>`;
+  return `<div class="maintenance-list">${worn.slice(0, 6).map(([roomId, condition]) => {
+    const disabled = occupied.has(roomId) || controller.state.gold < cost;
+    return `<button data-action="service-room" data-room-id="${roomId}" ${disabled ? "disabled" : ""}><b>${roomId}</b><span>청결 ${condition.cleanliness} · 내구 ${condition.durability}</span><small>${occupied.has(roomId) ? "연박 중" : `${cost}G 정비`}</small></button>`;
+  }).join("")}</div>`;
+}
+
+function renderRenovationCard(controller, upgrade) {
   const { data, state } = controller;
+  const purchased = state.renovationPurchaseIds.includes(upgrade.id);
+  const contractedKind = state.renovationPurchaseIds.some(
+    (id) => data.indexes.upgrades[id]?.kind === upgrade.kind,
+  );
+  const affordable = state.gold >= upgrade.cost;
+  const prerequisiteMet = purchased || canPurchaseUpgrade(data, upgrade.id, state.ownedUpgradeIds);
+  const stayoverBlocked = !purchased && controller.upgradeBlockedByStayover(upgrade.id);
+  const buildable = prerequisiteMet && !stayoverBlocked;
+  const enabled = !purchased && !contractedKind && affordable && buildable;
+  const prerequisite = (upgrade.requires ?? []).map((id) => data.indexes.upgrades[id]?.name ?? id).join(", ");
+  const status = purchased
+    ? "계약 완료"
+    : contractedKind
+      ? "이번 준비의 계약 완료"
+      : stayoverBlocked
+        ? "연박 객실은 공사 불가"
+        : !prerequisiteMet
+          ? "아래층 증축 필요"
+          : affordable
+            ? "계약 가능"
+            : `${upgrade.cost - state.gold}G 부족`;
+  const buttonLabel = purchased
+    ? "계약 완료"
+    : upgrade.kind === "EXPANSION"
+      ? "증축 계약"
+      : "설치 계약";
+  return `<article class="facility-card rarity-${upgrade.rarity.toLowerCase()} ${enabled ? "" : "locked"} ${purchased ? "contracted" : ""}" style="--rank-color:${escapeHtml(rankOf(data, upgrade.rarity).color)}">
+    <div class="facility-card-top"><span class="facility-icon">${escapeHtml(upgrade.icon ?? "◇")}</span>${rankTag(data, upgrade.rarity)}</div>
+    <p class="eyebrow">${escapeHtml(upgrade.kind === "EXPANSION" ? "EAST WING EXPANSION" : "FACILITY & INTERIOR")}</p>
+    <h2>${escapeHtml(upgrade.name)}</h2><p>${escapeHtml(upgrade.description)}</p>
+    ${prerequisite ? `<p class="upgrade-prerequisite">선행 공사: ${escapeHtml(prerequisite)}</p>` : ""}
+    <div class="facility-price"><b>${upgrade.cost}G</b>${status}</div>
+    <button class="button ${enabled ? "primary" : "muted"}" data-action="buy-upgrade" data-upgrade-id="${upgrade.id}" ${enabled ? "" : "disabled"}>${buttonLabel}</button>
+  </article>`;
+}
+
+function renderUpgrade(controller) {
+  const { data, state } = controller;
+  const nextStage = controller.currentNightNumber + 1;
+  const odds = rankOddsFor(data, nextStage, state.hotelReputation);
+  const upgrades = state.currentUpgradeOfferIds.map((id) => data.indexes.upgrades[id]).filter(Boolean);
+  const expansions = upgrades.filter((upgrade) => upgrade.kind === "EXPANSION");
+  const interiors = upgrades.filter((upgrade) => upgrade.kind === "FACILITY");
+  const builtExpansionCount = state.ownedUpgradeIds.filter((id) => data.indexes.upgrades[id]?.kind === "EXPANSION").length;
+  const installedFacilityCount = state.ownedUpgradeIds.filter((id) => data.indexes.upgrades[id]?.kind === "FACILITY").length;
+  const hasContracts = state.renovationPurchaseIds.length > 0;
   return `
     <section class="screen-shell shop-screen">
-      <div class="screen-heading">
-        <div><p class="eyebrow">HOTEL IMPROVEMENT</p><h1>다음 영업의 규칙을 고르세요.</h1></div>
-        <p>보유 골드 <b>${state.gold}G</b></p>
+      <div class="screen-heading"><div><p class="eyebrow">HOTEL RENOVATION · NEXT SERVICE ${nextStage}/5</p><h1>다음 영업을 위한 공사를 준비하세요.</h1></div><p>보유 골드 <b>${state.gold}G</b> · 증축 ${builtExpansionCount} · 시설 ${installedFacilityCount}</p></div>
+      ${renderOddsStrip(data, odds, "upgrade-rank-odds")}
+      <section class="maintenance-panel"><div><p class="eyebrow">HOUSEKEEPING</p><h2>객실 정비</h2><p>연박 중인 객실은 이동하거나 정비할 수 없습니다.</p></div>${renderMaintenance(controller)}</section>
+      <div class="renovation-layout" data-video-target="upgrade-offers">
+        <section class="renovation-group expansion-group"><header><div><p class="eyebrow">BUILDING WORKS</p><h2>동관 증축</h2></div><span>이번 준비 최대 1건</span></header><p class="renovation-help">아래층부터 객실을 올려 객실 배정 선택지를 넓힙니다.</p><div class="renovation-cards">${expansions.length ? expansions.map((upgrade) => renderRenovationCard(controller, upgrade)).join("") : `<p class="renovation-empty">현재 계약 가능한 증축 공사가 없습니다.</p>`}</div></section>
+        <section class="renovation-group interior-group"><header><div><p class="eyebrow">INTERIOR OFFICE</p><h2>시설·인테리어</h2></div><span>이번 준비 최대 1건</span></header><p class="renovation-help">기존 객실의 성격과 호텔 동선을 바꿉니다.</p><div class="renovation-cards interior-cards">${interiors.length ? interiors.map((upgrade) => renderRenovationCard(controller, upgrade)).join("") : `<p class="renovation-empty">현재 설치 가능한 시설 제안이 없습니다.</p>`}</div></section>
       </div>
-      <div class="facility-grid">
-        ${data.facilities
-          .map((facility) => {
-            const affordable = state.gold >= facility.cost;
-            const icon = facility.id === "SOUNDPROOFING" ? "▤" : facility.id === "LOUNGE" ? "◉" : "⇄";
-            return `
-              <article class="facility-card ${affordable ? "" : "locked"}">
-                <span class="facility-icon">${icon}</span>
-                <p class="eyebrow">${facility.id.replaceAll("_", " ")}</p>
-                <h2>${escapeHtml(facility.name)}</h2>
-                <p>${escapeHtml(facility.description)}</p>
-                <div class="facility-price"><b>${facility.cost}G</b>${affordable ? "구매 가능" : `${facility.cost - state.gold}G 부족`}</div>
-                <button class="button ${affordable ? "primary" : "muted"}" data-action="buy-facility" data-facility-id="${facility.id}" ${affordable ? "" : "disabled"}>선택하기</button>
-              </article>`;
-          })
-          .join("")}
-      </div>
-      <p class="shop-note">시설은 이번 런 동안 유지되며 두 번째 영업의 이웃 관계와 점수를 바꿉니다.</p>
-    </section>
-  `;
+      <div class="shop-footer"><p>공사업체 제안은 호텔 평판에 따라 달라집니다. 동관은 1층 → 2층 → 3층 순서로 증축합니다.</p><button class="button ${hasContracts ? "primary" : "secondary"}" data-action="finish-upgrade">${hasContracts ? "준비 완료 · 다음 영업" : "공사 없이 다음 영업"}</button></div>
+    </section>`;
 }
 
 function renderReservationCard(controller, guestId) {
   const { data, state } = controller;
   const guest = data.indexes.guests[guestId];
-  const species = data.indexes.species[guest.species];
+  const species = speciesOf(data, guest.species);
   const decision = state.applicantDecisions[guestId];
   const rules = getGuestRules(data, guestId);
+  const special = state.specialInviteGuestIds.includes(guestId);
+  const history = state.guestHistory[guestId];
+  const revisitBonus = revisitBonusFor(data, history);
+  const wearScale = data.balance?.wear_scale ?? 1;
+  const cleanlinessLoss = guest.room_wear?.cleanliness ?? (guest.cleanliness_impact ?? 1) * wearScale;
+  const durabilityLoss = guest.room_wear?.durability ?? (guest.durability_impact ?? 0) * wearScale;
   return `
-    <article class="reservation-card ${decision ?? "pending"}">
-      <div class="reservation-top">
-        <span class="reservation-symbol">${speciesIcon(guest.species)}</span>
-        <div><p>${escapeHtml(species.name)} · ${rankLabel(guest.rank)}</p><h2>${escapeHtml(guest.name)}</h2></div>
-        <span class="rank-crown">${guest.rank === "VIP" ? "♛" : "•"}</span>
-      </div>
-      <div class="reservation-stats">
-        <span><small>숙박비</small><b>${guest.base_fee}G</b></span>
-        <span><small>만족</small><b>+${guest.satisfied_reputation}</b></span>
-        <span><small>거절</small><b>${guest.reject_reputation}</b></span>
-      </div>
-      <div class="reservation-rules">
-        <p><b>개인 선호 ${rules.personalPreferences.length}</b> · ${rules.personalPreferences.map((rule) => `${escapeHtml(rule.label)} +${rule.points}`).join(", ")}</p>
-      </div>
-      <div class="decision-buttons">
-        <button class="button small accept" data-action="accept" data-guest-id="${guestId}">수용</button>
-        <button class="button small reject" data-action="reject" data-guest-id="${guestId}">거절</button>
-      </div>
+    <article class="reservation-card rarity-${guest.rank.toLowerCase()} ${decision ?? "pending"} ${special ? "special-invite" : ""}" style="--rank-color:${escapeHtml(rankOf(data, guest.rank).color)}" ${special ? "data-video-target=ssr-invite" : ""}>
+      ${special ? `<div class="special-ribbon">왕실 특별 초청</div>` : ""}
+      <div class="reservation-top"><span class="reservation-symbol">${escapeHtml(species.icon)}</span><div><p>${escapeHtml(species.name)} · ${guest.stay_nights ?? 1}박</p><h2>${escapeHtml(guest.name)}</h2></div>${rankTag(data, guest.rank, "compact")}</div>
+      <div class="reservation-stats"><span><small>숙박비</small><b>${guest.base_fee}G</b></span><span><small>호평</small><b>+${guest.satisfied_reputation}</b></span><span><small>거절</small><b>${guest.reject_reputation}</b></span></div>
+      <div class="reservation-rules"><p><b>공개 개인 선호 ${rules.personalPreferences.length}</b> · ${rules.personalPreferences.map((rule) => `${escapeHtml(rule.label)} ${signed(rule.points)}`).join(", ")}</p>${(rules.hiddenPreferences ?? []).length ? `<p><b>${escapeHtml(species.name)} ${guest.rank} 숨은 선호</b> · ${(rules.hiddenPreferences ?? []).length}개 · 투숙 결산 후 열람</p>` : ""}${history?.visits ? `<p class="revisit-copy"><b>재방문</b> · 지난 만족 ${history.lastSatisfaction}, 이번 보너스 ${signed(revisitBonus)}</p>` : ""}<p><b>객실 영향</b> · 청결 -${cleanlinessLoss}, 내구 -${durabilityLoss}</p></div>
+      <div class="decision-buttons"><button class="button small accept" data-action="accept" data-guest-id="${guestId}">수용</button><button class="button small reject" data-action="reject" data-guest-id="${guestId}">거절</button></div>
       ${decision ? `<div class="decision-stamp">${decision === "accept" ? "수용 예정" : "거절 예정"}</div>` : ""}
-    </article>
-  `;
+    </article>`;
 }
 
 function renderReservation(controller) {
   const { data, state } = controller;
   const summary = controller.reservationSummary();
-  const rejectionDelta = summary.rejected.reduce(
-    (sum, id) => sum + data.indexes.guests[id].reject_reputation,
-    0,
-  );
-  const fixedNames = controller.night2.fixed_guests.map((id) => data.indexes.guests[id].name).join(", ");
-  const ready = !summary.pending.length && !summary.overCapacity;
+  const fixedArrivalIds = state.currentFixedGuestIds.filter((id) => !controller.isLockedGuest(id));
+  const fixedNames = fixedArrivalIds.map((id) => data.indexes.guests[id].name).join(", ") || "없음";
+  const stayoverEntries = Object.entries(state.stayovers);
+  const stayoverPreview = stayoverEntries.length
+    ? stayoverEntries.map(([guestId, entry]) => `${data.indexes.guests[guestId]?.name ?? guestId} ${entry.roomId}`).join(", ")
+    : "없음";
+  const emptySelection = !summary.pending.length && summary.accepted.length === 0;
+  const ready = !summary.pending.length
+    && !summary.overCapacity
+    && !summary.overPhysicalCapacity
+    && !emptySelection;
+  const guaranteedRank = controller.currentScenario.guaranteed_rank;
+  const guaranteedRankInfo = guaranteedRank ? rankOf(data, guaranteedRank) : null;
   return `
     <section class="screen-shell reservation-screen">
-      <div class="screen-heading">
-        <div><p class="eyebrow">GUEST APPLICATIONS</p><h1>누구를 맞이하시겠습니까?</h1></div>
-        <p>고정 예약 <b>${escapeHtml(fixedNames)}</b></p>
-      </div>
-      <div class="reservation-grid">
-        ${controller.night2.applicants.map((id) => renderReservationCard(controller, id)).join("")}
-      </div>
-      <footer class="action-bar">
-        <div class="score-cluster">
-          <span class="status-chip ${summary.overCapacity ? "warning" : "clear"}">응대 ${summary.accepted.length} / ${controller.night2.capacity}</span>
-          <span><small>미결정</small><b>${summary.pending.length}</b></span>
-          <span><small>거절 평판</small><b>${rejectionDelta}</b></span>
-        </div>
-        <button class="button primary" data-action="confirm-reservation" ${ready ? "" : "disabled"}>명단 확정</button>
-      </footer>
-      ${summary.overCapacity ? `<p class="inline-warning">응대 한도를 넘었습니다. 수용 손님을 한 명 줄이세요.</p>` : ""}
-    </section>
-  `;
+      <div class="screen-heading"><div><p class="eyebrow">PRE-OPENING NIGHT ${controller.currentNightNumber} OF ${controller.totalNights} · GUEST APPLICATIONS</p><h1>${controller.currentScenario.name} · 누구를 맞이하시겠습니까?</h1></div><div class="reservation-fixed-summary"><span><small>사전 확정</small><b>${escapeHtml(fixedNames)}</b></span><span><small>연박 고정 객실</small><b>${escapeHtml(stayoverPreview)}</b></span><button data-action="open-reservation-board">현재 객실도 보기</button></div></div>
+      ${state.specialInviteGuestIds.length ? `<div class="showcase-invite-banner"><b>♛ SSR 왕실 특별 초청</b><span>최종 등급의 까다로운 요청과 높은 보상이 함께 도착했습니다.</span></div>` : ""}
+      ${guaranteedRankInfo && !state.specialInviteGuestIds.length ? `<div class="showcase-guarantee-banner"><b>${escapeHtml(guaranteedRankInfo.symbol)} ${escapeHtml(guaranteedRank)} 등급 체험 초청</b><span>해당 등급의 응대 규정을 점검하기 위한 별도 초청 1명입니다. 아래 일반 신청 확률과는 따로 도착합니다.</span></div>` : ""}
+      ${renderOddsStrip(data, state.currentRankOdds, "reservation-rank-odds")}
+      <div class="reservation-grid">${state.currentGuestOfferIds.map((id) => renderReservationCard(controller, id)).join("")}</div>
+      <footer class="action-bar reservation-capacity-bar" data-video-target="reservation-capacity"><div class="score-cluster"><span class="status-chip ${summary.overCapacity || summary.overPhysicalCapacity ? "warning" : "clear"}">응대 ${summary.accepted.length} / ${summary.serviceLimit}</span><span><small>호텔 객실</small><b>${summary.builtRoomCount}실</b></span><span><small>사용 가능</small><b>${summary.physicalPlacementLimit}실</b></span><span><small>배정 여유</small><b>${summary.placementMargin}실</b></span><span><small>미결정</small><b>${summary.pending.length}</b></span></div><div class="reservation-confirm"><small>인원 여유는 필수 숙박 조건의 조합까지 보장하지 않습니다.</small><button class="button primary" data-action="confirm-reservation" ${ready ? "" : "disabled"}>명단 확정 · 2분 체크인</button></div></footer>
+      ${summary.overCapacity ? `<p class="inline-warning">예약 응대 한도를 넘었습니다. 동관 객실을 한 실 증축할 때마다 한 명을 더 맞을 수 있습니다.</p>` : ""}
+      ${summary.overPhysicalCapacity ? `<p class="inline-warning">현재 사용 가능한 객실보다 손님이 많습니다. 수용 손님을 줄이거나 객실을 정비하세요.</p>` : ""}
+      ${emptySelection ? `<p class="inline-warning">호텔 문을 열려면 최소 한 명의 예약을 수용해야 합니다.</p>` : ""}
+    </section>`;
+}
+
+function renderReservationBoard(controller) {
+  if (!controller.state.reservationBoardOpen) return "";
+  const { data, state } = controller;
+  const metrics = controller.roomCapacitySummary();
+  const stayoverByRoom = Object.fromEntries(
+    Object.entries(state.stayovers).map(([guestId, entry]) => [entry.roomId, { guestId, ...entry }]),
+  );
+  const rows = [...new Set(data.rooms.map((room) => room.floor))].sort((a, b) => b - a).map((floor) => {
+    const rooms = data.rooms.filter((room) => room.floor === floor).sort((a, b) => a.wing - b.wing);
+    return `<div class="occupancy-floor"><b>F${floor}</b>${rooms.map((room) => {
+      const stayover = stayoverByRoom[room.id];
+      const built = metrics.board.unlockedRooms.has(room.id);
+      const unavailable = built && metrics.board.blockedRooms.has(room.id);
+      const roomState = !built ? "unbuilt" : unavailable ? "unavailable" : stayover ? "stayover" : "empty";
+      const label = !built
+        ? "미증축"
+        : unavailable
+          ? metrics.board.blockedReasons.get(room.id) ?? "사용 불가"
+          : stayover
+            ? `${data.indexes.guests[stayover.guestId]?.name ?? stayover.guestId} · ${stayover.remainingNights}박 남음`
+            : "빈 객실";
+      return `<article class="occupancy-room ${roomState}" data-room-id="${escapeHtml(room.id)}" data-room-state="${roomState}"><span>${escapeHtml(room.id)}</span><b>${escapeHtml(label)}</b></article>`;
+    }).join("")}</div>`;
+  }).join("");
+  return `<div class="reservation-board-overlay" role="dialog" aria-modal="true" aria-label="현재 객실 배치도"><section class="reservation-board-panel"><header><div><p class="eyebrow">CURRENT ROOM LEDGER</p><h1>현재 객실 배치도</h1><p>연박 손님의 객실은 고정됩니다. 사전 확정 손님은 체크인 단계에서 빈 객실에 배정합니다.</p></div><button class="handbook-close" data-action="close-reservation-board" aria-label="현재 객실 배치도 닫기">×</button></header><div class="occupancy-metrics"><span><small>완공 객실</small><b>${metrics.builtRoomCount}실</b></span><span><small>오늘 응대 한도</small><b>${metrics.serviceLimit}명</b></span><span><small>사용 가능 객실</small><b>${metrics.physicalPlacementLimit}실</b></span><span><small>연박 고정</small><b>${metrics.stayoverRoomIds.length}실</b></span></div><div class="reservation-mini-board" data-video-target="reservation-existing-layout">${rows}</div><div class="occupancy-legend"><span class="stayover">연박 고정</span><span class="unavailable">정비·시설로 사용 불가</span><span class="unbuilt">미증축</span><span class="empty">빈 객실</span></div><p class="occupancy-risk">응대 한도와 객실 수가 남아 있어도 종족·등급의 필수 숙박 조건 조합에 따라 전원 배정에 실패할 수 있습니다.</p></section></div>`;
 }
 
 function handbookTabs(activeTab) {
-  const tabs = [
-    ["hotel", "호텔 규정"],
-    ["species", "종족"],
-    ["rank", "등급"],
-    ["discoveries", "발견·해금"],
-  ];
-  return tabs
-    .map(
-      ([id, label]) => `<button class="handbook-tab ${activeTab === id ? "active" : ""}" data-action="handbook-tab" data-tab="${id}">${label}</button>`,
-    )
-    .join("");
+  return [["hotel", "호텔 규정"], ["species", "종족"], ["rank", "등급"], ["discoveries", "발견·해금"]].map(([id, label]) => `<button class="handbook-tab ${activeTab === id ? "active" : ""}" data-action="handbook-tab" data-tab="${id}">${label}</button>`).join("");
 }
 
 function renderHotelRulesPage() {
-  return `
-    <div class="handbook-page">
-      <div class="handbook-page-heading"><p class="eyebrow">FRONT DESK STANDARD</p><h2>호텔 공통 규정</h2><p>모든 영업과 모든 손님에게 적용되는 가장 기본적인 규칙입니다.</p></div>
-      <div class="manual-rule-grid">
-        <article><span>01</span><div><h3>수용한 손님은 모두 배정</h3><p>명단을 확정한 뒤에는 모든 손님에게 객실이 있어야 밤을 마감할 수 있습니다.</p></div></article>
-        <article><span>02</span><div><h3>객실 하나에 손님 한 명</h3><p>같은 객실을 두 손님이 함께 사용할 수 없습니다.</p></div></article>
-        <article><span>03</span><div><h3>공통 조건은 반드시 적용</h3><p>손님 카드의 종족과 등급을 수첩에서 찾아 두 규정을 모두 적용합니다.</p></div></article>
-        <article><span>04</span><div><h3>개인 선호는 추가 점수</h3><p>충족하지 않아도 배정할 수 있지만, 팁과 영업 평가를 얻지 못합니다.</p></div></article>
-      </div>
-    </div>`;
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">FRONT DESK STANDARD</p><h2>호텔 공통 규정</h2><p>모든 영업과 손님에게 적용되는 기본 규칙입니다.</p></div><div class="manual-rule-grid">
+    <article><span>01</span><div><h3>수용한 손님은 모두 배정</h3><p>모든 필수 조건을 맞춰야 밤을 마감할 수 있습니다.</p></div></article>
+    <article><span>02</span><div><h3>객실 하나에 손님 한 명</h3><p>한 객실을 둘이 함께 사용할 수 없습니다.</p></div></article>
+    <article><span>03</span><div><h3>연박 객실은 다음 날 고정</h3><p>연박 손님은 첫날 배정한 객실을 유지하며 수용 인원과 종족 효과에 포함됩니다.</p></div></article>
+    <article><span>04</span><div><h3>SR·SSR의 공실 요청은 선호</h3><p>양옆 공실은 고득점 선택이지 필수 규정이 아닙니다. 증축 없이도 유효한 운영이 가능합니다.</p></div></article>
+    <article><span>05</span><div><h3>증축 객실 한 실마다 응대 한 명 증가</h3><p>예약 응대 한도는 기본 5명이며, 동관 객실이 완공될 때마다 한 명씩 늘어납니다.</p></div></article>
+    <article><span>06</span><div><h3>응대 한도와 유효 배치는 별도</h3><p>사용 가능한 객실이 남아도 필수 숙박 조건의 조합에 따라 전원 배정에 실패할 수 있습니다.</p></div></article>
+  </div></div>`;
 }
 
 function renderSpeciesRulesPage(controller) {
-  return `
-    <div class="handbook-page">
-      <div class="handbook-page-heading"><p class="eyebrow">SPECIES ACCOMMODATION</p><h2>종족별 숙박 조건</h2><p>손님 카드의 종족 표식을 확인한 뒤 아래 공통 규정을 적용합니다.</p></div>
-      <div class="manual-entry-grid">
-        ${controller.data.species
-          .map(
-            (species) => `<article class="manual-entry">
-              <div class="manual-entry-title"><span>${speciesIcon(species.id)}</span><div><small>확인됨 · 종족 규정</small><h3>${escapeHtml(species.name)}</h3></div></div>
-              <div class="manual-section required"><b>필수 숙박 조건</b>${species.hard_constraints.map((rule) => `<p>${escapeHtml(rule.label)}</p>`).join("")}</div>
-              <div class="manual-section preference"><b>공통 선호</b>${species.soft_preferences.map((rule) => `<p>${escapeHtml(rule.label)} <strong>+${rule.points}</strong></p>`).join("")}</div>
-            </article>`,
-          )
-          .join("")}
-      </div>
-    </div>`;
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">SPECIES ACCOMMODATION</p><h2>종족별 숙박 조건</h2><p>같은 종족 인원은 시너지를 만들고, 상극은 같은 층에서 만족도를 낮춥니다.</p></div><div class="manual-entry-grid">${controller.data.species.map((species) => {
+    const locked = !controller.state.seenSpeciesIds.includes(species.id);
+    const hiddenRows = Object.entries(species.hidden_preferences_by_rank ?? {}).filter(([, rules]) => rules.length > 0).map(([rankId, rules]) => {
+      const known = rules.filter((rule, index) => controller.state.discoveredHiddenPreferenceIds.includes(rule.id ?? `${species.id}:${rankId}:hidden:${index}`));
+      return `<p class="species-hidden-row ${known.length ? "known" : "unread"}"><b>${rankId} 숨은 선호</b>${known.length ? known.map((rule) => `${escapeHtml(rule.label)} ${signed(rule.points)}`).join(", ") : "첫 투숙 결산 후 열람"}</p>`;
+    }).join("");
+    return `<article class="manual-entry ${locked ? "locked" : ""}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(species.icon)}</span><div><small>${locked ? "미열람 규칙 · 첫 예약 시 공개" : "열람 완료 · 종족 규정"}</small><h3>${locked ? "아직 만나지 않은 종족" : escapeHtml(species.name)}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>해당 종족의 첫 예약이 도착하면 공통 숙박 조건과 관계를 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 숙박 조건</b>${renderRuleRows(species.hard_constraints, "필수")}</div><div class="manual-section preference"><b>공통 선호</b>${renderRuleRows(species.soft_preferences, "선호", true)}</div>${hiddenRows ? `<div class="species-hidden-list"><b>등급별 숨은 선호</b>${hiddenRows}</div>` : ""}<p class="manual-description">${(species.synergy_thresholds ?? []).map((item) => `${escapeHtml(item.label)}: ${item.count}명부터 1인당 ${signed(item.points_per_guest ?? item.points)}`).join(" · ")}</p>`}</article>`;
+  }).join("")}</div></div>`;
 }
 
 function renderRankRulesPage(controller) {
-  const vipUnlocked = Boolean(controller.state.selectedFacilityId);
-  return `
-    <div class="handbook-page">
-      <div class="handbook-page-heading"><p class="eyebrow">SERVICE CLASS</p><h2>등급별 응대 규정</h2><p>등급 규정은 같은 등급의 모든 손님에게 공통으로 적용됩니다.</p></div>
-      <div class="manual-entry-grid">
-        ${controller.data.ranks
-          .map((rank) => {
-            const locked = rank.id === "VIP" && !vipUnlocked;
-            return `<article class="manual-entry ${locked ? "locked" : ""}">
-              <div class="manual-entry-title"><span>${locked ? "?" : rank.id === "VIP" ? "♛" : "•"}</span><div><small>${locked ? "미해금 · 귀빈 첫 등장 시" : "확인됨 · 등급 규정"}</small><h3>${locked ? "아직 만나지 않은 등급" : escapeHtml(rank.name)}</h3></div></div>
-              ${locked ? `<div class="locked-copy"><b>기록 없음</b><p>해당 등급의 예약 신청을 받으면 응대 규정이 수첩에 추가됩니다.</p></div>` : `<div class="manual-section required"><b>필수 응대 조건</b>${rank.hard_constraints.length ? rank.hard_constraints.map((rule) => `<p>${escapeHtml(rule.label)}</p>`).join("") : `<p>추가 조건 없음</p>`}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}
-            </article>`;
-          })
-          .join("")}
-      </div>
-    </div>`;
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">SERVICE CLASS</p><h2>N·R·SR·SSR 응대 규정</h2><p>등급이 높을수록 보상과 손실, 선택적 고득점 요청이 함께 커집니다.</p></div><div class="manual-entry-grid" data-video-target="rank-handbook">${controller.data.ranks.map((rank) => {
+    const locked = !controller.state.seenRankIds.includes(rank.id);
+    return `<article class="manual-entry rarity-${rank.id.toLowerCase()} ${locked ? "locked" : ""}" style="--rank-color:${escapeHtml(rank.color)}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(rank.symbol)}</span><div><small>${locked ? `미열람 규칙 · 초청 영업 ${rank.unlock_stage}회차 이후` : "열람 완료 · 등급 규정"}</small><h3>${locked ? "아직 만나지 않은 등급" : `${rank.id} · ${escapeHtml(rank.name)}`}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>평판과 영업 회차 조건을 만족해 첫 예약이 도착하면 응대 규정을 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 응대 조건</b>${renderRuleRows(rank.hard_constraints, "필수")}</div><div class="manual-section preference"><b>등급 공통 선호</b>${renderRuleRows(rank.soft_preferences, "선호", true)}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}</article>`;
+  }).join("")}</div></div>`;
 }
 
 function renderDiscoveriesPage(controller) {
-  const shopSeen = Boolean(controller.state.night1Result);
-  const selected = controller.state.selectedFacilityId;
-  return `
-    <div class="handbook-page">
-      <div class="handbook-page-heading"><p class="eyebrow">DISCOVERY LEDGER</p><h2>발견과 해금 기록</h2><p>새 규칙은 처음부터 모두 주어지지 않으며, 만나는 순간 수첩에 기록됩니다.</p></div>
-      <div class="unlock-rules">
-        <article><span class="unlock-state open">기본 지급</span><h3>호텔 공통 규정</h3><p>첫 초대장과 함께 지급됩니다.</p></article>
-        <article><span class="unlock-state open">확인됨</span><h3>종족별 숙박 조건</h3><p>해당 종족의 첫 손님을 만나면 기록됩니다.</p></article>
-        <article><span class="unlock-state ${selected ? "open" : "locked"}">${selected ? "확인됨" : "미해금"}</span><h3>귀빈 응대 규정</h3><p>귀빈 등급의 예약 신청을 받으면 기록됩니다.</p></article>
-        <article><span class="unlock-state ${shopSeen ? "open" : "locked"}">${shopSeen ? "제안 확인" : "미해금"}</span><h3>시설 기록</h3><p>${selected ? `${escapeHtml(controller.data.indexes.facilities[selected].name)} 설치 기록이 추가되었습니다.` : "첫 영업 정산 후 시설 제안을 확인하면 추가됩니다."}</p></article>
-        <article><span class="unlock-state locked">프로토타입 미포함</span><h3>숨은 성향</h3><p>정식 버전에서는 시험 숙박과 반응 관찰로 단서를 확정할 때 기록됩니다.</p></article>
-      </div>
-    </div>`;
+  const owned = controller.state.ownedUpgradeIds.map((id) => controller.data.indexes.upgrades[id]?.name ?? id);
+  const hiddenFindings = controller.data.species.flatMap((species) => Object.entries(species.hidden_preferences_by_rank ?? {}).flatMap(([rankId, rules]) => rules.map((rule, index) => ({ species, rankId, rule, id: rule.id ?? `${species.id}:${rankId}:hidden:${index}` })))).filter((item) => controller.state.discoveredHiddenPreferenceIds.includes(item.id));
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">DISCOVERY LEDGER</p><h2>발견과 해금 기록</h2><p>개장 전 초청 영업에서 확인한 호텔의 운영 기록입니다.</p></div><div class="unlock-rules">
+    <article><span class="unlock-state open">개장 전 진행</span><h3>5회 초청 영업</h3><p>정식 개장 전 다섯 밤 동안 손님 응대와 호텔 시설을 점검합니다.</p></article>
+    <article><span class="unlock-state open">${controller.state.seenRankIds.length}/4</span><h3>발견한 등급</h3><p>${escapeHtml(controller.state.seenRankIds.join(" · "))}</p></article>
+    <article><span class="unlock-state ${owned.length ? "open" : "locked"}">${owned.length ? `${owned.length}개 보유` : "미설치"}</span><h3>시설과 증축</h3><p>${escapeHtml(owned.join(", ") || "정산 뒤 공사업체의 증축·인테리어 제안에서 계약합니다.")}</p></article>
+    <article><span class="unlock-state ${hiddenFindings.length ? "open" : "locked"}">${hiddenFindings.length ? `${hiddenFindings.length}개 열람` : "결산 전"}</span><h3>종족·등급 숨은 선호</h3><p>${hiddenFindings.length ? escapeHtml(hiddenFindings.map((item) => `${item.species.name} ${item.rankId}: ${item.rule.label}`).join(" · ")) : "R 이상 손님의 첫 투숙 결산에서 같은 종족·등급의 숨은 선호를 열람합니다."}</p></article>
+  </div></div>`;
 }
 
 function renderHandbook(controller) {
   if (!controller.state.handbookOpen) return "";
   const tab = controller.state.handbookTab;
-  const page = tab === "species"
-    ? renderSpeciesRulesPage(controller)
-    : tab === "rank"
-      ? renderRankRulesPage(controller)
-      : tab === "discoveries"
-        ? renderDiscoveriesPage(controller)
-        : renderHotelRulesPage();
-  return `
-    <div class="handbook-overlay" role="dialog" aria-modal="true" aria-label="베스페라 호텔 운영 수첩">
-      <section class="handbook-panel">
-        <header class="handbook-heading">
-          <div><p class="eyebrow">HOTEL VESPERA · OPERATIONS HANDBOOK</p><h1>운영 수첩</h1></div>
-          <button class="handbook-close" data-action="close-handbook" aria-label="운영 수첩 닫기">×</button>
-        </header>
-        <nav class="handbook-tabs" aria-label="수첩 분류">${handbookTabs(tab)}</nav>
-        <div class="handbook-body">${page}</div>
-      </section>
-    </div>`;
+  const page = tab === "species" ? renderSpeciesRulesPage(controller) : tab === "rank" ? renderRankRulesPage(controller) : tab === "discoveries" ? renderDiscoveriesPage(controller) : renderHotelRulesPage();
+  return `<div class="handbook-overlay" role="dialog" aria-modal="true" aria-label="베스페라 호텔 운영 수첩"><section class="handbook-panel"><header class="handbook-heading"><div><p class="eyebrow">HOTEL VESPERA · OPERATIONS HANDBOOK</p><h1>운영 수첩</h1></div><button class="handbook-close" data-action="close-handbook" aria-label="운영 수첩 닫기">×</button></header><nav class="handbook-tabs" aria-label="수첩 분류">${handbookTabs(tab)}</nav><div class="handbook-body">${page}</div></section></div>`;
 }
 
 function renderFinal(controller) {
-  const { night1Result, night2Result, selectedFacilityId } = controller.state;
-  const facility = controller.data.indexes.facilities[selectedFacilityId];
-  const totalIncome = night1Result.income + night2Result.income;
-  const totalRep = night1Result.reputationDelta + night2Result.reputationDelta;
-  return `
-    <section class="screen-shell final-screen">
-      <div class="result-hero"><p class="eyebrow">PROTOTYPE COMPLETE</p><span class="result-glyph">◆</span><h1>두 번의 영업을 마쳤습니다.</h1><p>${escapeHtml(facility.name)}이 두 번째 밤의 해법을 바꿨습니다.</p></div>
-      <div class="final-summary">
-        <article><small>선택 시설</small><strong>${escapeHtml(facility.name)}</strong></article>
-        <article><small>총수입</small><strong>${totalIncome}G</strong></article>
-        <article><small>총 평판</small><strong>${totalRep >= 0 ? "+" : ""}${totalRep}</strong></article>
-        <article><small>마지막 평가</small><strong>${night2Result.evaluationScore}</strong></article>
-      </div>
-      ${resultBreakdown(controller, night2Result)}
-      <div class="center-action split-actions">
-        <button class="button secondary large" data-action="retry-night2">두 번째 영업 재도전</button>
-        <button class="button primary large" data-action="restart">처음부터 다시</button>
-      </div>
-    </section>
-  `;
+  const { nightResults, ownedUpgradeIds } = controller.state;
+  const totalIncome = nightResults.reduce((sum, result) => sum + result.income, 0);
+  const totalRep = nightResults.reduce((sum, result) => sum + result.reputationDelta, 0);
+  const expandedRooms = ownedUpgradeIds.filter((id) => (controller.data.indexes.upgrades[id]?.room_unlocks ?? []).length).length;
+  const lastResult = nightResults.at(-1);
+  return `<section class="screen-shell final-screen"><div class="result-hero" data-video-target="showcase-final"><p class="eyebrow">PRE-OPENING INVITATIONAL COMPLETE</p><span class="result-glyph">◆</span><h1>개장 전 다섯 영업을 마쳤습니다.</h1><p>수용과 배치, 공사 계약으로 달라진 호텔의 운영 기록입니다.</p></div><div class="final-summary"><article><small>완료 영업</small><strong>${nightResults.length} / 5</strong></article><article><small>누적 수입</small><strong>${totalIncome}G</strong></article><article><small>누적 평판</small><strong>${signed(totalRep)}</strong></article><article><small>시설·증축</small><strong>${ownedUpgradeIds.length}개 · 증축 ${expandedRooms}</strong></article></div>${resultBreakdown(controller, lastResult)}<div class="center-action"><button class="button primary large" data-action="restart">다른 시드로 다시 시작</button></div></section>`;
 }
 
 export function renderApp(app, controller) {
   const { phase } = controller.state;
   let content = "";
-  if (phase === PHASES.TITLE) content = renderTitle();
-  else if ([PHASES.TUTORIAL, PHASES.NIGHT1_PLACEMENT, PHASES.NIGHT2_PLACEMENT].includes(phase)) content = renderPlacement(controller);
-  else if (phase === PHASES.NIGHT1_RESULT) content = renderNight1Result(controller);
-  else if (phase === PHASES.FACILITY_SHOP) content = renderShop(controller);
-  else if (phase === PHASES.NIGHT2_RESERVATION) content = renderReservation(controller);
-  else if (phase === PHASES.FINAL_RESULT) content = renderFinal(controller);
-  app.innerHTML = `<div class="app-frame">${renderHeader(controller)}<div class="content-frame">${content}</div>${renderHandbook(controller)}</div>`;
+  if (phase === PHASES.TITLE) content = renderTitle(controller);
+  else if ([PHASES.TUTORIAL, PHASES.PLACEMENT].includes(phase)) content = renderPlacement(controller);
+  else if (phase === PHASES.RESERVATION) content = renderReservation(controller);
+  else if (phase === PHASES.RESULT) content = renderResult(controller);
+  else if (phase === PHASES.UPGRADE) content = renderUpgrade(controller);
+  else if (phase === PHASES.FINAL) content = renderFinal(controller);
+  app.innerHTML = `<div class="app-frame">${renderHeader(controller)}<div class="content-frame">${content}</div>${renderHandbook(controller)}${renderReservationBoard(controller)}</div>`;
 }
 
 export function renderFatalError(app, error) {
-  app.innerHTML = `
-    <section class="loading-card error-card">
-      <p class="eyebrow">LOAD ERROR</p>
-      <h1>영업 준비에 실패했습니다.</h1>
-      <p>${escapeHtml(error.message)}</p>
-      <p class="error-help">파일을 직접 열지 말고 <code>python -m http.server 8000</code>으로 실행하세요.</p>
-    </section>`;
+  app.innerHTML = `<section class="loading-card error-card"><p class="eyebrow">LOAD ERROR</p><h1>영업 준비에 실패했습니다.</h1><p>${escapeHtml(error.message)}</p><p class="error-help">파일을 직접 열지 말고 <code>python -m http.server 8000</code>으로 실행하세요.</p></section>`;
 }

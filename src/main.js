@@ -8,7 +8,10 @@ const app = document.querySelector("#app");
 async function boot() {
   try {
     const data = await loadGameData();
-    const controller = new GameController(data);
+    const requestedSeed = Number(new URLSearchParams(window.location.search).get("seed"));
+    const controller = new GameController(data, {
+      seed: Number.isFinite(requestedSeed) && requestedSeed > 0 ? requestedSeed : Date.now(),
+    });
     const rerender = () => renderApp(app, controller);
     setupInput(app, controller, rerender);
     window.__vesperaController = controller;

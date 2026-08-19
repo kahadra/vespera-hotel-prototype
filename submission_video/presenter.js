@@ -16,100 +16,97 @@ const MUTED = "#b7a993";
 const INK = "#0d0c0b";
 
 const assetNames = [
-  "title", "tutorial", "handbook-locked", "night1-empty", "night1-partial", "night1",
-  "night1-result", "shop", "reservation-empty", "reservation",
-  "handbook-unlocked", "night2-empty", "night2-partial", "night2", "final",
+  "title", "tutorial", "handbook-ranks", "night1", "result1", "upgrade-r",
+  "reservation2", "result3-discovery", "upgrade-expansion", "night4-synergy",
+  "reservation5-ssr", "night5", "final",
 ];
 
 const images = {};
+let boxTargets = {};
 const scenes = [
   { duration: 6, type: "intro" },
+  { duration: 9, type: "notice" },
   {
-    duration: 8, image: "title", kicker: "AN INVITATION FROM HOTEL VESPERA",
-    title: "낯선 손님을 위한 첫 영업",
-    caption: "베스페라 호텔의 초대장을 열고, 오늘 밤의 운영을 시작합니다.",
-    cursor: [[0.49, 0.80], [0.50, 0.73]], click: 0.72,
+    duration: 8, image: "title", kicker: "FIVE PRE-OPENING INVITATION NIGHTS",
+    title: "다섯 번의 개장 전 초청 영업",
+    caption: "튜토리얼 뒤 다섯 번의 영업으로 손님·공사 계약·호텔의 변화를 빠르게 확인합니다.",
+    chromeLabel: "개장 전 초청 영업", targetNames: ["showcase-summary"], cursorFrom: [0.72, 0.78], click: 0.74,
   },
   {
     duration: 8, image: "tutorial", kicker: "UNTIMED PRACTICE",
-    title: "먼저, 시간 압박 없이 익힙니다",
-    caption: "두 손님으로 객실 배치를 연습합니다. 규칙을 아는 플레이어는 바로 첫 영업으로 건너뛸 수 있습니다.",
-    boxes: [[1041, 87, 206, 58], [892, 581, 338, 49]], captionY: 500, cursor: [[0.36, 0.73], [0.74, 0.84]], click: 0.77,
+    title: "시간 제한 없이 규칙을 익힙니다",
+    caption: "두 손님으로 배치를 연습합니다. 규칙을 아는 플레이어는 튜토리얼을 건너뛸 수 있습니다.",
+    chromeLabel: "튜토리얼", targetNames: ["tutorial-clock"], cursorFrom: [0.62, 0.76], click: 0.77,
   },
   { duration: 8, type: "loop" },
   {
-    duration: 9, image: "handbook-locked", kicker: "1. LEARN THE RULES",
-    title: "필수 규칙은 운영 수첩에서",
-    caption: "공통 규칙과 종족·등급 규칙을 언제든 확인합니다. 아직 만나지 못한 규칙은 잠겨 있습니다.",
-    boxes: [[645, 308, 459, 280]], cursor: [[0.25, 0.25], [0.68, 0.50]], click: 0.50,
+    duration: 8, image: "handbook-ranks", kicker: "READ THE OPERATIONS HANDBOOK",
+    title: "만나지 않은 종족과 등급은 미열람 규칙으로",
+    caption: "종족·등급의 필수 숙박 조건과 공통 선호는 해당 손님을 처음 만난 뒤 수첩에서 열람할 수 있습니다.",
+    chromeLabel: "규칙 수첩", targetNames: ["rank-handbook"], cursorFrom: [0.30, 0.30], click: 0.56,
   },
   {
-    duration: 8, image: "night1-empty", kicker: "2. ASSIGN THE ROOMS",
-    title: "모든 손님에게 객실을",
-    caption: "첫 영업부터 체크인 마감은 2분입니다. 객실의 환경과 필수 조건을 먼저 맞춥니다.",
-    boxes: [[122, 178, 770, 300]], cursor: [[0.20, 0.75], [0.39, 0.56]], click: 0.78,
+    duration: 10, image: "night1", kicker: "PRE-OPENING NIGHT 1/5 · N",
+    title: "N 등급 손님으로 첫 객실 배정을 시작합니다",
+    caption: "첫 영업부터 체크인 마감은 2분입니다. 필수 숙박 조건을 지킨 뒤 현재 만족도를 높입니다.",
+    showcaseStep: 1, targetNames: ["service-timer", "hotel-board"], captionY: 640, cursorTargetIndex: 1, cursorFrom: [0.72, 0.76], click: 0.74,
   },
   {
-    duration: 10, image: "night1-partial", kicker: "HARD RULES FIRST",
-    title: "가능한 배치를 만들고",
-    caption: "필수 조건을 만족해야만 배치가 성립합니다. 두 손님을 놓자 가능한 선택지가 줄어듭니다.",
-    boxes: [[387, 178, 257, 300]], cursor: [[0.62, 0.72], [0.40, 0.60]], click: 0.65,
+    duration: 10, image: "result1", kicker: "PRE-OPENING NIGHT 1/5 · SETTLEMENT",
+    title: "정산이 다음 제안 확률을 바꿉니다",
+    caption: "만족도와 수입, 평판이 쌓이면 다음 영업부터 R 손님과 시설이 제안에 섞입니다.",
+    showcaseStep: 1, targetNames: ["next-rank-odds"], captionY: 570, cursorFrom: [0.64, 0.78], click: 0.72,
   },
   {
-    duration: 9, image: "night1", kicker: "THEN OPTIMIZE",
-    title: "남은 시간으로 선호를 더 높게",
-    caption: "답이 여러 개라면 개인 선호를 더 높입니다. 이미 놓은 손님을 옮길 때마다 5초가 줄어듭니다.",
-    boxes: [[147, 598, 112, 35]], captionY: 492, cursor: [[0.74, 0.39], [0.18, 0.84]], click: 0.78,
+    duration: 6, image: "upgrade-r", kicker: "PRE-OPENING NIGHT 2/5 · SERVICE CONTRACT",
+    title: "시설·인테리어 계약을 한 건 고릅니다",
+    caption: "평판과 시드가 공사 후보를 바꾸며, 이 구획에서는 다음 영업 전 최대 한 건을 계약합니다.",
+    showcaseStep: 2, targetNames: ["upgrade-offers"], captionY: 218, cursorFrom: [0.48, 0.78], click: 0.70,
   },
   {
-    duration: 10, image: "night1-result", kicker: "NIGHT 1 COMPLETE",
-    title: "배치의 결과가 경영으로 이어집니다",
-    caption: "만족 19, 총수입 42G, 평판 +4. 좋은 배치는 다음 선택지를 넓힙니다.",
-    boxes: [[462, 436, 339, 120], [812, 436, 340, 120]], cursor: [[0.50, 0.64], [0.76, 0.69]], click: 0.82,
+    duration: 6, image: "reservation2", kicker: "PRE-OPENING NIGHT 2/5 · GUEST OFFERS",
+    title: "응대 한도와 실제 객실 여유를 따로 봅니다",
+    caption: "증축으로 늘어난 응대 한도와 사용 가능 객실을 비교합니다. 연박이 생기면 현재 객실도에서 고정 위치를 확인합니다.",
+    showcaseStep: 2, targetNames: ["reservation-capacity"], captionLines: 2, captionY: 490, cursorFrom: [0.40, 0.78], click: 0.72,
   },
   {
-    duration: 11, image: "shop", kicker: "3. CHANGE THE HOTEL",
-    title: "번 돈으로 다음 밤의 규칙을 바꿉니다",
-    caption: "세 시설 제안 중 비밀 통로를 선택합니다. 시설은 장식이 아니라 새로운 배치 조건입니다.",
-    boxes: [[852, 173, 394, 418]], cursor: [[0.50, 0.74], [0.82, 0.75]], click: 0.72,
+    duration: 6, image: "result3-discovery", kicker: "PRE-OPENING NIGHT 3/5 · DISCOVERY",
+    title: "정산 뒤 숨은 선호를 열람합니다",
+    caption: "처음 숙박한 종족×등급 조합의 추가 점수 조건은 정산 뒤 ‘숨은 선호’로 수첩에 기록됩니다.",
+    showcaseStep: 3, targetNames: ["hidden-preference-discovery"], cursorFrom: [0.68, 0.76], click: 0.68,
   },
   {
-    duration: 8, image: "reservation-empty", kicker: "4. CHOOSE THE GUESTS",
-    title: "누구를 받을지도 결정입니다",
-    caption: "숙박비와 만족 보상은 높지만, 귀빈을 거절하면 평판 손실도 큽니다.",
-    boxes: [[34, 174, 1211, 350]], cursor: [[0.14, 0.68], [0.22, 0.68]], click: 0.54,
+    duration: 6, image: "upgrade-expansion", kicker: "PRE-OPENING NIGHT 3/5 · EAST WING CONTRACT",
+    title: "동관 증축도 한 층씩 계약합니다",
+    caption: "같은 영업 준비에서 F1-D → F2-D → F3-D 순서를 지키며, 동관 증축과 시설·인테리어를 각각 최대 한 건 계약합니다.",
+    captionLines: 2, captionY: 166,
+    showcaseStep: 3, targetNames: ["upgrade-offers"], cursorFrom: [0.44, 0.78], click: 0.70,
   },
   {
-    duration: 8, image: "reservation", kicker: "ACCEPT OR REFUSE",
-    title: "거절의 손해까지 계산하고",
-    caption: "Morrow를 거절해 평판을 잃지만, 나머지 손님으로 더 좋은 최종 배치를 노립니다.",
-    boxes: [[34, 538, 1210, 75]], cursor: [[0.26, 0.58], [0.92, 0.82]], click: 0.75,
+    duration: 12, image: "night4-synergy", kicker: "PRE-OPENING NIGHT 4/5 · SPECIES EFFECTS",
+    title: "투숙 인원에 따라 시너지와 상극이 달라집니다",
+    caption: "같은 종족이 모이면 보너스가 커지고, 상극인 종족은 같은 층에서 만족도를 낮춥니다. 연박 손님도 인원에 포함됩니다.",
+    showcaseStep: 4, targetNames: ["species-effects"], captionLines: 2, captionY: 602, cursorFrom: [0.70, 0.72], click: 0.72,
   },
   {
-    duration: 9, image: "handbook-unlocked", kicker: "A HIDDEN RULE REVEALED",
-    title: "새 손님은 새 규칙을 드러냅니다",
-    caption: "귀빈을 처음 만나면 잠겨 있던 등급 규칙이 해금됩니다. 다음 판단부터는 수첩에서 다시 확인할 수 있습니다.",
-    boxes: [[645, 308, 459, 280]], cursor: [[0.29, 0.25], [0.69, 0.50]], click: 0.48,
+    duration: 9, image: "reservation5-ssr", kicker: "PRE-OPENING NIGHT 5/5 · ROYAL INVITATION",
+    title: "왕실 특별 초청의 위험과 보상을 비교합니다",
+    caption: "높은 숙박비와 만족 보상만큼 거절 손실과 선택 조건도 커집니다. 다른 손님과의 조합까지 보고 결정합니다.",
+    showcaseStep: 5, targetNames: ["ssr-invite"], captionLines: 2, captionY: 620, cursorFrom: [0.34, 0.76], click: 0.70,
   },
   {
-    duration: 10, image: "night2-partial", kicker: "NIGHT 2 · SECRET PASSAGE",
-    title: "시설 효과까지 함께 읽고",
-    caption: "비밀 통로로 연결된 F1-B와 F3-C는 새로운 점수 기회를 만듭니다.",
-    boxes: [[387, 383, 257, 95], [650, 178, 257, 96]], cursor: [[0.41, 0.61], [0.61, 0.30]], click: 0.72,
+    duration: 10, image: "night5", kicker: "PRE-OPENING NIGHT 5/5 · FINAL HOTEL OPERATIONS",
+    title: "누적된 호텔 상태를 한 번에 해결합니다",
+    caption: "시설·인테리어와 동관 증축, 객실 상태, 연박 손님, 종족 효과와 숨은 선호가 마지막 배치에 함께 작용합니다.",
+    showcaseStep: 5, targetNames: ["species-effects"], captionLines: 2, captionY: 602, cursorFrom: [0.70, 0.74], click: 0.72,
   },
   {
-    duration: 10, image: "night2", kicker: "THE BEST NIGHT",
-    title: "필수 규칙과 선호를 동시에 해결합니다",
-    caption: "수용한 다섯 손님의 필수 조건을 지키면서 만족도 합계 28을 만듭니다.",
-    boxes: [[147, 612, 116, 34]], captionY: 506, cursor: [[0.69, 0.48], [0.18, 0.86]], click: 0.76,
+    duration: 14, image: "final", kicker: "PRE-OPENING INVITATION COMPLETE",
+    title: "다섯 번의 선택이 호텔의 형태를 바꿉니다",
+    caption: "최종 결과는 만족도뿐 아니라 수입, 평판, 열람한 숨은 선호, 시설, 증축과 객실 상태의 누적을 함께 보여줍니다.",
+    showcaseStep: 5, targetNames: [], captionLines: 2, captionY: 602, cursorFrom: [0.64, 0.74], click: 0.70,
   },
-  {
-    duration: 10, image: "final", kicker: "FINAL EVALUATION",
-    title: "정답 하나가 아닌, 가장 좋은 운영을",
-    caption: "두 번째 영업 평가 62. 규칙 학습과 최적화가 호텔의 성장으로 되돌아옵니다.",
-    boxes: [[899, 307, 254, 80]], cursor: [[0.50, 0.70], [0.79, 0.49]], click: 0.44,
-  },
-  { duration: 8, type: "outro" },
+  { duration: 14, type: "outro" },
 ];
 
 const TOTAL = scenes.reduce((sum, scene) => sum + scene.duration, 0);
@@ -118,6 +115,8 @@ let playing = false;
 let lastFrame = performance.now();
 let ready = false;
 let mediaRecorder = null;
+let recordingTimer = null;
+let captureTrack = null;
 let audioContext = null;
 
 function clamp(value, min = 0, max = 1) { return Math.max(min, Math.min(max, value)); }
@@ -193,10 +192,85 @@ function drawIntro(progress) {
   ctx.fillText("베스페라 호텔", W / 2, y);
   ctx.fillStyle = MUTED;
   ctx.font = '500 25px "Malgun Gothic", sans-serif';
-  ctx.fillText("첫 영업", W / 2, y + 54);
+  ctx.fillText("개장 전 초청 영업", W / 2, y + 54);
   ctx.fillStyle = "#75664f";
   ctx.font = '500 16px "Malgun Gothic", sans-serif';
-  ctx.fillText("규칙을 배우고 · 손님을 고르고 · 가장 좋은 밤을 설계하세요", W / 2, y + 112);
+  ctx.fillText("개장 전, 다섯 번의 초청 영업으로 호텔을 미리 운영합니다", W / 2, y + 112);
+  ctx.globalAlpha = 1;
+}
+
+function drawProgressionCard(x, y, width, title, body, accent) {
+  roundedRect(x, y, width, 116, 14);
+  ctx.fillStyle = "#171512";
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.textAlign = "left";
+  ctx.fillStyle = accent;
+  ctx.font = '800 16px "Malgun Gothic", sans-serif';
+  ctx.fillText(title, x + 24, y + 36);
+  ctx.fillStyle = PALE;
+  ctx.font = '600 18px "Malgun Gothic", sans-serif';
+  wrapText(body, x + 24, y + 73, width - 48, 26, 2);
+}
+
+function drawNotice(progress) {
+  drawBackdrop();
+  const reveal = ease(clamp(progress / 0.34));
+  ctx.globalAlpha = reveal;
+  ctx.textAlign = "center";
+  ctx.fillStyle = GOLD;
+  ctx.font = '800 15px "Malgun Gothic", sans-serif';
+  ctx.fillText("PRE-OPENING PROGRAM NOTICE", W / 2, 84);
+  ctx.fillStyle = PALE;
+  const title = "정식 게임의 성장 구조를 5회 영업으로 압축했습니다";
+  const titleSize = fitText(title, 1100, 45, 32);
+  ctx.font = `800 ${titleSize}px "Malgun Gothic", sans-serif`;
+  ctx.fillText(title, W / 2, 143);
+  ctx.fillStyle = MUTED;
+  ctx.font = '500 18px "Malgun Gothic", sans-serif';
+  ctx.fillText("이 빌드의 빠른 등급 등장은 정식판의 성장 속도를 뜻하지 않습니다.", W / 2, 181);
+
+  const ranks = [
+    ["•", "N", "#8B9099"],
+    ["◆", "R", "#4D91D1"],
+    ["✦", "SR", "#9A68D1"],
+    ["♛", "SSR", "#D7AA4E"],
+  ];
+  ranks.forEach(([symbol, rank, color], index) => {
+    const appear = ease(clamp((progress - 0.10 - index * 0.06) / 0.28));
+    const x = 188 + index * 230;
+    const y = lerp(286, 224, appear);
+    ctx.globalAlpha = reveal * appear;
+    roundedRect(x, y, 204, 84, 13);
+    ctx.fillStyle = "#191714";
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = rank === "SSR" ? 2.5 : 1.5;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '800 25px "Malgun Gothic", sans-serif';
+    ctx.fillText(`${symbol}  ${rank}`, x + 102, y + 52);
+    if (index < ranks.length - 1) {
+      ctx.fillStyle = "#6f604a";
+      ctx.font = '700 25px "Malgun Gothic", sans-serif';
+      ctx.fillText("→", x + 217, y + 52);
+    }
+  });
+
+  ctx.globalAlpha = reveal;
+  drawProgressionCard(170, 356, 450, "개장 전 초청 영업", "5회 영업으로 손님·공사·호텔 성장 구조를 한눈에 확인", GOLD);
+  drawProgressionCard(660, 356, 450, "정식 운영", "여러 챕터에 걸쳐 등급과 공사 후보를 점진적으로 발견", "#776b5b");
+  roundedRect(170, 506, 940, 66, 12);
+  ctx.fillStyle = "rgba(36,30,20,.94)";
+  ctx.fill();
+  ctx.strokeStyle = "#8a6934";
+  ctx.stroke();
+  ctx.fillStyle = PALE;
+  ctx.textAlign = "center";
+  ctx.font = '700 19px "Malgun Gothic", sans-serif';
+  ctx.fillText("5번째 영업의 SSR은 영구 해금이 아닌 시연용 특별 초청입니다.", W / 2, 547);
   ctx.globalAlpha = 1;
 }
 
@@ -208,12 +282,12 @@ function drawLoop(progress) {
   ctx.fillText("CORE LOOP", W / 2, 126);
   ctx.fillStyle = PALE;
   ctx.font = '800 42px "Malgun Gothic", sans-serif';
-  ctx.fillText("한 번의 영업, 세 번의 판단", W / 2, 184);
+  ctx.fillText("다섯 번의 영업, 반복되는 판단", W / 2, 184);
 
   const cards = [
-    ["01", "규칙을 익힌다", "수첩에서 필수 조건을 확인"],
-    ["02", "손님을 고른다", "수입과 거절 손해를 저울질"],
-    ["03", "최선의 배치를 찾는다", "가능한 답 중 선호를 최대화"],
+    ["01", "규칙을 읽는다", "공개 규정과 열람한 숨은 선호 확인"],
+    ["02", "손님과 공사를 고른다", "수입·거절 손실·다음 영업을 비교"],
+    ["03", "배치하고 정산한다", "객실 운영을 조정하고 새 정보를 열람"],
   ];
   cards.forEach((card, index) => {
     const appear = ease(clamp((progress - index * 0.12) / 0.35));
@@ -245,12 +319,68 @@ function drawLoop(progress) {
   ctx.globalAlpha = 1;
 }
 
+function collectTargetBoxes(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    if (value.length === 4 && value.every(Number.isFinite)) return [[...value]];
+    return value.flatMap(collectTargetBoxes);
+  }
+  if (typeof value !== "object") return [];
+  if (value.visible === false) return [];
+  const width = value.width ?? value.w;
+  const height = value.height ?? value.h;
+  if ([value.x, value.y, width, height].every(Number.isFinite)) {
+    return [[value.x, value.y, width, height]];
+  }
+  if (value.boxes) return collectTargetBoxes(value.boxes);
+  if (value.targets) return collectTargetBoxes(value.targets);
+  return Object.entries(value)
+    .filter(([key]) => !["cursor", "click", "cursorFrom", "cursorTo"].includes(key))
+    .flatMap(([, item]) => collectTargetBoxes(item));
+}
+
+function toCanvasPoint(point) {
+  if (!Array.isArray(point) || point.length < 2 || !point.slice(0, 2).every(Number.isFinite)) return null;
+  const [x, y] = point;
+  return [Math.abs(x) <= 1 ? x * W : x, Math.abs(y) <= 1 ? y * H : y];
+}
+
+function resolveSceneTarget(scene) {
+  const key = scene.targetKey ?? scene.image;
+  let source = boxTargets.frames?.[`${key}.png`]
+    ?? boxTargets.frames?.[key]
+    ?? boxTargets.scenes?.[key]
+    ?? boxTargets.targets?.[key]
+    ?? boxTargets[key]
+    ?? null;
+  if (!source) return { boxes: [], cursor: null, click: scene.click };
+  if (Array.isArray(source)) {
+    source = source.filter((item) => item?.visible !== false);
+    if (Array.isArray(scene.targetNames)) {
+      source = source.filter((item) => scene.targetNames.includes(item?.target));
+    }
+  }
+  const boxes = collectTargetBoxes(source.boxes ?? source);
+  let cursor = null;
+  if (Array.isArray(source.cursor) && source.cursor.length === 2 && Array.isArray(source.cursor[0])) {
+    const from = toCanvasPoint(source.cursor[0]);
+    const to = toCanvasPoint(source.cursor[1]);
+    if (from && to) cursor = [from, to];
+  } else {
+    const from = toCanvasPoint(source.cursorFrom ?? scene.cursorFrom ?? [0.72, 0.78]);
+    const explicitTo = toCanvasPoint(source.cursorTo ?? source.cursor);
+    const boxIndex = Math.min(Math.max(0, source.cursorTargetIndex ?? scene.cursorTargetIndex ?? 0), Math.max(0, boxes.length - 1));
+    const box = boxes[boxIndex];
+    const to = explicitTo ?? (box ? [box[0] + box[2] / 2, box[1] + box[3] / 2] : null);
+    if (from && to) cursor = [from, to];
+  }
+  return { boxes, cursor, click: source.click ?? scene.click };
+}
+
 function drawImageScene(scene, progress) {
   const image = images[scene.image];
   ctx.drawImage(image, 0, 0, W, H);
-  const scaleX = 1;
-  const scaleY = 1;
-  const mapPoint = (x, y) => [x, y];
+  const target = resolveSceneTarget(scene);
 
   const topGradient = ctx.createLinearGradient(0, 0, 0, 190);
   topGradient.addColorStop(0, "rgba(5,4,3,.92)");
@@ -259,12 +389,9 @@ function drawImageScene(scene, progress) {
   ctx.fillStyle = topGradient;
   ctx.fillRect(0, 0, W, 200);
 
-  if (scene.boxes) {
+  if (target.boxes.length) {
     const pulse = 0.55 + Math.sin(progress * Math.PI * 5) * 0.12;
-    scene.boxes.forEach(([assetX, assetY, assetWidth, assetHeight]) => {
-      const [x, y] = mapPoint(assetX, assetY);
-      const width = assetWidth * scaleX;
-      const height = assetHeight * scaleY;
+    target.boxes.forEach(([x, y, width, height]) => {
       ctx.save();
       ctx.shadowColor = `rgba(224,180,87,${pulse})`;
       ctx.shadowBlur = 24;
@@ -285,11 +412,12 @@ function drawImageScene(scene, progress) {
   ctx.font = `800 ${titleSize}px "Malgun Gothic", sans-serif`;
   ctx.fillText(scene.title, 54, 88);
 
-  drawCaption(scene.caption, scene.captionY);
-  drawCursor(scene, progress, mapPoint);
+  drawCaption(scene.caption, scene.captionY, scene.captionLines ?? 1);
+  drawCursor(target, progress);
 }
 
-function drawCaption(caption, captionY = 618) {
+function drawCaption(caption, captionY = 618, maxLines = 1) {
+  const height = maxLines > 1 ? 84 : 62;
   if (captionY >= 600) {
     const gradient = ctx.createLinearGradient(0, 555, 0, H);
     gradient.addColorStop(0, "rgba(7,6,5,0)");
@@ -301,7 +429,7 @@ function drawCaption(caption, captionY = 618) {
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,.58)";
   ctx.shadowBlur = captionY < 600 ? 18 : 0;
-  roundedRect(52, captionY, 1176, 62, 10);
+  roundedRect(52, captionY, 1176, height, 10);
   ctx.fillStyle = "rgba(24,21,17,.92)";
   ctx.fill();
   ctx.strokeStyle = "rgba(224,180,87,.36)";
@@ -311,20 +439,18 @@ function drawCaption(caption, captionY = 618) {
   ctx.fillStyle = PALE;
   ctx.textAlign = "left";
   ctx.font = '600 19px "Malgun Gothic", sans-serif';
-  wrapText(caption, 78, captionY + 37, 1080, 25, 1);
+  wrapText(caption, 78, captionY + (maxLines > 1 ? 32 : 37), 1080, 27, maxLines);
 }
 
-function drawCursor(scene, progress, mapPoint) {
-  if (!scene.cursor) return;
-  const from = scene.cursor[0];
-  const to = scene.cursor[1];
+function drawCursor(target, progress) {
+  if (!target.cursor) return;
+  const from = target.cursor[0];
+  const to = target.cursor[1];
   const move = ease(clamp((progress - 0.12) / 0.58));
-  const mappedFrom = mapPoint(from[0] * W, from[1] * H);
-  const mappedTo = mapPoint(to[0] * W, to[1] * H);
-  const x = lerp(mappedFrom[0], mappedTo[0], move);
-  const y = lerp(mappedFrom[1], mappedTo[1], move);
-  if (scene.click && Math.abs(progress - scene.click) < 0.11) {
-    const ring = clamp(Math.abs(progress - scene.click) / 0.11);
+  const x = lerp(from[0], to[0], move);
+  const y = lerp(from[1], to[1], move);
+  if (target.click && Math.abs(progress - target.click) < 0.11) {
+    const ring = clamp(Math.abs(progress - target.click) / 0.11);
     ctx.beginPath();
     ctx.arc(x, y, lerp(11, 35, ring), 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(224,180,87,${1 - ring})`;
@@ -363,10 +489,10 @@ function drawOutro(progress) {
   ctx.fillText("HOTEL VESPERA", W / 2, 194);
   ctx.fillStyle = PALE;
   ctx.font = '800 48px "Malgun Gothic", sans-serif';
-  ctx.fillText("오늘 밤의 객실은 준비되었습니다", W / 2, 277);
+  ctx.fillText("개장 전 초청 영업을 직접 플레이하세요", W / 2, 277);
   ctx.fillStyle = MUTED;
   ctx.font = '500 21px "Malgun Gothic", sans-serif';
-  ctx.fillText("플레이 링크는 제출 페이지에서 바로 열 수 있습니다.", W / 2, 325);
+  ctx.fillText("튜토리얼부터 다섯 번째 영업까지 공개 링크에서 실행할 수 있습니다.", W / 2, 325);
 
   roundedRect(395, 385, 490, 88, 12);
   ctx.fillStyle = "#181510";
@@ -381,7 +507,7 @@ function drawOutro(progress) {
   ctx.fillText("공개 플레이 URL · 제출란 참조", W / 2, 452);
   ctx.fillStyle = "#6e604d";
   ctx.font = '500 14px "Malgun Gothic", sans-serif';
-  ctx.fillText("베스페라 호텔: 첫 영업 · 2026", W / 2, 558);
+  ctx.fillText("베스페라 호텔 · 개장 전 초청 영업 · 2026", W / 2, 558);
   ctx.globalAlpha = 1;
 }
 
@@ -397,15 +523,23 @@ function locateScene(time) {
   return { scene: scenes.at(-1), index: scenes.length - 1, local: 1 };
 }
 
-function drawChrome(index) {
+function chromeLabel(scene, index) {
+  if (Number.isInteger(scene.showcaseStep)) return `개장 전 초청 영업 · ${scene.showcaseStep}/5`;
+  if (scene.chromeLabel) return scene.chromeLabel;
+  if (scene.type === "notice") return "진행 속도 안내";
+  if (scene.type === "loop") return "코어 루프";
+  return "개장 전 초청 영업";
+}
+
+function drawChrome(scene, index) {
   const progress = playhead / TOTAL;
   ctx.fillStyle = "rgba(9,8,7,.72)";
-  roundedRect(1082, 24, 144, 34, 17);
+  roundedRect(1036, 24, 190, 34, 17);
   ctx.fill();
   ctx.fillStyle = "#d3c7b5";
   ctx.textAlign = "center";
   ctx.font = '700 12px "Malgun Gothic", sans-serif';
-  ctx.fillText(index === 0 || index === scenes.length - 1 ? "PLAY DEMO" : "실제 플레이 화면", 1154, 45);
+  ctx.fillText(chromeLabel(scene, index), 1131, 45);
 
   ctx.fillStyle = "rgba(255,255,255,.14)";
   ctx.fillRect(0, H - 5, W, 5);
@@ -418,6 +552,7 @@ function render() {
   const { scene, index, local } = locateScene(playhead);
   ctx.clearRect(0, 0, W, H);
   if (scene.type === "intro") drawIntro(local);
+  else if (scene.type === "notice") drawNotice(local);
   else if (scene.type === "loop") drawLoop(local);
   else if (scene.type === "outro") drawOutro(local);
   else drawImageScene(scene, local);
@@ -427,14 +562,14 @@ function render() {
     ctx.fillStyle = `rgba(6,5,4,${fade * 0.82})`;
     ctx.fillRect(0, 0, W, H);
   }
-  drawChrome(index);
+  drawChrome(scene, index);
   statusLabel.textContent = `${formatTime(playhead)} / ${formatTime(TOTAL)}`;
 }
 
 function frame(now) {
   const elapsed = Math.min((now - lastFrame) / 1000, 0.1);
   lastFrame = now;
-  if (playing) {
+  if (playing && !recordingTimer) {
     playhead = Math.min(TOTAL, playhead + elapsed);
     if (playhead >= TOTAL) {
       playing = false;
@@ -486,7 +621,8 @@ async function recordVideo(startAt = 0) {
   window.recordedReady = false;
   window.recordedBlob = null;
   window.recordedBytes = null;
-  const videoStream = canvas.captureStream(30);
+  const videoStream = canvas.captureStream(0);
+  captureTrack = videoStream.getVideoTracks()[0] ?? null;
   const audioTrack = window.automatedExport ? null : makeAmbientTrack();
   if (audioTrack) videoStream.addTrack(audioTrack);
   const candidates = [
@@ -499,6 +635,11 @@ async function recordVideo(startAt = 0) {
   mediaRecorder = new MediaRecorder(videoStream, mimeType ? { mimeType, videoBitsPerSecond: 2_500_000 } : undefined);
   mediaRecorder.addEventListener("dataavailable", (event) => { if (event.data.size) chunks.push(event.data); });
   mediaRecorder.addEventListener("stop", async () => {
+    if (recordingTimer) clearInterval(recordingTimer);
+    recordingTimer = null;
+    captureTrack?.stop();
+    captureTrack = null;
+    playing = false;
     const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "video/webm" });
     window.recordedBlob = blob;
     window.recordedBytes = new Uint8Array(await blob.arrayBuffer());
@@ -521,19 +662,49 @@ async function recordVideo(startAt = 0) {
   recordButton.disabled = true;
   playButton.disabled = true;
   restartButton.disabled = true;
-  recordButton.textContent = "녹화 중 · 02:30";
+  recordButton.textContent = `녹화 중 · ${formatTime(TOTAL)}`;
   playhead = clamp(Number(startAt) || 0, 0, TOTAL);
   playing = true;
   mediaRecorder.start(1000);
+  const recordingStartPlayhead = playhead;
+  const recordingStartTime = performance.now();
+  const renderRecordingFrame = () => {
+    playhead = Math.min(TOTAL, recordingStartPlayhead + (performance.now() - recordingStartTime) / 1000);
+    render();
+    captureTrack?.requestFrame?.();
+    if (playhead >= TOTAL) {
+      if (recordingTimer) clearInterval(recordingTimer);
+      recordingTimer = null;
+      playing = false;
+      setTimeout(() => {
+        if (mediaRecorder?.state === "recording") mediaRecorder.stop();
+      }, 250);
+    }
+  };
+  recordingTimer = setInterval(renderRecordingFrame, 1000 / 30);
+  renderRecordingFrame();
 }
 
 async function loadAssets() {
-  await Promise.all(assetNames.map((name) => new Promise((resolve, reject) => {
+  const targetPromise = fetch("box_audit/targets.json", { cache: "no-store" })
+    .then((response) => response.ok ? response.json() : {})
+    .catch(() => ({}));
+  const imagePromises = assetNames.map((name) => new Promise((resolve, reject) => {
     const image = new Image();
-    image.addEventListener("load", () => { images[name] = image; resolve(); });
+    image.addEventListener("load", () => {
+      if (image.naturalWidth !== W || image.naturalHeight !== H) {
+        reject(new Error(`영상 에셋 규격 오류: ${name}.png (${image.naturalWidth}×${image.naturalHeight})`));
+        return;
+      }
+      images[name] = image;
+      resolve();
+    });
     image.addEventListener("error", () => reject(new Error(`이미지 로드 실패: ${name}`)));
     image.src = `assets/${name}.png`;
-  })));
+  }));
+  const [targets] = await Promise.all([targetPromise, ...imagePromises]);
+  boxTargets = targets && typeof targets === "object" ? targets : {};
+  window.__vesperaVideoTargets = boxTargets;
   ready = true;
   loading.classList.add("hidden");
   render();

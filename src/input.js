@@ -1,42 +1,41 @@
 export function setupInput(app, controller, rerender) {
   app.addEventListener("click", (event) => {
-    const target = event.target.closest("[data-action], [data-guest-id], [data-room-id]");
+    const target = event.target.closest("[data-action], [data-guest-id]");
     if (!target) return;
 
     const action = target.dataset.action;
-    if (action === "open-handbook") controller.openHandbook();
+    if (action === "open-handbook") controller.openHandbook(target.dataset.tab);
     else if (action === "close-handbook") controller.closeHandbook();
+    else if (action === "open-reservation-board") controller.openReservationBoard();
+    else if (action === "close-reservation-board") controller.closeReservationBoard();
     else if (action === "handbook-tab") controller.selectHandbookTab(target.dataset.tab);
     else if (action === "start") controller.start();
     else if (action === "skip-tutorial") controller.skipTutorial();
     else if (action === "finish-night") controller.finishNight();
-    else if (action === "continue-shop") controller.continueToShop();
-    else if (action === "buy-facility") controller.buyFacility(target.dataset.facilityId);
+    else if (action === "continue-result") controller.continueAfterResult();
+    else if (action === "buy-upgrade") controller.buyUpgrade(target.dataset.upgradeId);
+    else if (action === "finish-upgrade") controller.finishUpgrade();
+    else if (action === "skip-upgrade") controller.skipUpgrade();
+    else if (action === "service-room") controller.serviceRoom(target.dataset.roomId);
     else if (action === "accept") controller.setApplicantDecision(target.dataset.guestId, "accept");
     else if (action === "reject") controller.setApplicantDecision(target.dataset.guestId, "reject");
     else if (action === "confirm-reservation") controller.confirmReservation();
     else if (action === "restart") controller.restart();
-    else if (action === "retry-night2") controller.retryNight2();
-    else if (action === "unplace") controller.unplaceGuest(target.dataset.guestId);
     else if (target.dataset.guestId) {
-      const room = target.closest("[data-room-id]");
-      const selected = controller.state.selectedGuestId;
-      if (room && selected && selected !== target.dataset.guestId) {
-        controller.placeGuest(selected, room.dataset.roomId);
-      } else {
-        controller.selectGuest(target.dataset.guestId);
-      }
-    }
-    else if (target.dataset.roomId && controller.state.selectedGuestId) {
-      controller.placeGuest(controller.state.selectedGuestId, target.dataset.roomId);
+      controller.selectGuest(target.dataset.guestId);
     }
     rerender();
   });
 
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && controller.state.handbookOpen) {
-      controller.closeHandbook();
-      rerender();
+    if (event.key === "Escape") {
+      if (controller.state.reservationBoardOpen) {
+        controller.closeReservationBoard();
+        rerender();
+      } else if (controller.state.handbookOpen) {
+        controller.closeHandbook();
+        rerender();
+      }
     }
   });
 

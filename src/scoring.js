@@ -6,54 +6,49 @@ export function calculateNightResult(
   acceptedGuestIds,
   rejectedGuestIds,
   placements,
-  facilityId,
+  hotelContext = {},
   options = {},
 ) {
   const canceledGuestIds = options.canceledGuestIds ?? [];
-  const placement = evaluatePlacement(data, acceptedGuestIds, placements, facilityId);
+  const placement = evaluatePlacement(data, acceptedGuestIds, placements, hotelContext);
   const baseFees = acceptedGuestIds.reduce(
-    (sum, guestId) => sum + data.indexes.guests[guestId].base_fee,
+    (sum, guestId) => sum + (data.indexes.guests[guestId]?.base_fee ?? 0),
     0,
   );
-  const income = baseFees + placement.placementScore;
+  const tips = Math.max(0, placement.placementScore);
+  const income = baseFees + tips;
   const reputationDelta =
     acceptedGuestIds.reduce(
-      (sum, guestId) => sum + data.indexes.guests[guestId].satisfied_reputation,
+      (sum, guestId) => sum + (data.indexes.guests[guestId]?.satisfied_reputation ?? 0),
       0,
-    ) +
-    rejectedGuestIds.reduce(
-      (sum, guestId) => sum + data.indexes.guests[guestId].reject_reputation,
+    )
+    + rejectedGuestIds.reduce(
+      (sum, guestId) => sum + (data.indexes.guests[guestId]?.reject_reputation ?? 0),
       0,
-    ) +
-    canceledGuestIds.reduce(
-      (sum, guestId) => sum + data.indexes.guests[guestId].cancel_reputation,
+    )
+    + canceledGuestIds.reduce(
+      (sum, guestId) => sum + (data.indexes.guests[guestId]?.cancel_reputation ?? 0),
       0,
     );
-  const evaluationScore =
-    placement.placementScore + 2 * reputationDelta + Math.floor(income / 5);
-  const facilityKey = facilityId ?? "NONE";
-  const maxPreference = scenario.validated_max_preference[facilityKey];
-  const maxEvaluation = scenario.validated_max_evaluation[facilityKey];
-  const goodThreshold = Math.ceil(maxEvaluation * 0.75);
+  const evaluationScore = placement.placementScore + 2 * reputationDelta + Math.floor(income / 5);
+  const thresholds = scenario.grade_thresholds ?? { good: 20, excellent: 34 };
   let grade = "영업 완료";
-  if (evaluationScore >= maxEvaluation) grade = "훌륭한 운영";
-  else if (evaluationScore >= goodThreshold) grade = "좋은 운영";
+  if (evaluationScore >= thresholds.excellent) grade = "훌륭한 운영";
+  else if (evaluationScore >= thresholds.good) grade = "좋은 운영";
 
   return {
     ...placement,
     baseFees,
+    tips,
     income,
     reputationDelta,
     evaluationScore,
-    maxPreference,
-    maxEvaluation,
-    goodThreshold,
     grade,
     acceptedGuestIds: [...acceptedGuestIds],
     rejectedGuestIds: [...rejectedGuestIds],
     canceledGuestIds: [...canceledGuestIds],
     placements: { ...placements },
-    facilityId,
+    facilityIds: [...(hotelContext.ownedFacilityIds ?? [])],
     emergencyReport: options.emergencyReport ?? null,
   };
 }

@@ -35,7 +35,7 @@
 
 | 순서 | 예정 문서 | 책임 |
 |---:|---|---|
-| 1 | `docs/20_PROGRESSION_AND_ECONOMY.md` | 수입, 비용, 평판, 종족 평판, 손님 해금 |
+| 1 | `docs/20_PROGRESSION_AND_ECONOMY.md` | 5회 압축 쇼케이스, 등급 확률, 숨은 선호, 재방문, 시설·증축 (작성·구현됨) |
 | 2 | `docs/21_HOTEL_BUILDING_SYSTEM.md` | 증축 규칙, 시설 범위, 철거·정지·매각 |
 | 3 | `docs/22_HIDDEN_RULE_SYSTEM.md` | 소문, 시험 숙박, 반응, 후보 제거, 공정성 |
 | 4 | `docs/23_GENERATION_AND_SOLVABILITY.md` | 예약 생성, 유효 부분집합 보장, 최고점 산출 |
