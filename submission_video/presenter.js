@@ -28,80 +28,80 @@ const scenes = [
     duration: 8, image: "title", kicker: "AN INVITATION FROM HOTEL VESPERA",
     title: "낯선 손님을 위한 첫 영업",
     caption: "베스페라 호텔의 초대장을 열고, 오늘 밤의 운영을 시작합니다.",
-    focus: [0.50, 0.50], cursor: [[0.49, 0.80], [0.50, 0.73]], click: 0.72,
+    cursor: [[0.49, 0.80], [0.50, 0.73]], click: 0.72,
   },
   { duration: 9, type: "loop" },
   {
     duration: 10, image: "handbook-locked", kicker: "1. LEARN THE RULES",
     title: "필수 규칙은 운영 수첩에서",
     caption: "공통 규칙과 종족·등급 규칙을 언제든 확인합니다. 아직 만나지 못한 규칙은 잠겨 있습니다.",
-    focus: [0.52, 0.45], box: [730, 174, 420, 395], cursor: [[0.25, 0.25], [0.67, 0.25]], click: 0.50,
+    boxes: [[645, 308, 459, 280]], cursor: [[0.25, 0.25], [0.68, 0.50]], click: 0.50,
   },
   {
     duration: 8, image: "night1-empty", kicker: "2. ASSIGN THE ROOMS",
     title: "모든 손님에게 객실을",
     caption: "객실의 층·채광·소음 환경과 손님의 필수 조건을 먼저 맞춥니다.",
-    focus: [0.46, 0.57], box: [120, 166, 790, 303], cursor: [[0.20, 0.75], [0.39, 0.56]], click: 0.78,
+    boxes: [[121, 166, 788, 304]], cursor: [[0.20, 0.75], [0.39, 0.56]], click: 0.78,
   },
   {
     duration: 11, image: "night1-partial", kicker: "HARD RULES FIRST",
     title: "가능한 배치를 만들고",
     caption: "필수 조건을 만족해야만 배치가 성립합니다. 두 손님을 놓자 가능한 선택지가 줄어듭니다.",
-    focus: [0.47, 0.52], box: [386, 167, 259, 301], cursor: [[0.62, 0.72], [0.40, 0.60]], click: 0.65,
+    boxes: [[386, 167, 259, 301]], cursor: [[0.62, 0.72], [0.40, 0.60]], click: 0.65,
   },
   {
     duration: 9, image: "night1", kicker: "THEN OPTIMIZE",
     title: "개인 선호까지 최대로",
     caption: "답이 여러 개라면 개인 선호 점수가 가장 높은 배치를 찾습니다.",
-    focus: [0.49, 0.70], box: [113, 570, 260, 69], cursor: [[0.74, 0.39], [0.88, 0.85]], click: 0.78,
+    boxes: [[145, 579, 142, 39]], captionY: 492, cursor: [[0.74, 0.39], [0.18, 0.84]], click: 0.78,
   },
   {
     duration: 10, image: "night1-result", kicker: "NIGHT 1 COMPLETE",
     title: "배치의 결과가 경영으로 이어집니다",
     caption: "만족 19, 총수입 42G, 평판 +4. 좋은 배치는 다음 선택지를 넓힙니다.",
-    focus: [0.50, 0.60], box: [461, 436, 690, 120], cursor: [[0.50, 0.64], [0.50, 0.91]], click: 0.82,
+    boxes: [[462, 436, 339, 120], [812, 436, 340, 120]], cursor: [[0.50, 0.64], [0.76, 0.69]], click: 0.82,
   },
   {
     duration: 12, image: "shop", kicker: "3. CHANGE THE HOTEL",
     title: "번 돈으로 다음 밤의 규칙을 바꿉니다",
     caption: "무작위 시설 제안 중 비밀 통로를 선택합니다. 시설은 장식이 아니라 새로운 배치 조건입니다.",
-    focus: [0.75, 0.55], box: [852, 173, 394, 418], cursor: [[0.50, 0.74], [0.82, 0.75]], click: 0.72,
+    boxes: [[852, 173, 394, 418]], cursor: [[0.50, 0.74], [0.82, 0.75]], click: 0.72,
   },
   {
     duration: 9, image: "reservation-empty", kicker: "4. CHOOSE THE GUESTS",
     title: "누구를 받을지도 결정입니다",
     caption: "숙박비와 만족 보상은 높지만, 귀빈을 거절하면 평판 손실도 큽니다.",
-    focus: [0.50, 0.53], box: [34, 174, 1211, 350], cursor: [[0.14, 0.68], [0.22, 0.68]], click: 0.54,
+    boxes: [[34, 174, 1211, 350]], cursor: [[0.14, 0.68], [0.22, 0.68]], click: 0.54,
   },
   {
     duration: 9, image: "reservation", kicker: "ACCEPT OR REFUSE",
     title: "거절의 손해까지 계산하고",
     caption: "Morrow를 거절해 평판을 잃지만, 나머지 손님으로 더 좋은 최종 배치를 노립니다.",
-    focus: [0.52, 0.65], box: [34, 538, 1210, 75], cursor: [[0.26, 0.58], [0.92, 0.82]], click: 0.75,
+    boxes: [[34, 538, 1210, 75]], cursor: [[0.26, 0.58], [0.92, 0.82]], click: 0.75,
   },
   {
     duration: 10, image: "handbook-unlocked", kicker: "A HIDDEN RULE REVEALED",
     title: "새 손님은 새 규칙을 드러냅니다",
     caption: "귀빈을 처음 만나면 잠겨 있던 등급 규칙이 해금됩니다. 다음 판단부터는 수첩에서 다시 확인할 수 있습니다.",
-    focus: [0.53, 0.47], box: [737, 170, 418, 395], cursor: [[0.29, 0.25], [0.67, 0.25]], click: 0.48,
+    boxes: [[645, 308, 459, 280]], cursor: [[0.29, 0.25], [0.69, 0.50]], click: 0.48,
   },
   {
     duration: 11, image: "night2-partial", kicker: "NIGHT 2 · SECRET PASSAGE",
     title: "시설 효과까지 함께 읽고",
     caption: "비밀 통로로 연결된 F1-B와 F3-C는 새로운 점수 기회를 만듭니다.",
-    focus: [0.50, 0.53], box: [385, 166, 522, 303], cursor: [[0.38, 0.61], [0.62, 0.29]], click: 0.72,
+    boxes: [[386, 373, 259, 96], [650, 168, 257, 96]], cursor: [[0.41, 0.61], [0.61, 0.30]], click: 0.72,
   },
   {
     duration: 10, image: "night2", kicker: "THE BEST NIGHT",
     title: "필수 규칙과 선호를 동시에 해결합니다",
     caption: "수용한 다섯 손님의 필수 조건을 지키면서 개인 선호 28/28을 완성합니다.",
-    focus: [0.49, 0.65], box: [109, 570, 285, 69], cursor: [[0.69, 0.48], [0.88, 0.85]], click: 0.76,
+    boxes: [[145, 598, 142, 38]], captionY: 506, cursor: [[0.69, 0.48], [0.18, 0.86]], click: 0.76,
   },
   {
     duration: 10, image: "final", kicker: "FINAL EVALUATION",
     title: "정답 하나가 아닌, 가장 좋은 운영을",
     caption: "두 번째 영업 평가 62. 규칙 학습과 최적화가 호텔의 성장으로 되돌아옵니다.",
-    focus: [0.50, 0.57], box: [461, 436, 690, 120], cursor: [[0.50, 0.70], [0.50, 0.70]], click: 0.44,
+    boxes: [[885, 315, 247, 78]], cursor: [[0.50, 0.70], [0.79, 0.49]], click: 0.44,
   },
   { duration: 8, type: "outro" },
 ];
@@ -241,14 +241,10 @@ function drawLoop(progress) {
 
 function drawImageScene(scene, progress) {
   const image = images[scene.image];
-  const zoom = 1 + 0.025 * ease(progress);
-  const focusX = (scene.focus?.[0] ?? 0.5) * W;
-  const focusY = (scene.focus?.[1] ?? 0.5) * H;
-  const sourceW = W / zoom;
-  const sourceH = H / zoom;
-  const sourceX = clamp(focusX - sourceW / 2, 0, W - sourceW);
-  const sourceY = clamp(focusY - sourceH / 2, 0, H - sourceH);
-  ctx.drawImage(image, sourceX, sourceY, sourceW, sourceH, 0, 0, W, H);
+  ctx.drawImage(image, 0, 0, W, H);
+  const scaleX = 1;
+  const scaleY = 1;
+  const mapPoint = (x, y) => [x, y];
 
   const topGradient = ctx.createLinearGradient(0, 0, 0, 190);
   topGradient.addColorStop(0, "rgba(5,4,3,.92)");
@@ -257,17 +253,21 @@ function drawImageScene(scene, progress) {
   ctx.fillStyle = topGradient;
   ctx.fillRect(0, 0, W, 200);
 
-  if (scene.box) {
+  if (scene.boxes) {
     const pulse = 0.55 + Math.sin(progress * Math.PI * 5) * 0.12;
-    const [x, y, width, height] = scene.box;
-    ctx.save();
-    ctx.shadowColor = `rgba(224,180,87,${pulse})`;
-    ctx.shadowBlur = 24;
-    roundedRect(x, y, width, height, 12);
-    ctx.strokeStyle = `rgba(236,192,105,${0.78 + pulse * 0.2})`;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
+    scene.boxes.forEach(([assetX, assetY, assetWidth, assetHeight]) => {
+      const [x, y] = mapPoint(assetX, assetY);
+      const width = assetWidth * scaleX;
+      const height = assetHeight * scaleY;
+      ctx.save();
+      ctx.shadowColor = `rgba(224,180,87,${pulse})`;
+      ctx.shadowBlur = 24;
+      roundedRect(x, y, width, height, 12);
+      ctx.strokeStyle = `rgba(236,192,105,${0.78 + pulse * 0.2})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    });
   }
 
   ctx.textAlign = "left";
@@ -279,36 +279,44 @@ function drawImageScene(scene, progress) {
   ctx.font = `800 ${titleSize}px "Malgun Gothic", sans-serif`;
   ctx.fillText(scene.title, 54, 88);
 
-  drawCaption(scene.caption);
-  drawCursor(scene, progress);
+  drawCaption(scene.caption, scene.captionY);
+  drawCursor(scene, progress, mapPoint);
 }
 
-function drawCaption(caption) {
-  const gradient = ctx.createLinearGradient(0, 555, 0, H);
-  gradient.addColorStop(0, "rgba(7,6,5,0)");
-  gradient.addColorStop(0.36, "rgba(7,6,5,.75)");
-  gradient.addColorStop(1, "rgba(7,6,5,.97)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 540, W, 180);
-  roundedRect(52, 618, 1176, 62, 10);
+function drawCaption(caption, captionY = 618) {
+  if (captionY >= 600) {
+    const gradient = ctx.createLinearGradient(0, 555, 0, H);
+    gradient.addColorStop(0, "rgba(7,6,5,0)");
+    gradient.addColorStop(0.36, "rgba(7,6,5,.75)");
+    gradient.addColorStop(1, "rgba(7,6,5,.97)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 540, W, 180);
+  }
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,.58)";
+  ctx.shadowBlur = captionY < 600 ? 18 : 0;
+  roundedRect(52, captionY, 1176, 62, 10);
   ctx.fillStyle = "rgba(24,21,17,.92)";
   ctx.fill();
   ctx.strokeStyle = "rgba(224,180,87,.36)";
   ctx.lineWidth = 1;
   ctx.stroke();
+  ctx.restore();
   ctx.fillStyle = PALE;
   ctx.textAlign = "left";
   ctx.font = '600 19px "Malgun Gothic", sans-serif';
-  wrapText(caption, 78, 655, 1080, 25, 1);
+  wrapText(caption, 78, captionY + 37, 1080, 25, 1);
 }
 
-function drawCursor(scene, progress) {
+function drawCursor(scene, progress, mapPoint) {
   if (!scene.cursor) return;
   const from = scene.cursor[0];
   const to = scene.cursor[1];
   const move = ease(clamp((progress - 0.12) / 0.58));
-  const x = lerp(from[0] * W, to[0] * W, move);
-  const y = lerp(from[1] * H, to[1] * H, move);
+  const mappedFrom = mapPoint(from[0] * W, from[1] * H);
+  const mappedTo = mapPoint(to[0] * W, to[1] * H);
+  const x = lerp(mappedFrom[0], mappedTo[0], move);
+  const y = lerp(mappedFrom[1], mappedTo[1], move);
   if (scene.click && Math.abs(progress - scene.click) < 0.11) {
     const ring = clamp(Math.abs(progress - scene.click) / 0.11);
     ctx.beginPath();
