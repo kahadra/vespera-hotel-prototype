@@ -17,7 +17,8 @@
 | `PROTOTYPE_CONCEPTS.md` | 아이디어 탐색과 보류 후보 기록 | 보존 |
 | `docs/10_IMPLEMENTATION_REPORT.md` | 세로 단면 구현 범위와 내부 검증 결과 | 작성·검증됨 |
 | `docs/11_ROOM_CONDITION_AND_STAYS.md` | 청결도·내구도·연박·정비의 시간축 퍼즐 | 방향 확정·다음 프로토타입 |
-| `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·Codex 활용 설명·제출 게이트 | 제출 초안 |
+| `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·썸네일·Codex 활용 설명·제출 게이트 | 제출 입력값 준비 완료 |
+| `docs/13_CODEX_USAGE.md` | Codex 활용 네 문항 최종 원고·개발 이력 선택 문구·근거 | 제출 원고 완료 |
 
 ## B. 세로 단면 전에 필요한 설계 문서
 

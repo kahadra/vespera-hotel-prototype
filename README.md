@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-- 현재 빌드: `v2` — 튜토리얼과 5회 실제 영업으로 구성된 압축 쇼케이스
+- 현재 빌드: `v2` — 튜토리얼과 5회의 개장 전 초청 영업
 - 이전 빌드: `v1` — 두 번의 영업과 한 번의 시설 선택을 검증한 최초 5시간 세로 단면. 아래 문서에서 보존 기록으로만 다룬다.
 - 확정 장르: 숨은 선호 학습 + 조건 최적화 객실 배정 + 로그라이크 호텔 경영
 - 시연 원칙: 5회 안에 성장 층위를 보여주기 위해 해금을 의도적으로 압축하며, 정식 게임의 성장 속도를 뜻하지 않는다.
@@ -21,7 +21,7 @@
 - 예약 단계에서 별도로 확인하는 사용 가능 객실 수와 연박 손님의 고정 객실도
 - 인원 한도 안에서도 필수 숙박 조건 조합을 풀지 못하면 발생하는 긴급 배정·취소 손실
 - 첫 신청 때 공개되는 종족·등급의 `미열람 규칙`과 결산 뒤 열람되는 종족×등급 `숨은 선호`
-- 5회차 쇼케이스 전용 SSR 특별 초대. 이는 정식판의 SSR 영구 해금을 뜻하지 않는다.
+- 5회차 개장 전 초청 영업의 SSR 특별 초대. 이는 정식판의 SSR 영구 해금을 뜻하지 않는다.
 
 ## 문서 권위 순서
 
@@ -38,20 +38,26 @@
 
 ## 공개 플레이
 
-GitHub Pages에 배포하면 별도 설치나 실행 명령 없이 공개 URL만으로 바로 플레이할 수 있다.
+별도 설치나 실행 명령 없이 아래 공개 URL에서 바로 플레이할 수 있다.
 
 ```text
-https://사용자명.github.io/저장소명/
+https://kahadra.github.io/vespera-hotel-prototype/
 ```
 
 저장소 루트의 `index.html`이 자동으로 실행된다. 플레이어에게는 Python 설치, ZIP 다운로드, 로그인이나 별도 서버 실행이 필요하지 않다.
 
-### GitHub Pages 배포
+### GitHub Pages 갱신
 
-1. 이 프로젝트 폴더를 GitHub 저장소에 업로드한다.
-2. 저장소의 `Settings → Pages`에서 배포 브랜치와 루트 폴더를 선택한다.
-3. 생성된 `https://사용자명.github.io/저장소명/` 주소를 제출한다.
-4. 시크릿 브라우저에서 주소를 열어 처음부터 최종 결과까지 확인한다.
+1. 최신 변경을 GitHub 저장소의 Pages 배포 브랜치에 반영한다.
+2. 시크릿 브라우저에서 공개 주소를 열어 처음부터 최종 결과까지 확인한다.
+3. 데모 영상과 공개 게임이 같은 빌드인지 교차 확인한다.
+
+## 제출 자료
+
+- 제출 폼 입력값: `submission_assets/SUBMISSION_FIELDS.md`
+- 게임 썸네일: `submission_assets/vespera-hotel-thumbnail.png`
+- 데모 영상: `https://kahadra.github.io/vespera-hotel-prototype/submission_video/output/vespera-hotel-play-demo.webm`
+- Codex 활용 설명: `docs/13_CODEX_USAGE.md`
 
 ## 로컬 개발 테스트
 
@@ -86,6 +92,6 @@ python .\tools\smoke_browser.py --facility SECRET_PASSAGE
 
 ## 바로 다음 작업
 
-1. 저장소를 GitHub Pages로 공개하고 시크릿 브라우저에서 전체 5회 영업을 확인한다.
+1. 최신 빌드를 GitHub Pages에 반영하고 시크릿 브라우저에서 전체 5회 영업을 확인한다.
 2. 신규 플레이어 3명에게 설명 없이 5회 영업 세션을 맡긴다.
 3. `docs/09_TEST_PLAN.md`의 v2 PASS·REVISE·STOP 기준으로 코어 재미와 압축 진행 전달력을 판정한다.
