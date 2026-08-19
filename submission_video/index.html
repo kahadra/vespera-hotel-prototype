@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>베스페라 호텔 — 제출용 플레이 데모</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="stage-shell">
+      <canvas id="stage" width="1280" height="720" aria-label="베스페라 호텔 플레이 데모"></canvas>
+      <div id="loading" class="loading">대표 플레이 화면을 준비하고 있습니다…</div>
+    </main>
+
+    <section class="controls" aria-label="재생 도구">
+      <button id="restart" type="button">처음부터</button>
+      <button id="play" type="button">재생</button>
+      <button id="record" class="primary" type="button">2분 30초 영상 저장</button>
+      <span id="status">00:00 / 02:30</span>
+    </section>
+
+    <p class="help">Space 재생/정지 · ← → 5초 이동 · R 처음부터 · F 전체 화면</p>
+    <script src="presenter.js"></script>
+  </body>
+</html>

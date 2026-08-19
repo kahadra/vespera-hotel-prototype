@@ -121,7 +121,11 @@ def debugger_target(port: int, timeout: float = 10.0):
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
                 targets = json.load(response)
-            pages = [target for target in targets if target.get("type") == "page"]
+            pages = [
+                target for target in targets
+                if target.get("type") == "page"
+                and target.get("url", "").startswith(("http://", "https://"))
+            ]
             if pages:
                 return pages[0]
         except Exception as error:  # browser may still be starting
