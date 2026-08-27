@@ -41,6 +41,7 @@
 | 3 | `docs/22_HIDDEN_RULE_SYSTEM.md` | 소문, 시험 숙박, 반응, 후보 제거, 공정성 |
 | 4 | `docs/23_GENERATION_AND_SOLVABILITY.md` | 예약 생성, 유효 부분집합 보장, 최고점 산출 |
 | 5 | `docs/24_SAVE_AND_RUN_STRUCTURE.md` | 런 상태, 영구 도감, 실패·회복, 시드 |
+| 6 | `docs/25_SPECIES_AND_SYNERGY_SYSTEM.md` | 종족·계통·문화·신앙·직업 풀, 집단 인원·다종·지정 조합·시나리오 변화 시너지 (초안 작성됨) |
 
 ## D. 콘텐츠 설정집
 
@@ -49,7 +50,7 @@
 | 예정 설정집 | 포함 내용 | 시작 조건 |
 |---|---|---|
 | `bibles/WORLD_BIBLE.md` | 호텔의 위치, 세계 규칙, 사회와 서비스 문화 | 핵심 루프 PASS |
-| `bibles/SPECIES_BIBLE.md` | 종족별 외형, 공통 성향, 상극·연합 관계 | 손님 데이터 규격 고정 |
+| `bibles/SPECIES_BIBLE.md` | 종족·계통·문화·신앙·직업별 외형과 성향, 상극·연합 관계 | 손님 분류와 시너지 데이터 규격 고정 |
 | `bibles/GUEST_RANK_BIBLE.md` | 일반·유명·귀빈·전설의 역할과 예법 | 등급 시스템 검증 |
 | `bibles/FACILITY_BIBLE.md` | 시설 테마, 공개 효과, 숨은 효과, 종족 관계 | 건설 시스템 검증 |
 | `bibles/CHAPTER_BIBLE.md` | 챕터별 새 사고 행동, 단체 예약, 보스 영업 | 진행 구조 검증 |
