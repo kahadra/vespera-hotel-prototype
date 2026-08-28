@@ -7,14 +7,17 @@ const app = document.querySelector("#app");
 
 async function boot() {
   try {
-    const data = await loadGameData();
-    const requestedSeed = Number(new URLSearchParams(window.location.search).get("seed"));
+    const params = new URLSearchParams(window.location.search);
+    const requestedMode = params.get("mode");
+    const data = await loadGameData({ mode: requestedMode });
+    const requestedSeed = Number(params.get("seed"));
     const controller = new GameController(data, {
       seed: Number.isFinite(requestedSeed) && requestedSeed > 0 ? requestedSeed : Date.now(),
     });
     const rerender = () => renderApp(app, controller);
     setupInput(app, controller, rerender);
     window.__vesperaController = controller;
+    window.addEventListener("pagehide", () => controller.saveCheckpoint());
     rerender();
     let lastTick = performance.now();
     window.setInterval(() => {

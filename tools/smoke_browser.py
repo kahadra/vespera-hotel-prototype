@@ -798,6 +798,18 @@ def assert_reservation_board(
           }, {});
           const panel = document.querySelector('.reservation-board-panel');
           const rect = panel.getBoundingClientRect();
+          const elevatorRows = [...panel.querySelectorAll('.occupancy-floor')].map(row => {
+            const elevator = row.querySelector('.elevator-landing.compact');
+            const roomA = row.querySelector('.occupancy-room');
+            const elevatorRect = elevator?.getBoundingClientRect();
+            const roomRect = roomA?.getBoundingClientRect();
+            return {
+              elevatorPresent: Boolean(elevator),
+              gap: elevatorRect && roomRect
+                ? Math.round(roomRect.left - elevatorRect.right)
+                : null,
+            };
+          });
           return {
             documentScrollHeight: document.documentElement.scrollHeight,
             scrollY: Math.round(scrollY),
@@ -812,6 +824,7 @@ def assert_reservation_board(
             expectedRoomCount: controller.data.rooms.length,
             mismatches,
             counts,
+            elevatorRows,
           };
         })()
         """
@@ -824,6 +837,9 @@ def assert_reservation_board(
     assert result["cardCount"] == result["expectedRoomCount"], result
     assert result["uniqueRoomCount"] == result["expectedRoomCount"], result
     assert result["mismatches"] == [], result
+    assert len(result["elevatorRows"]) == 3, result
+    assert all(row["elevatorPresent"] for row in result["elevatorRows"]), result
+    assert all(0 <= row["gap"] <= 10 for row in result["elevatorRows"]), result
     for state in require_states:
         assert result["counts"].get(state, 0) > 0, (state, result)
     client.click('[data-action="close-reservation-board"]')
@@ -887,6 +903,14 @@ def run(
         )
         # CDP may treat a navigation to the already-open seeded URL as a no-op.
         # Reset first so repeated smoke runs never inherit an interrupted game.
+        client.command("Page.navigate", {"url": "about:blank"})
+        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": seeded_url(url, seed)})
+        wait_for(client, "document.readyState === 'complete'")
+        wait_for(client, "Boolean(window.__vesperaController)")
+        # Profile knowledge is intentionally persistent in the game, but the
+        # deterministic smoke run must begin from an undiscovered handbook.
+        client.evaluate("localStorage.clear(); true")
         client.command("Page.navigate", {"url": "about:blank"})
         wait_for(client, "document.readyState === 'complete'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
@@ -985,6 +1009,7 @@ def run(
         auto_assign(client)
         placement_layouts.append(assert_placement_layout(client, height, "night2-assigned"))
         client.click('[data-action="finish-night"]')
+        wait_for(client, "window.__vesperaController.state.phase === 'RESULT'")
 
         # Upgrade into Night 3; this seed normally exposes the first expansion.
         client.click('[data-action="continue-result"]')
@@ -997,7 +1022,7 @@ def run(
         second_upgrade = choose_upgrade(client, prefer_expansion=True)
         purchased.extend(second_upgrade["chosenIds"])
 
-        # Night 3 intentionally accepts an R+ guest so settlement reveals hidden data.
+        # Night 3 favors an R+ guest when the feasible subset permits it.
         capacity_audits.append(assert_capacity_contract(
             client,
             "night3",
@@ -1019,7 +1044,6 @@ def run(
         client.click('[data-action="finish-night"]')
         wait_for(client, "window.__vesperaController.state.phase === 'RESULT'")
         night3 = controller_state(client)
-        assert night3["lastDiscoveries"], "Night 3 should reveal at least one species x rank preference"
         assert any(
             item.get("source") == "revisit"
             for score in night3["nightResults"][2]["guestScores"].values()
@@ -1140,6 +1164,15 @@ def run(
         assert len(final_state["nightResults"]) == 5
         assert final_state["phase"] == "FINAL"
         assert final_state["runSeed"] == seed
+        assert final_state["runRecord"]["ending_id"] == "PREOPENING_COMPLETE"
+        assert final_state["runRecord"]["outcome"] == "COMPLETE"
+        assert final_state["runRecord"]["metrics"]["completed_nights"] == 5
+        assert final_state["recordArchiveCount"] >= 1
+        assert final_state["discoveredHiddenPreferenceIds"], (
+            "The complete seeded route should reveal at least one species x rank preference"
+        )
+        require_text(client, "ENDING · PREOPENING_COMPLETE")
+        require_text(client, "기록 ID")
 
         # Preserve the old --screenshot contract as a final-frame copy.
         final_source = capture_dir / f"{prefix}final.png"

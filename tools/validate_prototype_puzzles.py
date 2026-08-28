@@ -457,7 +457,30 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
         ids = [item["id"] for item in data[name]]
         require(len(ids) == len(set(ids)), f"Duplicate IDs in {name}")
 
-    require(data.get("schema_version") == 2, "Showcase data must use schema_version 2")
+    require(data.get("schema_version") == 4, "Showcase data must use schema_version 4")
+    completion = data.get("run_completion", {})
+    require(completion.get("record_namespace"), "Run record namespace is required")
+    endings = completion.get("ending_rules", [])
+    require(endings, "At least one data-driven ending rule is required")
+    require(len({ending.get("id") for ending in endings}) == len(endings), "Ending ids must be unique")
+    ending_metrics = {
+        "completed_nights", "total_income", "reputation_delta", "final_gold",
+        "final_reputation", "accepted_guests", "rejected_guests", "canceled_guests",
+        "purchased_upgrades", "emergency_nights", "foresight_retries", "expected_nights",
+    }
+    require(
+        all(
+            condition.get("metric") in ending_metrics
+            and condition.get("operator") in {"GTE", "LTE", "EQ"}
+            and isinstance(condition.get("value"), (int, float))
+            for ending in endings
+            for condition in ending.get("conditions", ())
+        ),
+        "Ending conditions must use supported metrics and operators",
+    )
+    fallback = completion.get("fallback_ending", {})
+    require(fallback.get("id"), "A fallback ending is required")
+    require(fallback.get("id") not in {ending.get("id") for ending in endings}, "Fallback ending id must be unique")
     mode = data.get("prototype_mode", {})
     require(mode.get("type") == "SHOWCASE" and mode.get("accelerated") is True, "Accelerated showcase metadata is missing")
     require(mode.get("total_nights") == 5 and len(data["scenarios"]) == 5, "Exactly five playable nights are required")
@@ -484,6 +507,10 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
         all("room_quality_required" not in guest for guest in data["guests"]),
         "Unused room_quality_required fields must not remain in guest data",
     )
+    require(
+        all("satisfied_reputation" not in guest for guest in data["guests"]),
+        "A valid placement must not award fixed reputation",
+    )
 
     ranks = index_by_id(data["ranks"])
     guests = index_by_id(data["guests"])
@@ -491,9 +518,33 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
     require({guest["rank"] for guest in data["guests"]} == set(RANK_IDS), "Every guest rank must be represented")
     require({facility["rarity"] for facility in data["facilities"]} == set(RANK_IDS), "Every facility rank must be represented")
     require({upgrade["rarity"] for upgrade in data["upgrades"]} == set(RANK_IDS), "Every upgrade rank must be represented")
+    ordered_ranks = sorted(data["ranks"], key=lambda rank: rank["order"])
+    require(
+        all(
+            ordered_ranks[index]["reputation_influence"]
+            < ordered_ranks[index + 1]["reputation_influence"]
+            for index in range(len(ordered_ranks) - 1)
+        ),
+        "Higher guest ranks must have greater reputation influence",
+    )
+    require(
+        all(
+            len(ordered_ranks[index].get("soft_preferences", ())) + len(ordered_ranks[index].get("soft_dislikes", ()))
+            <= len(ordered_ranks[index + 1].get("soft_preferences", ())) + len(ordered_ranks[index + 1].get("soft_dislikes", ()))
+            for index in range(len(ordered_ranks) - 1)
+        ),
+        "Higher guest ranks must not have fewer preference/dislike conditions",
+    )
+    for rank in ordered_ranks:
+        require(rank.get("positive_satisfaction_threshold", 0) > 0, f"{rank['id']} needs a positive-review threshold")
+        for dislike in rank.get("soft_dislikes", ()):
+            require(dislike.get("points", 0) < 0, f"{rank['id']} dislikes must reduce internal satisfaction")
+            require(dislike.get("ignored_at_prestige_gap", 0) >= 1, f"{rank['id']} dislikes need a prestige tolerance gap")
     render_source = (ROOT / "src" / "render.js").read_text(encoding="utf-8")
     state_source = (ROOT / "src" / "state.js").read_text(encoding="utf-8")
     input_source = (ROOT / "src" / "input.js").read_text(encoding="utf-8")
+    save_source = (ROOT / "src" / "save.js").read_text(encoding="utf-8")
+    data_source = (ROOT / "src" / "data.js").read_text(encoding="utf-8")
     presenter_source = (ROOT / "submission_video" / "presenter.js").read_text(encoding="utf-8")
     player_facing_meta_terms = ("압축", "쇼케이스", "시연", "SHOWCASE", "ACCELERATED")
     player_data_text = json.dumps(
@@ -521,6 +572,21 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
             "개장 전 초청 영업에서 확인한 호텔의 운영 기록입니다.",
             "PRE-OPENING INVITATIONAL COMPLETE",
             "개장 전 다섯 영업을 마쳤습니다.",
+            'data-video-target="guest-reviews"',
+            "오늘의 투숙 후기",
+            "내부 만족도 수치 대신",
+            'class="elevator-landing',
+            "A열 객실과 바로 인접",
+            'classes.push("elevator-adjacent")',
+            'classes.push("noisy-room")',
+            '"open-result-review"',
+            'data-action="start-day-business"',
+            'data-action="restart-day-through-secretary"',
+            'data-action="retry-stage"',
+            "비서에게 마감 장부를 건넨다",
+            "이번 영업 다시",
+            "아침 장부부터 다시 읽어 줘.",
+            "처음 펼친 장부인데",
         )),
         "PRE-OPENING hotel-fiction copy is incomplete across the player flow",
     )
@@ -556,6 +622,80 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
         "Reservation room-ledger states and video target are incomplete",
     )
     require("퍼즐" not in render_source, "Player-facing render copy must describe hotel operations, not a puzzle")
+    require(
+        all(token in save_source for token in (
+            "RUN_SAVE_SCHEMA_VERSION",
+            "ACTIVE_RUN_STORAGE_KEY",
+            "data_schema_version",
+            "readActiveRunSave",
+            "writeActiveRunSave",
+            "clearActiveRunSave",
+            "stage_checkpoint",
+            "RUN_SAVE_SCHEMA_VERSION = 4",
+            "PROFILE_SCHEMA_VERSION = 1",
+            "PROFILE_STORAGE_KEY",
+            "activeRunStorageKey(data)",
+            "readProfile",
+            "writeProfile",
+        )),
+        "Versioned profile and mode-run checkpoint contract is incomplete",
+    )
+    require('data-action="resume"' in render_source and "지난 영업 이어하기" in render_source, "Checkpoint resume action is missing")
+    require(
+        all(token in state_source for token in (
+            'DAY_OPENING: "DAY_OPENING"',
+            'RESULT_REVIEW: "RESULT_REVIEW"',
+            "beginOperatingDay(index)",
+            "restartDayThroughSecretary()",
+            'get isEndlessMode()',
+        ))
+        and all(token in input_source for token in (
+            'action === "open-result-review"',
+            'action === "restart-day-through-secretary"',
+        )),
+        "Campaign-only secretary day-opening and result-review contract is incomplete",
+    )
+    require(
+        all(token in state_source for token in (
+            'NEW_GAME: "NEW_GAME"',
+            'STORY: "STORY"',
+            "confirmNewGame()",
+            "continueStory()",
+            "prepareNextUpgrade()",
+            "persistProfileKnowledge()",
+            "setGreyboxEndingRoute(routeId)",
+            "relationshipProgressByRole",
+            "speciesAffinityById",
+        ))
+        and all(token in render_source for token in (
+            'data-action="confirm-new-game"',
+            'data-action="continue-story"',
+            'data-action="set-greybox-ending-route"',
+            "인연을 맺은 손님들의 이후",
+            "상속 조건을 채우지 못했습니다.",
+        ))
+        and "createCampaignGreyboxData" in data_source
+        and all(ending_id in data_source for ending_id in (
+            "BAD_CHAPTER_HURDLE",
+            "BAD_OPERATIONAL",
+            "NORMAL_STEWARDSHIP",
+            "SPECIES_HEROINE_",
+            "TRUE_PEACE",
+            "TRUE_HAREM",
+            "dream_demon_other_species_network",
+            "OPTIONAL_WITCH_AWAKENING",
+            "OPTIONAL_DREAM_DEMON_REINCARNATION",
+            'formal_rank_ids: ["N", "R", "SR", "SSR", "UR"]',
+            'minimum_guest_rank_id: "SR"',
+            "other_species_occupancy_preferences",
+        )),
+        "Greybox campaign new-game, story, six-tier ending, and epilogue spine is incomplete",
+    )
+    require(
+        all(term not in render_source for term in ("예지", "관측", "시뮬레이션", "세계선")),
+        "Player-facing UI must not directly reveal the hidden interpretation of replay",
+    )
+    require("현재 만족도 합계" not in render_source and "지난 만족 ${" not in render_source, "Internal satisfaction numbers must remain hidden")
     require(
         "연박 객실은 공사 불가" in render_source,
         "Renovation UI must explain why a stayover room cannot be changed",

@@ -1,6 +1,6 @@
 const DATA_URL = "./data/prototype_v1.json";
 
-export async function loadGameData() {
+export async function loadGameData(options = {}) {
   const response = await fetch(DATA_URL, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`데이터를 불러오지 못했습니다: ${DATA_URL} (${response.status})`);
@@ -8,6 +8,366 @@ export async function loadGameData() {
   const data = await response.json();
   const indexes = createIndexes(data);
   validateData(data, indexes);
+  const loaded = { ...data, indexes };
+  return String(options.mode ?? "").toUpperCase() === "CAMPAIGN"
+    ? createCampaignGreyboxData(loaded)
+    : loaded;
+}
+
+export function createCampaignGreyboxData(source) {
+  const { indexes: _sourceIndexes, ...serializable } = source;
+  const data = JSON.parse(JSON.stringify(serializable));
+  const formalSpecies = [
+    {
+      id: "HUMAN",
+      metric_id: "human",
+      label: "인족",
+      relationship_role_id: "RELATIONSHIP_HUMAN",
+      ending_title: "인간의 등불을 지키는 베스페라",
+      ending_description: "인간 사회와 이종족 사이의 안전한 관문으로 베스페라를 남겼습니다.",
+      manager_outcome: {
+        id: "REMAIN_HUMAN_STEWARD",
+        title: "인간 지배인으로 남는다",
+        description: "태어난 종족을 바꾸지 않고 두 세계를 잇는 인간 지배인으로 살아갈 수 있습니다.",
+      },
+    },
+    {
+      id: "VAMPIRE",
+      metric_id: "vampire",
+      label: "뱀파이어",
+      relationship_role_id: "RELATIONSHIP_VAMPIRE",
+      ending_title: "피와 밤의 베스페라",
+      ending_description: "뱀파이어와의 가장 강한 협약 아래 밤의 손님을 위한 베스페라를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_VAMPIRE_TRANSFORMATION",
+        title: "밤의 혈족이 될 선택",
+        description: "인간으로 남거나, 합의된 전환을 받아 뱀파이어의 긴 밤을 함께 살아갈 수 있습니다.",
+      },
+    },
+    {
+      id: "WEREWOLF",
+      metric_id: "werewolf",
+      label: "늑대인간",
+      relationship_role_id: "RELATIONSHIP_WEREWOLF",
+      ending_title: "달과 무리의 베스페라",
+      ending_description: "늑대인간 무리와의 가장 강한 협약 아래 달밤의 안식처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_WEREWOLF_TRANSFORMATION",
+        title: "무리의 일원이 될 선택",
+        description: "인간으로 남거나, 합의된 물림과 의식을 거쳐 늑대인간 무리의 일원이 될 수 있습니다.",
+      },
+    },
+    {
+      id: "WITCH",
+      metric_id: "witch",
+      label: "마녀",
+      relationship_role_id: "RELATIONSHIP_WITCH",
+      ending_title: "약초와 마법의 베스페라",
+      ending_description: "마녀회와의 가장 강한 협약 아래 약학과 마법이 보호받는 피난처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_WITCH_AWAKENING",
+        title: "인간으로 남거나 마녀로 각성할 선택",
+        description: "인간인 채 약초학과 마법을 전수받거나 마녀로 각성할 수 있습니다. 여성 지배인은 그대로 마녀가 되고, 남성 지배인은 각성 의식에서 여성의 몸으로 다시 빚어집니다.",
+      },
+    },
+    {
+      id: "DREAM_DEMON",
+      metric_id: "dream_demon",
+      label: "몽마",
+      relationship_role_id: "RELATIONSHIP_DREAM_DEMON",
+      minimum_guest_rank_id: "SR",
+      other_species_occupancy_preferences: {
+        SR: 2,
+        SSR: 3,
+        UR: 4,
+        provisional: true,
+      },
+      requires_cross_species_network: true,
+      ending_title: "꿈이 순환하는 베스페라",
+      ending_description: "몽마와 타종족이 합의한 꿈·정기 교류망을 바탕으로 공존하는 밤의 안식처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_DREAM_DEMON_REINCARNATION",
+        title: "꿈을 건너 다시 태어날 선택",
+        description: "인간의 삶을 유지하거나, 특별한 의식과 동의를 거쳐 먼 훗날 몽마로 전생할 수 있습니다.",
+      },
+    },
+  ];
+  const relationshipRoles = formalSpecies.map((species) => ({
+    id: species.relationship_role_id,
+    species_id: species.id,
+    label: `${species.label} 관계 인물`,
+    starting_role: "GUEST",
+  }));
+  const progress = (npcStage, endingReady = false, options = {}) => ({
+    epilogue_unlocked: true,
+    npc_stage: npcStage,
+    event_count: options.event_count ?? 1,
+    ending_ready: endingReady,
+    hotel_dependency: options.hotel_dependency ?? "INDEPENDENT",
+  });
+  const allRoleProgress = Object.fromEntries(relationshipRoles.map((role) => [
+    role.id,
+    progress("COLLABORATOR", true, { event_count: 5 }),
+  ]));
+  data.prototype_mode = {
+    ...data.prototype_mode,
+    type: "CAMPAIGN",
+    total_nights: data.scenarios.length,
+    accelerated: false,
+    notice: "정식 캠페인의 저장·장면·성공·실패 연결을 검증하는 회색 상자 개발 모드입니다.",
+  };
+  data.campaign = {
+    id: "CAMPAIGN_GREYBOX_01",
+    status: "GREYBOX",
+    objective: {
+      title: "상속 유지 조건",
+      description: "다섯 번의 영업이 끝날 때 80G 이상과 호텔 평판 0 이상을 유지합니다.",
+      target_gold: 80,
+      minimum_reputation: 0,
+      provisional: true,
+    },
+    new_game_defaults: {
+      player_gender_id: "MALE",
+      relationship_gender_preset: "ALL_FEMALE",
+      secretary_presentation_id: "FEMALE",
+      greybox_ending_route_id: "NORMAL",
+    },
+    formal_species: formalSpecies,
+    formal_rank_ids: ["N", "R", "SR", "SSR", "UR"],
+    relationship_roles: relationshipRoles,
+    relationship_role_ids: relationshipRoles.map((role) => role.id),
+    ending_thresholds: {
+      species_affinity: 5,
+      truth_evidence: 3,
+      dream_demon_other_species_affinity: 3,
+      dream_demon_other_species_count: 2,
+      provisional: true,
+    },
+    ending_preview_routes: [
+      {
+        id: "BAD",
+        label: "배드",
+        description: "챕터 핵심 허들을 넘지 못한 상태를 검증합니다.",
+        chapter_hurdle_failures: 1,
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("REGULAR_GUEST"),
+          RELATIONSHIP_VAMPIRE: progress("LIAISON", false, { event_count: 2 }),
+        },
+      },
+      {
+        id: "NORMAL",
+        label: "노말",
+        description: "호텔은 지키지만 특정 종족·진상 분기를 열지 않습니다.",
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("REGULAR_GUEST"),
+          RELATIONSHIP_VAMPIRE: progress("REGULAR_GUEST"),
+        },
+      },
+      {
+        id: "SPECIES_VAMPIRE",
+        label: "종족",
+        description: "뱀파이어 우호도와 전용 호텔 협약을 검증합니다.",
+        species_affinity_by_id: { VAMPIRE: 6 },
+        species_ending_trigger_ids: ["VAMPIRE"],
+        species_ending_commitment_id: "VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_VAMPIRE: progress("LIAISON", false, { event_count: 3 }),
+        },
+      },
+      {
+        id: "SPECIES_HEROINE_VAMPIRE",
+        label: "종족 히로인",
+        description: "뱀파이어 종족 엔딩과 관계 인물의 모든 필수 사건 완료를 검증합니다.",
+        species_affinity_by_id: { VAMPIRE: 6 },
+        species_ending_trigger_ids: ["VAMPIRE"],
+        species_ending_commitment_id: "VAMPIRE",
+        selected_ending_relationship_role_id: "RELATIONSHIP_VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_VAMPIRE: progress("COLLABORATOR", true, { event_count: 5 }),
+        },
+      },
+      {
+        id: "TRUE_VAMPIRE",
+        label: "트루",
+        description: "악신의 단서와 전 종족 평화 조건, 선택 가능한 관계 인물을 검증합니다.",
+        truth_evidence_count: 3,
+        peace_alliance_complete: true,
+        selected_ending_relationship_role_id: "RELATIONSHIP_VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("COLLABORATOR", true, { event_count: 5 }),
+          RELATIONSHIP_VAMPIRE: progress("COLLABORATOR", true, { event_count: 5 }),
+          RELATIONSHIP_WEREWOLF: progress("LIAISON", false, { event_count: 3 }),
+          RELATIONSHIP_WITCH: progress("LIAISON", false, { event_count: 3 }),
+          RELATIONSHIP_DREAM_DEMON: progress("LIAISON", false, { event_count: 3 }),
+        },
+      },
+      {
+        id: "TRUE_HAREM",
+        label: "트루 하렘",
+        description: "트루 분기의 추가 기회로 모든 관계 인물 엔딩 조건을 채운 상태를 검증합니다.",
+        truth_evidence_count: 3,
+        peace_alliance_complete: true,
+        relationship_progress_by_role: allRoleProgress,
+      },
+    ],
+    story_nodes: [
+      {
+        id: "CAMPAIGN_PROLOGUE",
+        eyebrow: "PROLOGUE · THE INHERITED HOTEL",
+        title: "베스페라의 새 인간 지배인",
+        paragraphs: [
+          "선대의 유언은 호텔을 넘기는 대신 다섯 번의 시험 영업 기록을 요구했습니다.",
+          "인간 지배인의 지시를 보좌하는 비서 오토마타가 첫 장부를 펼칩니다. 지금은 호텔을 지킬 수 있는지 증명해야 합니다.",
+        ],
+        continuation: { action: "BEGIN_DAY", night_index: 0 },
+      },
+      {
+        id: "CAMPAIGN_CHAPTER_ONE_REVIEW",
+        eyebrow: "CHAPTER 1 · OPERATIONS REVIEW",
+        title: "첫 장부의 검토",
+        paragraphs: [
+          "두 번의 영업 기록이 선대의 봉인 장부에 추가되었습니다.",
+          "호텔은 아직 불안정하지만 서로 다른 종족이 같은 규정 아래 머물 수 있다는 첫 증거가 남았습니다.",
+        ],
+        continuation: { action: "OPEN_UPGRADE" },
+      },
+      {
+        id: "CAMPAIGN_CHAPTER_TWO_REVIEW",
+        eyebrow: "CHAPTER 2 · TERMS OF SUCCESSION",
+        title: "상속 조건의 마지막 조항",
+        paragraphs: [
+          "남은 영업은 한 번입니다. 장부의 자금과 평판이 상속 유지 조건을 결정합니다.",
+          "마지막 투숙을 받기 전에 어떤 공사에 투자할지 선택해야 합니다.",
+        ],
+        continuation: { action: "OPEN_UPGRADE" },
+      },
+    ],
+    story_after_nights: {
+      "2": "CAMPAIGN_CHAPTER_ONE_REVIEW",
+      "4": "CAMPAIGN_CHAPTER_TWO_REVIEW",
+    },
+  };
+  data.run_completion = {
+    record_namespace: "vespera.campaign.greybox.v2",
+    ending_rules: [
+      {
+        id: "BAD_CHAPTER_HURDLE",
+        ending_tier: "BAD",
+        priority: 1000,
+        outcome: "FAILURE",
+        title: "상속 심사에서 퇴장하다",
+        description: "챕터의 핵심 운영 허들을 회복하지 못해 베스페라의 상속권을 잃었습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "chapter_hurdle_failures", operator: "GTE", value: 1 },
+        ],
+      },
+      {
+        id: "TRUE_HAREM",
+        ending_tier: "TRUE_HAREM",
+        priority: 900,
+        outcome: "COMPLETE",
+        title: "모든 밤이 머무는 베스페라",
+        description: "악신의 개입을 끝내고 모든 종족과 관계 인물의 미래를 하나의 호텔에 연결했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: "truth_evidence", operator: "GTE", value: 3 },
+          { metric: "peace_alliance", operator: "EQ", value: 1 },
+          { metric: "all_relationship_endings_ready", operator: "EQ", value: 1 },
+        ],
+      },
+      {
+        id: "TRUE_PEACE",
+        ending_tier: "TRUE",
+        priority: 800,
+        outcome: "COMPLETE",
+        title: "다섯 종족의 밤을 잇다",
+        description: "악신의 존재를 밝혀내고 베스페라를 모든 종족이 안심하고 찾는 평화의 협약지로 남겼습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: "truth_evidence", operator: "GTE", value: 3 },
+          { metric: "peace_alliance", operator: "EQ", value: 1 },
+        ],
+      },
+      ...formalSpecies.map((species) => ({
+        id: `SPECIES_HEROINE_${species.id}`,
+        ending_tier: "SPECIES_HEROINE",
+        species_id: species.id,
+        relationship_role_id: species.relationship_role_id,
+        priority: 700,
+        outcome: "COMPLETE",
+        title: `${species.label} 관계 인물과 함께 지키는 베스페라`,
+        description: `${species.ending_description} 관계 인물의 모든 필수 사건도 함께 완성했습니다.`,
+        manager_outcome: species.manager_outcome,
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: `dominant_species_${species.metric_id}`, operator: "EQ", value: 1 },
+          { metric: `relationship_ready_${species.metric_id}`, operator: "EQ", value: 1 },
+          ...(species.requires_cross_species_network
+            ? [{ metric: "dream_demon_other_species_network", operator: "EQ", value: 1 }]
+            : []),
+        ],
+      })),
+      ...formalSpecies.map((species) => ({
+        id: `SPECIES_${species.id}`,
+        ending_tier: "SPECIES",
+        species_id: species.id,
+        priority: 600,
+        outcome: "COMPLETE",
+        title: species.ending_title,
+        description: species.ending_description,
+        manager_outcome: species.manager_outcome,
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: `dominant_species_${species.metric_id}`, operator: "EQ", value: 1 },
+          ...(species.requires_cross_species_network
+            ? [{ metric: "dream_demon_other_species_network", operator: "EQ", value: 1 }]
+            : []),
+        ],
+      })),
+      {
+        id: "NORMAL_STEWARDSHIP",
+        ending_tier: "NORMAL",
+        priority: 500,
+        outcome: "COMPLETE",
+        title: "베스페라의 평범한 인간 지배인",
+        description: "목표 자금과 평판을 지켜냈지만 특정 종족 협약이나 숨은 진상에는 도달하지 않았습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+        ],
+      },
+      {
+        id: "BAD_OPERATIONAL",
+        ending_tier: "BAD",
+        priority: 100,
+        outcome: "FAILURE",
+        title: "상속 조건을 채우지 못하다",
+        description: "시험 영업은 끝났지만 자금 또는 평판 조건을 충족하지 못해 호텔을 지키지 못했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+        ],
+      },
+    ],
+    fallback_ending: {
+      id: "CAMPAIGN_INTERRUPTED",
+      ending_tier: "BAD",
+      priority: 0,
+      outcome: "FAILURE",
+      title: "상속 심사가 중단되다",
+      description: "캠페인 종료 조건에 도달하지 못했습니다.",
+    },
+  };
+  const indexes = createIndexes(data);
   return { ...data, indexes };
 }
 
@@ -109,13 +469,75 @@ function validateHiddenPreference(rule, owner, indexes, seenIds) {
   }
 }
 
+function validateDislike(rule, owner, indexes) {
+  const supportedTypes = new Set([
+    "ROOM_HAS",
+    "ROOM_NOT_HAS",
+    "FLOOR_IS",
+    "FLOOR_AT_LEAST",
+    "FLOOR_AT_MOST",
+    "ELEVATOR_DISTANCE_AT_LEAST",
+    "ELEVATOR_DISTANCE_AT_MOST",
+    "ADJACENT_GUEST",
+    "NO_OCCUPIED_ADJACENT",
+    "ADJACENT_SPECIES",
+    "SAME_FLOOR_SPECIES",
+    "NEAR_FACILITY",
+  ]);
+  assert(supportedTypes.has(rule.type), `${owner}의 불호에 지원하지 않는 규칙 ${rule.type}이 있습니다.`);
+  assert(Number.isFinite(rule.points) && rule.points < 0, `${owner}의 불호는 음의 만족도여야 합니다.`);
+  assert(
+    Number.isInteger(rule.ignored_at_prestige_gap) && rule.ignored_at_prestige_gap >= 1,
+    `${owner}의 불호에 호텔 격차 무시 기준이 필요합니다.`,
+  );
+  assert(typeof rule.label === "string" && rule.label.length > 0, `${owner}의 불호에 설명이 없습니다.`);
+  if (rule.guest_id) assertReferences([rule.guest_id], indexes.guests, owner, "손님");
+  if (rule.species_id) assertReferences([rule.species_id], indexes.species, owner, "종족");
+  if (rule.facility_id) assertReferences([rule.facility_id], indexes.facilities, owner, "시설");
+}
+
 export function validateData(data, indexes = createIndexes(data)) {
   const rankIds = ["N", "R", "SR", "SSR"];
   const expectedRanks = new Set(rankIds);
+  assert(data.schema_version === 4, "쇼케이스 데이터는 schema_version 4여야 합니다.");
   assert(data.prototype_mode?.type === "SHOWCASE", "프로토타입 모드는 SHOWCASE여야 합니다.");
   assert(data.prototype_mode?.total_nights === 5, "쇼케이스는 정확히 5회 영업이어야 합니다.");
   assert(data.prototype_mode?.accelerated === true, "쇼케이스의 압축 성장 표시가 필요합니다.");
   assert(Boolean(data.prototype_mode?.notice), "쇼케이스 안내 문구가 필요합니다.");
+  assert(typeof data.run_completion?.record_namespace === "string", "실행 기록 네임스페이스가 필요합니다.");
+  assert(Array.isArray(data.run_completion?.ending_rules) && data.run_completion.ending_rules.length > 0, "종료 규칙이 필요합니다.");
+  const endingMetrics = new Set([
+    "completed_nights",
+    "total_income",
+    "reputation_delta",
+    "final_gold",
+    "final_reputation",
+    "accepted_guests",
+    "rejected_guests",
+    "canceled_guests",
+    "purchased_upgrades",
+    "emergency_nights",
+    "foresight_retries",
+    "expected_nights",
+  ]);
+  const endingIds = new Set();
+  for (const ending of data.run_completion.ending_rules) {
+    assert(typeof ending.id === "string" && !endingIds.has(ending.id), `종료 ID가 없거나 중복되었습니다: ${ending.id}`);
+    endingIds.add(ending.id);
+    assert(Number.isFinite(ending.priority), `${ending.id}의 우선순위가 필요합니다.`);
+    assert(["COMPLETE", "FAILURE"].includes(ending.outcome), `${ending.id}의 결과 유형이 잘못되었습니다.`);
+    assert(typeof ending.title === "string" && typeof ending.description === "string", `${ending.id}의 표시 문구가 필요합니다.`);
+    assert(Array.isArray(ending.conditions) && ending.conditions.length > 0, `${ending.id}의 종료 조건이 필요합니다.`);
+    for (const condition of ending.conditions) {
+      assert(["GTE", "LTE", "EQ"].includes(condition.operator), `${ending.id}의 비교 연산자가 잘못되었습니다.`);
+      assert(endingMetrics.has(condition.metric) && Number.isFinite(condition.value), `${ending.id}의 조건 값이 잘못되었습니다.`);
+    }
+  }
+  const fallbackEnding = data.run_completion?.fallback_ending;
+  assert(typeof fallbackEnding?.id === "string", "종료 규칙 누락 시 대체 결말이 필요합니다.");
+  assert(!endingIds.has(fallbackEnding.id), "대체 결말 ID는 종료 규칙과 달라야 합니다.");
+  assert(["INCOMPLETE", "FAILURE"].includes(fallbackEnding.outcome), "대체 결말의 결과 유형이 잘못되었습니다.");
+  assert(typeof fallbackEnding.title === "string" && typeof fallbackEnding.description === "string", "대체 결말의 표시 문구가 필요합니다.");
   assert(data.prototype_mode?.upgrade_offer_sizes?.EXPANSION === 1, "영업 준비에는 증축 제안 1개가 필요합니다.");
   assert(data.prototype_mode?.upgrade_offer_sizes?.FACILITY >= 2, "영업 준비에는 시설·인테리어 제안이 최소 2개 필요합니다.");
   assert(data.stayover_rules?.locks_initial_room === true, "연박 손님은 첫 배정 객실을 유지해야 합니다.");
@@ -123,6 +545,9 @@ export function validateData(data, indexes = createIndexes(data)) {
   assert(Number.isFinite(data.balance?.minimum_cleanliness), "최소 청결 기준이 필요합니다.");
   assert(Number.isFinite(data.balance?.minimum_durability), "최소 내구 기준이 필요합니다.");
   assert(data.balance?.booking_capacity_per_expansion_room === 1, "증축 객실당 응대 한도는 1명씩 늘어야 합니다.");
+  assert(Number.isFinite(data.balance?.prestige_satisfaction_per_tier), "호텔 격차 만족도 계수가 필요합니다.");
+  assert(Number.isFinite(data.balance?.evaluation_grade_thresholds?.good), "좋은 운영 평가 기준이 필요합니다.");
+  assert(Number.isFinite(data.balance?.evaluation_grade_thresholds?.excellent), "훌륭한 운영 평가 기준이 필요합니다.");
 
   [
     [data.rooms, "객실"],
@@ -151,9 +576,20 @@ export function validateData(data, indexes = createIndexes(data)) {
     assert(Number.isInteger(rank.min_reputation) && rank.min_reputation >= 0, `${rank.id} min_reputation이 잘못되었습니다.`);
     assert(Boolean(rank.symbol), `${rank.id} 등급 기호가 없습니다.`);
     assert(/^#[0-9a-f]{6}$/i.test(rank.color), `${rank.id} 등급 색상이 잘못되었습니다.`);
+    assert(Number.isFinite(rank.reputation_influence) && rank.reputation_influence > 0, `${rank.id} 평판 영향력이 잘못되었습니다.`);
+    assert(Boolean(rank.reputation_influence_label), `${rank.id} 평판 영향 설명이 없습니다.`);
+    assert(Number.isFinite(rank.positive_satisfaction_threshold) && rank.positive_satisfaction_threshold > 0, `${rank.id} 호평 만족도 기준이 잘못되었습니다.`);
+    assert(Array.isArray(rank.soft_dislikes), `${rank.id} 불호 규칙 배열이 필요합니다.`);
+    rank.soft_dislikes.forEach((rule) => validateDislike(rule, rank.id, indexes));
     if (index > 0) {
       assert(rank.unlock_stage >= orderedRanks[index - 1].unlock_stage, "상위 등급의 단계 잠금이 하위 등급보다 빨라서는 안 됩니다.");
       assert(rank.min_reputation >= orderedRanks[index - 1].min_reputation, "상위 등급의 평판 조건이 하위 등급보다 낮아서는 안 됩니다.");
+      assert(rank.reputation_influence > orderedRanks[index - 1].reputation_influence, "상위 등급의 평판 영향력은 더 커야 합니다.");
+      assert(
+        rank.soft_preferences.length + rank.soft_dislikes.length
+          >= orderedRanks[index - 1].soft_preferences.length + orderedRanks[index - 1].soft_dislikes.length,
+        "상위 등급의 선호·불호 조건 수가 하위 등급보다 적어서는 안 됩니다.",
+      );
     }
   });
 
@@ -212,6 +648,7 @@ export function validateData(data, indexes = createIndexes(data)) {
     if (!indexes.ranks[guest.rank]) {
       throw new Error(`${guest.id}의 등급 ${guest.rank}이 존재하지 않습니다.`);
     }
+    assert(guest.satisfied_reputation === undefined, `${guest.id}는 유효 배치만으로 고정 평판을 얻을 수 없습니다.`);
     if (Math.abs(guest.cancel_reputation) <= Math.abs(guest.reject_reputation)) {
       throw new Error(`${guest.id}의 막판 취소 손실은 거절 손실보다 커야 합니다.`);
     }
@@ -220,10 +657,11 @@ export function validateData(data, indexes = createIndexes(data)) {
     for (const field of ["cleanliness_impact", "durability_impact"]) {
       assert(Number.isInteger(guest[field]) && guest[field] >= 0, `${guest.id}의 ${field}가 잘못되었습니다.`);
     }
-    for (const rule of [...guest.hard_constraints, ...guest.soft_preferences]) {
+    for (const rule of [...guest.hard_constraints, ...guest.soft_preferences, ...(guest.soft_dislikes ?? [])]) {
       if (rule.guest_id) assertReferences([rule.guest_id], indexes.guests, guest.id, "손님");
       if (rule.facility_id) assertReferences([rule.facility_id], indexes.facilities, guest.id, "시설");
     }
+    (guest.soft_dislikes ?? []).forEach((rule) => validateDislike(rule, guest.id, indexes));
     const hiddenFields = Object.keys(guest).filter((field) => field.startsWith("hidden_"));
     assert(hiddenFields.length === 0, `${guest.id}에는 개인 숨은 규칙을 둘 수 없습니다: ${hiddenFields.join(", ")}`);
   }
@@ -325,6 +763,9 @@ export function getGuestRules(data, guestId) {
   const commonPreferences = [...species.soft_preferences];
   const rankPreferences = [...rank.soft_preferences];
   const personalPreferences = [...guest.soft_preferences];
+  const commonDislikes = [...(species.soft_dislikes ?? [])];
+  const rankDislikes = [...(rank.soft_dislikes ?? [])];
+  const personalDislikes = [...(guest.soft_dislikes ?? [])];
   const hiddenPreferences = [...(species.hidden_preferences_by_rank?.[guest.rank] ?? [])];
   return {
     commonRequired,
@@ -333,8 +774,12 @@ export function getGuestRules(data, guestId) {
     commonPreferences,
     rankPreferences,
     personalPreferences,
+    commonDislikes,
+    rankDislikes,
+    personalDislikes,
     hiddenPreferences,
     hard: [...commonRequired, ...rankRequired, ...personalRequired],
     soft: [...commonPreferences, ...rankPreferences, ...personalPreferences],
+    dislikes: [...commonDislikes, ...rankDislikes, ...personalDislikes],
   };
 }

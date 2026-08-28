@@ -24,7 +24,9 @@
 | `rules.js` | 객실·관계·필수 조건·공개/숨은 선호·재방문·시너지·상극 평가 |
 | `scoring.js` | 수입, 평판, 현재 만족도와 결과 설명 |
 | `emergency.js` | 시간 만료 시 연박 고정을 지키는 비최적 긴급 배정·강제 취소 |
-| `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 객실 상태, 발견, 누적 개선, 계약 한도 |
+| `run.js` | 공통 런 지표 요약, 데이터 기반 종료 판정, 버전이 있는 로컬 실행 기록 |
+| `save.js` | 데이터·모드 버전을 검증하는 활성 런과 직전 영업 시작 체크포인트 생성·복구·삭제 |
+| `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 객실 상태, 발견, 예지 재시도, 누적 개선, 계약 한도 |
 | `render.js` | 초대장, 수첩, 예약 한도·기존 객실도, 객실 배정, 결산, 영업 준비·공사 계약, 종합 결과 |
 | `input.js` | 손님 클릭 정보 열람, 드래그 전용 배정·교환·해제, 수용·거절, 정비·계약, 수첩과 주요 전환 |
 
@@ -32,10 +34,15 @@
 
 ```text
 TITLE → TUTORIAL ─┐
+  └─ saved run → RESUME ─┤
   └──── skip ─────┴→ NIGHT_1_PLACEMENT → RESULT
-RESULT → PREPARATION_CONTRACT → RESERVATION → PLACEMENT → RESULT
+SHOWCASE: RESULT → PREPARATION_CONTRACT → RESERVATION → PLACEMENT → RESULT
                                       ↑ 2~5회차 반복 ↓
-RESULT(5회차) → FINAL
+RESULT(5회차) → RUN_COMPLETION → FINAL → RUN_RECORD
+
+CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
+              ↑                                      ├─ 마감 서명 → 다음 진행
+              └────── 아침 장부 재열람 ─────────────┘
 ```
 
 `PREPARATION_CONTRACT`는 플레이어에게 `영업 준비 / 공사 계약`으로 표시한다. 같은 화면에서 빈 객실을 정비하고 `동관 증축`과 `시설·인테리어`를 분리해 제안한다. 각 분류는 영업 사이 최대 1건 계약하며, 계약 여부와 관계없이 명시적인 `다음 영업` 행동으로 진행한다.
@@ -68,7 +75,12 @@ RESULT(5회차) → FINAL
   seenSpeciesIds,
   seenRankIds,
   discoveredHiddenPreferenceIds,
-  nightResults
+  secretaryPresentationId,
+  foresightRetryCount,
+  foresightDiscoveryIds,
+  nightResults,
+  runRecord,
+  recordArchiveCount
 }
 ```
 
@@ -77,6 +89,16 @@ RESULT(5회차) → FINAL
 - 객실 상태는 `{ roomId: { cleanliness, durability } }`로 영업 사이 유지한다.
 - 공개 종족·등급은 첫 신청에서 `seen*Ids`에 기록하고, 종족×등급 숨은 선호는 결산에서만 `discoveredHiddenPreferenceIds`에 기록한다.
 - 숨은 선호는 별도 배열로 평가해 공개 `soft` 목록에 중복 합산하지 않는다.
+- 마지막 결산은 `completeRun()`을 통해서만 종료하며, 종료 조건·표시 문구는 `run_completion` 데이터에서 판정한다.
+- 실행 기록 스키마 3은 전체 상태를 복제하지 않고 모드·시드·엔딩 ID·계층, 종족·관계 인물 선택, 종족 엔딩에서 열린 지배인의 이후 선택지, 인과적으로 연결된 후일담과 핵심 지표만 최근 20개 보존한다. 같은 기록 ID의 중복 저장은 기존 항목을 대체한다.
+- 캠페인의 세이브·체크포인트·프로필 분리는 `24_SAVE_AND_RUN_STRUCTURE.md`의 계약을 따른다.
+- 현재 v2는 조작 뒤와 페이지 이탈 시 활성 런을 저장한다. 다시 열면 타이틀의 `지난 영업 이어하기`로 복구하며, 새 런 시작·엔딩·재시작은 활성 세이브를 제거한다.
+- 활성 런 세이브 스키마 4는 모드별 키로 현재 상태와 `stage_checkpoint`를 보존한다. `SHOWCASE`는 예약·배치 시작 상태를, 시나리오 캠페인은 신청 생성 전 `DAY_OPENING` 상태를 캡처한다. 별도 프로필 스키마 1은 두 모드가 공유하는 수첩 지식과 전시품 도감용 ID 집합만 저장한다.
+- `DAY_OPENING`과 `RESULT_REVIEW`는 시나리오 모드에서만 진입한다. `ENDLESS`는 결과 화면의 `이번 영업 다시`가 `retryCurrentStage()`를 직접 호출하고, `SHOWCASE`는 재검토 행동을 만들지 않는다.
+- `restartDayThroughSecretary()`는 마감 대화에서만 동작하며 골드·평판·난수·객실·연박·사건 상태를 아침 체크포인트로 되돌린다. 해당 경로에서 새로 확인한 숨은 선호 ID와 내부 재검토 횟수만 합쳐서 유지한다.
+- `secretaryPresentationId`는 `MALE` 또는 `FEMALE`만 허용하며 캠페인 상태 전환과 규칙 계산에는 사용하지 않는다.
+- 캠페인은 `NEW_GAME`과 `STORY` 상태를 추가한다. 플레이어·비서·관계 인물 표현 설정은 런에 고정하고, 마녀 관계 역할은 항상 `FEMALE`로 정규화한다.
+- 스키마 3 및 과거 단일 키 `SHOWCASE` 저장은 읽을 때 스키마 4의 모드별 저장으로 정규화한다. 손상 데이터나 프로필 ID가 다른 런은 재개하지 않는다.
 
 ### 시드 제안과 공정성
 
@@ -135,7 +157,7 @@ RESULT(5회차) → FINAL
 ## 2. 예정 파일 구조
 
 ```text
-F:\Game\
+vespera-hotel-prototype/
 ├─ index.html
 ├─ styles.css
 ├─ data/

@@ -10,16 +10,28 @@ import {
   renovationRoomIds,
 } from "./upgrades.js";
 import { getGuestRules } from "./data.js";
+import { createRunRecord, readRunRecords, storeRunRecord } from "./run.js";
+import {
+  clearActiveRunSave,
+  readActiveRunSave,
+  readProfile,
+  writeActiveRunSave,
+  writeProfile,
+} from "./save.js";
 
 export const SERVICE_TIME_LIMIT_MS = 120_000;
 export const RELOCATION_TIME_COST_MS = 5_000;
 
 export const PHASES = Object.freeze({
   TITLE: "TITLE",
+  NEW_GAME: "NEW_GAME",
   TUTORIAL: "TUTORIAL",
+  STORY: "STORY",
+  DAY_OPENING: "DAY_OPENING",
   RESERVATION: "RESERVATION",
   PLACEMENT: "PLACEMENT",
   RESULT: "RESULT",
+  RESULT_REVIEW: "RESULT_REVIEW",
   UPGRADE: "UPGRADE",
   FINAL: "FINAL",
 });
@@ -34,14 +46,58 @@ function unique(values) {
   return [...new Set(values)];
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function clampCondition(value) {
   return Math.max(0, Math.min(100, value));
 }
 
-function initialState(data, seed) {
+function relationshipPresentations(data, preset = "ALL_FEMALE") {
+  return Object.fromEntries((data.campaign?.relationship_role_ids ?? []).map((roleId) => {
+    const femaleOnly = roleId === "RELATIONSHIP_WITCH";
+    const presentationId = preset === "MALE_CENTERED" && !femaleOnly ? "MALE" : "FEMALE";
+    return [roleId, presentationId];
+  }));
+}
+
+function relationshipProgress(data) {
+  return Object.fromEntries((data.campaign?.relationship_role_ids ?? []).map((roleId) => [roleId, {
+    epilogue_unlocked: false,
+    npc_stage: "GUEST",
+    event_count: 0,
+    ending_ready: false,
+    hotel_dependency: "INDEPENDENT",
+  }]));
+}
+
+function speciesAffinities(data) {
+  return Object.fromEntries((data.campaign?.formal_species ?? []).map((species) => [species.id, 0]));
+}
+
+function initialState(data, seed, recordArchiveCount = 0, profile = null) {
+  const defaults = data.campaign?.new_game_defaults ?? {};
   return {
     phase: PHASES.TITLE,
+    profileId: profile?.profile_id ?? "default",
     currentNightIndex: 0,
+    storyNodeId: null,
+    playerGenderId: defaults.player_gender_id ?? "MALE",
+    relationshipGenderPreset: defaults.relationship_gender_preset ?? "ALL_FEMALE",
+    relationshipPresentationIds: relationshipPresentations(
+      data,
+      defaults.relationship_gender_preset ?? "ALL_FEMALE",
+    ),
+    greyboxEndingRouteId: defaults.greybox_ending_route_id ?? "NORMAL",
+    speciesAffinityById: speciesAffinities(data),
+    speciesEndingTriggerIds: [],
+    speciesEndingCommitmentId: null,
+    relationshipProgressByRole: relationshipProgress(data),
+    truthEvidenceCount: 0,
+    peaceAllianceComplete: false,
+    chapterHurdleFailures: 0,
+    selectedEndingRelationshipRoleId: null,
     gold: 0,
     hotelReputation: 0,
     ownedUpgradeIds: [],
@@ -65,15 +121,22 @@ function initialState(data, seed) {
     serviceTimerMs: null,
     relocationCount: 0,
     emergencyReport: null,
-    seenRankIds: ["N"],
-    seenSpeciesIds: [],
+    seenRankIds: unique(["N", ...(profile?.handbook?.seen_rank_ids ?? [])]),
+    seenSpeciesIds: unique(profile?.handbook?.seen_species_ids ?? []),
+    encounteredGuestIds: unique(profile?.handbook?.encountered_guest_ids ?? []),
     guestHistory: {},
-    discoveredHiddenPreferenceIds: [],
+    expectationReputationByGuest: {},
+    discoveredHiddenPreferenceIds: unique(profile?.handbook?.discovered_hidden_preference_ids ?? []),
     lastDiscoveries: [],
     stayovers: {},
     lockedGuestIds: [],
     roomConditions: initialRoomConditions(data),
     lastRoomWear: [],
+    secretaryPresentationId: null,
+    foresightRetryCount: 0,
+    foresightDiscoveryIds: [],
+    runRecord: null,
+    recordArchiveCount,
   };
 }
 
@@ -81,7 +144,13 @@ export class GameController {
   constructor(data, options = {}) {
     this.data = data;
     const seed = Number.isFinite(options.seed) ? options.seed : Date.now();
-    this.state = initialState(data, seed);
+    this.recordStorage = options.storage ?? globalThis.localStorage;
+    this.profile = readProfile(this.recordStorage);
+    this.state = initialState(data, seed, readRunRecords(this.recordStorage).length, this.profile);
+    this.pendingCheckpoint = readActiveRunSave(this.data, this.recordStorage);
+    this.stageCheckpoint = this.pendingCheckpoint?.stage_checkpoint
+      ? clone(this.pendingCheckpoint.stage_checkpoint)
+      : null;
   }
 
   get totalNights() {
@@ -100,12 +169,26 @@ export class GameController {
     return this.state.nightResults[this.state.currentNightIndex] ?? null;
   }
 
+  get currentStoryNode() {
+    return this.data.campaign?.story_nodes?.find((node) => node.id === this.state.storyNodeId) ?? null;
+  }
+
+  get isScenarioMode() {
+    return ["CAMPAIGN", "SCENARIO"].includes(this.data.prototype_mode?.type);
+  }
+
+  get isEndlessMode() {
+    return this.data.prototype_mode?.type === "ENDLESS";
+  }
+
   hotelContext() {
     return {
       ownedFacilityIds: this.state.ownedUpgradeIds,
       roomConditions: this.state.roomConditions,
       protectedRoomIds: Object.values(this.state.stayovers).map((entry) => entry.roomId),
       guestHistory: this.state.guestHistory,
+      hotelReputation: this.state.hotelReputation,
+      expectationReputationByGuest: this.state.expectationReputationByGuest,
       stayoverGuestIds: [...this.state.lockedGuestIds],
       discoveredHiddenPreferenceIds: this.state.discoveredHiddenPreferenceIds,
     };
@@ -152,18 +235,91 @@ export class GameController {
   rememberGuests(guestIds) {
     const ranks = [...this.state.seenRankIds];
     const species = [...this.state.seenSpeciesIds];
+    const encountered = [...this.state.encounteredGuestIds];
     for (const guestId of guestIds) {
       const guest = this.data.indexes.guests[guestId];
       if (!guest) continue;
       ranks.push(guest.rank);
       species.push(guest.species);
+      encountered.push(guestId);
     }
     this.state.seenRankIds = unique(ranks);
     this.state.seenSpeciesIds = unique(species);
+    this.state.encounteredGuestIds = unique(encountered);
+  }
+
+  persistProfileKnowledge() {
+    this.profile = writeProfile({
+      ...this.profile,
+      handbook: {
+        discovered_hidden_preference_ids: unique([
+          ...(this.profile.handbook?.discovered_hidden_preference_ids ?? []),
+          ...this.state.discoveredHiddenPreferenceIds,
+        ]),
+        seen_rank_ids: unique([
+          ...(this.profile.handbook?.seen_rank_ids ?? []),
+          ...this.state.seenRankIds,
+        ]),
+        seen_species_ids: unique([
+          ...(this.profile.handbook?.seen_species_ids ?? []),
+          ...this.state.seenSpeciesIds,
+        ]),
+        encountered_guest_ids: unique([
+          ...(this.profile.handbook?.encountered_guest_ids ?? []),
+          ...this.state.encounteredGuestIds,
+        ]),
+      },
+    }, this.recordStorage);
+    return this.profile;
   }
 
   start() {
+    clearActiveRunSave(this.data, this.recordStorage);
+    this.pendingCheckpoint = null;
+    this.stageCheckpoint = null;
+    if (this.isScenarioMode) {
+      const defaults = this.data.campaign?.new_game_defaults ?? {};
+      this.state.phase = PHASES.NEW_GAME;
+      this.state.playerGenderId = defaults.player_gender_id ?? "MALE";
+      this.state.relationshipGenderPreset = defaults.relationship_gender_preset ?? "ALL_FEMALE";
+      this.state.relationshipPresentationIds = relationshipPresentations(
+        this.data,
+        this.state.relationshipGenderPreset,
+      );
+      this.state.secretaryPresentationId = defaults.secretary_presentation_id ?? "FEMALE";
+      this.applyGreyboxEndingRoute(defaults.greybox_ending_route_id ?? "NORMAL");
+      return true;
+    }
     this.startTutorial();
+    return true;
+  }
+
+  hasCheckpoint() {
+    return Boolean(this.pendingCheckpoint ?? readActiveRunSave(this.data, this.recordStorage));
+  }
+
+  saveCheckpoint() {
+    this.persistProfileKnowledge();
+    const save = writeActiveRunSave(this.data, this.state, this.stageCheckpoint, this.recordStorage);
+    if (save) this.pendingCheckpoint = save;
+    return save;
+  }
+
+  resumeRun() {
+    const save = this.pendingCheckpoint ?? readActiveRunSave(this.data, this.recordStorage);
+    if (!save || save.profile_id !== this.profile.profile_id) return false;
+    const archiveCount = readRunRecords(this.recordStorage).length;
+    this.state = {
+      ...initialState(this.data, save.state.runSeed, archiveCount, this.profile),
+      ...save.state,
+      handbookOpen: false,
+      reservationBoardOpen: false,
+      runRecord: null,
+      recordArchiveCount: archiveCount,
+    };
+    this.stageCheckpoint = save.stage_checkpoint ? clone(save.stage_checkpoint) : null;
+    this.pendingCheckpoint = save;
+    return true;
   }
 
   startTutorial() {
@@ -183,17 +339,135 @@ export class GameController {
 
   skipTutorial() {
     if ([PHASES.TITLE, PHASES.TUTORIAL].includes(this.state.phase)) {
-      this.beginNight(0);
+      if (this.state.phase === PHASES.TITLE) {
+        clearActiveRunSave(this.data, this.recordStorage);
+        this.pendingCheckpoint = null;
+      }
+      this.beginOperatingDay(0);
     }
   }
 
   startNight1() {
-    this.beginNight(0);
+    this.beginOperatingDay(0);
+  }
+
+  setSecretaryPresentation(presentationId) {
+    if (!["FEMALE", "MALE"].includes(presentationId)) return false;
+    if (![PHASES.TITLE, PHASES.NEW_GAME, PHASES.TUTORIAL].includes(this.state.phase)) return false;
+    this.state.secretaryPresentationId = presentationId;
+    return true;
+  }
+
+  setPlayerGender(genderId) {
+    if (this.state.phase !== PHASES.NEW_GAME || !["MALE", "FEMALE"].includes(genderId)) return false;
+    this.state.playerGenderId = genderId;
+    return true;
+  }
+
+  setRelationshipGenderPreset(presetId) {
+    if (this.state.phase !== PHASES.NEW_GAME) return false;
+    if (!["ALL_FEMALE", "MALE_CENTERED", "PER_ROLE"].includes(presetId)) return false;
+    this.state.relationshipGenderPreset = presetId;
+    this.state.relationshipPresentationIds = relationshipPresentations(this.data, presetId);
+    return true;
+  }
+
+  setRelationshipRolePresentation(roleId, presentationId) {
+    if (this.state.phase !== PHASES.NEW_GAME) return false;
+    if (this.state.relationshipGenderPreset !== "PER_ROLE") return false;
+    if (!(this.data.campaign?.relationship_role_ids ?? []).includes(roleId)) return false;
+    if (!["FEMALE", "MALE"].includes(presentationId)) return false;
+    if (roleId === "RELATIONSHIP_WITCH" && presentationId !== "FEMALE") return false;
+    this.state.relationshipPresentationIds[roleId] = presentationId;
+    return true;
+  }
+
+  applyGreyboxEndingRoute(routeId) {
+    const route = this.data.campaign?.ending_preview_routes?.find((item) => item.id === routeId);
+    if (!route) return false;
+    this.state.greyboxEndingRouteId = route.id;
+    this.state.speciesAffinityById = {
+      ...speciesAffinities(this.data),
+      ...(route.species_affinity_by_id ?? {}),
+    };
+    this.state.speciesEndingTriggerIds = [...(route.species_ending_trigger_ids ?? [])];
+    this.state.speciesEndingCommitmentId = route.species_ending_commitment_id ?? null;
+    this.state.relationshipProgressByRole = {
+      ...relationshipProgress(this.data),
+      ...clone(route.relationship_progress_by_role ?? {}),
+    };
+    this.state.truthEvidenceCount = route.truth_evidence_count ?? 0;
+    this.state.peaceAllianceComplete = route.peace_alliance_complete === true;
+    this.state.chapterHurdleFailures = route.chapter_hurdle_failures ?? 0;
+    this.state.selectedEndingRelationshipRoleId = route.selected_ending_relationship_role_id ?? null;
+    return true;
+  }
+
+  setGreyboxEndingRoute(routeId) {
+    if (this.state.phase !== PHASES.NEW_GAME) return false;
+    return this.applyGreyboxEndingRoute(routeId);
+  }
+
+  confirmNewGame() {
+    if (this.state.phase !== PHASES.NEW_GAME) return false;
+    if (!["MALE", "FEMALE"].includes(this.state.playerGenderId)) return false;
+    if (!["FEMALE", "MALE"].includes(this.state.secretaryPresentationId)) return false;
+    return this.openStoryNode("CAMPAIGN_PROLOGUE");
+  }
+
+  openStoryNode(storyNodeId) {
+    if (!this.data.campaign?.story_nodes?.some((node) => node.id === storyNodeId)) return false;
+    this.state.storyNodeId = storyNodeId;
+    this.state.phase = PHASES.STORY;
+    this.state.handbookOpen = false;
+    this.state.reservationBoardOpen = false;
+    this.state.serviceTimerMs = null;
+    return true;
+  }
+
+  continueStory() {
+    if (this.state.phase !== PHASES.STORY || !this.currentStoryNode) return false;
+    const continuation = this.currentStoryNode.continuation ?? {};
+    this.state.storyNodeId = null;
+    if (continuation.action === "BEGIN_DAY") {
+      return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
+    }
+    if (continuation.action === "OPEN_UPGRADE") return this.prepareNextUpgrade();
+    if (continuation.action === "COMPLETE_RUN") {
+      this.completeRun();
+      return true;
+    }
+    return false;
+  }
+
+  beginOperatingDay(index) {
+    if (!this.isScenarioMode) {
+      this.beginNight(index);
+      return true;
+    }
+    if (!["FEMALE", "MALE"].includes(this.state.secretaryPresentationId)) return false;
+    if (index >= this.data.scenarios.length) {
+      this.completeRun();
+      return true;
+    }
+    this.state.currentNightIndex = index;
+    this.state.phase = PHASES.DAY_OPENING;
+    this.state.handbookOpen = false;
+    this.state.reservationBoardOpen = false;
+    this.state.serviceTimerMs = null;
+    this.stageCheckpoint = clone(this.state);
+    return true;
+  }
+
+  startDayBusiness() {
+    if (this.state.phase !== PHASES.DAY_OPENING) return false;
+    this.beginNight(this.state.currentNightIndex);
+    return true;
   }
 
   beginNight(index) {
     if (index >= this.data.scenarios.length) {
-      this.state.phase = PHASES.FINAL;
+      this.completeRun();
       return;
     }
     this.state.currentNightIndex = index;
@@ -229,6 +503,11 @@ export class GameController {
     this.state.applicantDecisions = {};
     this.state.placements = fixedPlacements;
     this.state.lockedGuestIds = [...stayoverIds];
+    for (const guestId of fixedGuestIds) {
+      if (!stayoverIds.includes(guestId)) {
+        this.state.expectationReputationByGuest[guestId] = this.state.hotelReputation;
+      }
+    }
     this.state.selectedGuestId = fixedGuestIds.find((id) => !stayoverIds.includes(id)) ?? null;
     this.state.serviceTimerMs = null;
     this.state.relocationCount = 0;
@@ -245,6 +524,7 @@ export class GameController {
     } else {
       this.startPlacement();
     }
+    if (!this.isScenarioMode) this.stageCheckpoint = clone(this.state);
   }
 
   openHandbook(tab = this.state.handbookTab) {
@@ -350,7 +630,7 @@ export class GameController {
   finishNight() {
     if (this.state.phase === PHASES.TUTORIAL) {
       if (!this.currentEvaluation().valid) return false;
-      this.beginNight(0);
+      this.beginOperatingDay(0);
       return true;
     }
     if (this.state.phase !== PHASES.PLACEMENT) return false;
@@ -393,6 +673,12 @@ export class GameController {
       }
     }
     this.state.stayovers = nextStayovers;
+    this.state.expectationReputationByGuest = Object.fromEntries(
+      Object.keys(nextStayovers).map((guestId) => [
+        guestId,
+        this.state.expectationReputationByGuest[guestId] ?? this.state.hotelReputation,
+      ]),
+    );
     this.state.lastRoomWear = wear;
   }
 
@@ -426,6 +712,7 @@ export class GameController {
         });
       });
       const satisfaction = result.guestScores[guestId]?.total ?? 0;
+      const review = result.guestReviews?.find((item) => item.guestId === guestId);
       const previous = this.state.guestHistory[guestId] ?? {
         visits: 0,
         lastSatisfaction: 0,
@@ -436,6 +723,7 @@ export class GameController {
         visits: previous.visits + (continuingStay ? 0 : 1),
         lastSatisfaction: satisfaction,
         bestSatisfaction: Math.max(previous.bestSatisfaction, satisfaction),
+        lastReaction: review?.reaction ?? "neutral",
       };
     }
     this.state.discoveredHiddenPreferenceIds = [...known];
@@ -481,7 +769,17 @@ export class GameController {
   continueAfterResult() {
     if (this.state.phase !== PHASES.RESULT) return false;
     if (this.currentNightNumber >= this.totalNights) {
-      this.state.phase = PHASES.FINAL;
+      this.completeRun();
+      return true;
+    }
+    const storyNodeId = this.data.campaign?.story_after_nights?.[String(this.currentNightNumber)];
+    if (this.isScenarioMode && storyNodeId) return this.openStoryNode(storyNodeId);
+    return this.prepareNextUpgrade();
+  }
+
+  prepareNextUpgrade() {
+    if (this.currentNightNumber >= this.totalNights) {
+      this.completeRun();
       return true;
     }
     const nextStage = this.currentNightNumber + 1;
@@ -497,6 +795,47 @@ export class GameController {
     this.state.renovationPurchaseIds = [];
     this.state.rngState = offer.rngState;
     this.state.phase = PHASES.UPGRADE;
+    return true;
+  }
+
+  openResultReview() {
+    if (!this.isScenarioMode || this.state.phase !== PHASES.RESULT) return false;
+    this.state.phase = PHASES.RESULT_REVIEW;
+    return true;
+  }
+
+  acceptSecretaryReport() {
+    if (this.state.phase !== PHASES.RESULT_REVIEW) return false;
+    this.state.phase = PHASES.RESULT;
+    return this.continueAfterResult();
+  }
+
+  restartDayThroughSecretary() {
+    if (this.state.phase !== PHASES.RESULT_REVIEW) return false;
+    return this.retryCurrentStage();
+  }
+
+  retryCurrentStage() {
+    if (![PHASES.RESULT, PHASES.RESULT_REVIEW].includes(this.state.phase) || !this.stageCheckpoint) return false;
+    const discardedFuture = this.state;
+    const rememberedDiscoveries = unique([
+      ...(discardedFuture.foresightDiscoveryIds ?? []),
+      ...discardedFuture.lastDiscoveries.map((item) => item.hiddenId),
+    ]);
+    const discoveredPreferenceIds = unique([
+      ...this.stageCheckpoint.discoveredHiddenPreferenceIds,
+      ...discardedFuture.discoveredHiddenPreferenceIds,
+    ]);
+    const retryCount = (discardedFuture.foresightRetryCount ?? 0) + 1;
+    this.state = {
+      ...clone(this.stageCheckpoint),
+      discoveredHiddenPreferenceIds: discoveredPreferenceIds,
+      foresightRetryCount: retryCount,
+      foresightDiscoveryIds: rememberedDiscoveries,
+      handbookOpen: false,
+      reservationBoardOpen: false,
+      runRecord: null,
+    };
     return true;
   }
 
@@ -537,7 +876,7 @@ export class GameController {
 
   finishUpgrade() {
     if (this.state.phase !== PHASES.UPGRADE) return false;
-    this.beginNight(this.state.currentNightIndex + 1);
+    this.beginOperatingDay(this.state.currentNightIndex + 1);
     return true;
   }
 
@@ -611,12 +950,40 @@ export class GameController {
     ) return false;
     this.state.acceptedGuestIds = summary.accepted;
     this.state.rejectedGuestIds = summary.rejected;
+    for (const guestId of summary.accepted) {
+      if (!this.state.lockedGuestIds.includes(guestId)) {
+        this.state.expectationReputationByGuest[guestId] = this.state.hotelReputation;
+      }
+    }
     this.startPlacement();
     return true;
   }
 
   restart() {
     const nextSeed = (this.state.runSeed + 1) >>> 0;
-    this.state = initialState(this.data, nextSeed);
+    this.persistProfileKnowledge();
+    clearActiveRunSave(this.data, this.recordStorage);
+    this.pendingCheckpoint = null;
+    this.stageCheckpoint = null;
+    this.state = initialState(
+      this.data,
+      nextSeed,
+      readRunRecords(this.recordStorage).length,
+      this.profile,
+    );
+  }
+
+  completeRun() {
+    if (!this.state.runRecord) {
+      this.persistProfileKnowledge();
+      this.state.runRecord = createRunRecord(this.data, this.state);
+      const records = storeRunRecord(this.state.runRecord, this.recordStorage);
+      this.state.recordArchiveCount = records.length;
+      clearActiveRunSave(this.data, this.recordStorage);
+      this.pendingCheckpoint = null;
+      this.stageCheckpoint = null;
+    }
+    this.state.phase = PHASES.FINAL;
+    return this.state.runRecord;
   }
 }

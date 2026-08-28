@@ -246,9 +246,26 @@ function preferenceMatched(rule, guestId, placements, data, board) {
 }
 
 function addScoreItem(guestScores, guestId, item) {
-  if (!guestScores[guestId]) guestScores[guestId] = { total: 0, items: [] };
+  if (!guestScores[guestId]) guestScores[guestId] = { total: 0, preferenceTotal: 0, items: [] };
   guestScores[guestId].items.push(item);
   guestScores[guestId].total += item.points;
+  if (!["prestige", "dislike"].includes(item.source)) {
+    guestScores[guestId].preferenceTotal += item.points;
+  }
+}
+
+export function hotelPrestigeTierFor(data, reputation) {
+  const safeReputation = Math.max(0, Number(reputation) || 0);
+  return [...data.ranks]
+    .sort((left, right) => left.order - right.order)
+    .filter((rank) => rank.min_reputation <= safeReputation)
+    .at(-1)?.order ?? 0;
+}
+
+function expectationReputationFor(hotelContext, guestId) {
+  const snapshot = hotelContext.expectationReputationByGuest?.[guestId];
+  if (Number.isFinite(snapshot)) return snapshot;
+  return Number(hotelContext.hotelReputation) || 0;
 }
 
 export function revisitBonusFor(data, history) {
@@ -354,7 +371,21 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
   for (const guestId of acceptedGuestIds) {
     const guest = data.indexes.guests[guestId];
     if (!guest) continue;
-    guestScores[guestId] = { total: 0, items: [] };
+    const rank = data.indexes.ranks[guest.rank];
+    const expectationReputation = expectationReputationFor(hotelContext, guestId);
+    const hotelPrestigeTier = hotelPrestigeTierFor(data, expectationReputation);
+    const prestigeGap = hotelPrestigeTier - rank.order;
+    guestScores[guestId] = {
+      total: 0,
+      preferenceTotal: 0,
+      items: [],
+      expectationReputation,
+      hotelPrestigeTier,
+      guestRankOrder: rank.order,
+      prestigeGap,
+      activeDislikes: [],
+      ignoredDislikes: [],
+    };
     if (!placements[guestId]) {
       violations.push({
         guestId,
@@ -389,6 +420,30 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
           source: "preference",
         });
       }
+    }
+    for (const rule of rules.dislikes ?? []) {
+      if (prestigeGap >= rule.ignored_at_prestige_gap) {
+        guestScores[guestId].ignoredDislikes.push({
+          label: rule.label,
+          ignoredAtPrestigeGap: rule.ignored_at_prestige_gap,
+        });
+      } else if (preferenceMatched(rule, guestId, placements, data, board)) {
+        const item = {
+          label: rule.label,
+          points: rule.points,
+          source: "dislike",
+          ignoredAtPrestigeGap: rule.ignored_at_prestige_gap,
+        };
+        guestScores[guestId].activeDislikes.push(item);
+        addScoreItem(guestScores, guestId, item);
+      }
+    }
+    if (prestigeGap > 0) {
+      addScoreItem(guestScores, guestId, {
+        label: "기대보다 높은 호텔의 격",
+        points: prestigeGap * (data.balance?.prestige_satisfaction_per_tier ?? 1),
+        source: "prestige",
+      });
     }
     for (let index = 0; index < (rules.hiddenPreferences ?? []).length; index += 1) {
       const rule = rules.hiddenPreferences[index];
@@ -435,6 +490,8 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
 
   const groupEffects = applySpeciesEffects(data, acceptedGuestIds, placements, board, guestScores);
   const placementScore = Object.values(guestScores)
+    .reduce((sum, score) => sum + score.preferenceTotal, 0);
+  const satisfactionTotal = Object.values(guestScores)
     .reduce((sum, score) => sum + score.total, 0);
   const hiddenMatches = Object.entries(guestScores).flatMap(([guestId, score]) =>
     score.items.filter((item) => item.source === "hidden").map((item) => ({ guestId, ...item })),
@@ -447,6 +504,7 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
     groupEffects,
     hiddenMatches,
     placementScore,
+    satisfactionTotal,
     board,
   };
 }

@@ -22,12 +22,16 @@ function phaseLabel(controller) {
   const night = controller.currentNightNumber;
   return {
     [PHASES.TITLE]: "영업 준비",
+    [PHASES.NEW_GAME]: "새 캠페인 설정",
     [PHASES.TUTORIAL]: "배치 연습",
+    [PHASES.STORY]: "시나리오",
+    [PHASES.DAY_OPENING]: `영업 개시 ${night} / ${controller.totalNights}`,
     [PHASES.RESERVATION]: `예약 ${night} / ${controller.totalNights}`,
     [PHASES.PLACEMENT]: `영업 ${night} / ${controller.totalNights}`,
     [PHASES.RESULT]: `정산 ${night} / ${controller.totalNights}`,
+    [PHASES.RESULT_REVIEW]: `마감 확인 ${night} / ${controller.totalNights}`,
     [PHASES.UPGRADE]: "영업 준비",
-    [PHASES.FINAL]: "초청 영업 완료",
+    [PHASES.FINAL]: controller.isScenarioMode ? "캠페인 종료" : "초청 영업 완료",
   }[phase];
 }
 
@@ -46,7 +50,7 @@ function speciesOf(data, speciesId) {
 
 function renderHeader(controller) {
   const { state } = controller;
-  const inRun = ![PHASES.TITLE, PHASES.TUTORIAL].includes(state.phase);
+  const inRun = ![PHASES.TITLE, PHASES.NEW_GAME, PHASES.TUTORIAL].includes(state.phase);
   const progressNight = state.phase === PHASES.UPGRADE
     ? Math.min(controller.currentNightNumber + 1, controller.totalNights)
     : controller.currentNightNumber;
@@ -58,7 +62,7 @@ function renderHeader(controller) {
       </div>
       <div class="phase-stack">
         <div class="phase-pill">${escapeHtml(phaseLabel(controller))}</div>
-        <span class="showcase-mini">개장 전 초청 영업${inRun ? ` · ${progressNight}/5` : ""}</span>
+        <span class="showcase-mini">${controller.isScenarioMode ? "회색 상자 캠페인" : "개장 전 초청 영업"}${inRun ? ` · ${progressNight}/${controller.totalNights}` : ""}</span>
       </div>
       <div class="resources" aria-label="현재 자원">
         <button class="handbook-trigger" data-action="open-handbook" aria-label="운영 수첩 열기" title="운영 수첩"><span class="handbook-icon" aria-hidden="true">▤</span><span class="handbook-label">운영 수첩</span></button>
@@ -69,6 +73,7 @@ function renderHeader(controller) {
 }
 
 function renderTitle(controller) {
+  if (controller.isScenarioMode) return renderCampaignTitle(controller);
   const notice = controller.data.prototype_mode?.notice
     ?? "정식 개장 전 다섯 밤 동안 호텔의 운영을 점검하는 초청 행사입니다.";
   return `
@@ -82,6 +87,7 @@ function renderTitle(controller) {
         <div class="showcase-notice"><b>PRE-OPENING INVITATIONAL · 5 NIGHTS</b><span>${escapeHtml(notice)}</span></div>
         <div class="invitation-signoff"><span>베스페라 호텔</span><b>총지배인실</b></div>
         <div class="invitation-actions">
+          ${controller.hasCheckpoint() ? `<button class="button primary large" data-action="resume">지난 영업 이어하기</button>` : ""}
           <button class="button primary large" data-action="start">배치 연습 시작</button>
           <button class="button secondary" data-action="skip-tutorial">튜토리얼 건너뛰기</button>
         </div>
@@ -93,6 +99,44 @@ function renderTitle(controller) {
         <article><span>03</span><div><strong>시설·증축·객실 상태 누적</strong><p>선택한 호텔 구조와 연박 객실이 다음 영업에 그대로 이어집니다.</p></div></article>
       </div>
     </section>`;
+}
+
+function renderCampaignTitle(controller) {
+  const notice = controller.data.prototype_mode?.notice ?? "캠페인 개발 모드";
+  const objective = controller.data.campaign?.objective;
+  return `<section class="title-screen campaign-title-screen"><div class="title-copy invitation-letter"><span class="invitation-crest" aria-hidden="true">◆</span><p class="invitation-hotel">HOTEL VESPERA · CAMPAIGN GREYBOX</p><p class="invitation-recipient">베스페라의 상속인 귀하</p><h1>호텔의 장부를 이어받을<br /><em>새 지배인을 기다립니다.</em></h1><p class="lede">새 게임부터 영업, 장면, 성공·실패 엔딩과 기록까지 연결하는 개발용 캠페인입니다.</p><div class="showcase-notice"><b>${escapeHtml(objective?.title ?? "임시 운영 목표")}</b><span>${escapeHtml(objective?.description ?? notice)}</span></div><div class="invitation-actions">${controller.hasCheckpoint() ? `<button class="button primary large" data-action="resume">캠페인 이어하기</button>` : ""}<button class="button primary large" data-action="start">새 캠페인 시작</button></div></div><div class="title-rules invitation-enclosure"><div class="enclosure-heading"><p class="eyebrow">FUNCTIONAL SPINE</p><h2>회색 상자 검증 범위</h2></div><article><span>01</span><div><strong>새 게임과 프로필 분리</strong><p>표현 설정과 공용 수첩을 현재 캠페인 자원과 분리합니다.</p></div></article><article><span>02</span><div><strong>장면과 영업 진행</strong><p>프롤로그·비서 장면·영업·챕터 장면을 데이터 순서로 연결합니다.</p></div></article><article><span>03</span><div><strong>성공과 실패 기록</strong><p>임시 상속 조건으로 두 엔딩과 재시작·불러오기를 검증합니다.</p></div></article></div></section>`;
+}
+
+function selectedButton(selected) {
+  return selected ? "button primary selected" : "button secondary";
+}
+
+function renderNewGame(controller) {
+  const { state } = controller;
+  const roleLabels = {
+    RELATIONSHIP_HUMAN: "인족 관계 인물",
+    RELATIONSHIP_VAMPIRE: "뱀파이어 관계 인물",
+    RELATIONSHIP_WEREWOLF: "늑대인간 관계 인물",
+    RELATIONSHIP_WITCH: "마녀 관계 인물",
+    RELATIONSHIP_DREAM_DEMON: "몽마 관계 인물",
+  };
+  const roleChoices = state.relationshipGenderPreset === "PER_ROLE"
+    ? `<div class="role-presentation-list">${(controller.data.campaign?.relationship_role_ids ?? []).map((roleId) => {
+      const current = state.relationshipPresentationIds[roleId];
+      const femaleOnly = roleId === "RELATIONSHIP_WITCH";
+      return `<div><span>${escapeHtml(roleLabels[roleId] ?? roleId)}${femaleOnly ? " · 여성 고정" : ""}</span><div><button class="${selectedButton(current === "FEMALE")}" data-action="set-relationship-role" data-role-id="${roleId}" data-presentation-id="FEMALE">여성형</button>${femaleOnly ? "" : `<button class="${selectedButton(current === "MALE")}" data-action="set-relationship-role" data-role-id="${roleId}" data-presentation-id="MALE">남성형</button>`}</div></div>`;
+    }).join("")}</div>`
+    : "";
+  const endingRoutes = controller.data.campaign?.ending_preview_routes ?? [];
+  const selectedRoute = endingRoutes.find((route) => route.id === state.greyboxEndingRouteId);
+  const endingRouteChoices = `<article class="ending-preview-setup"><small>ENDING BRANCH PREVIEW</small><h2>회색 상자 엔딩 검증 경로</h2><div class="ending-preview-choices">${endingRoutes.map((route) => `<button class="${selectedButton(route.id === state.greyboxEndingRouteId)}" data-action="set-greybox-ending-route" data-route-id="${escapeHtml(route.id)}">${escapeHtml(route.label)}</button>`).join("")}</div><p><b>${escapeHtml(selectedRoute?.label ?? "노말")}</b> · ${escapeHtml(selectedRoute?.description ?? "기본 운영 결말을 검증합니다.")} 이 선택은 개발용 대역이며 정식 분기 조건을 대신하지 않습니다.</p></article>`;
+  return `<section class="screen-shell new-game-screen"><div class="scene-heading"><p class="eyebrow">NEW CAMPAIGN · GREYBOX SETTINGS</p><h1>새 인간 지배인과 호텔의 표현을 정합니다</h1><p>성별 선택은 호칭·외형·개인 장면 표현만 바꾸며 일반 손님과 운영 계산에는 영향을 주지 않습니다.</p></div><div class="new-game-grid"><article><small>PLAYER · HUMAN</small><h2>인간 지배인 성별</h2><div class="choice-row"><button class="${selectedButton(state.playerGenderId === "MALE")}" data-action="set-player-gender" data-gender-id="MALE">남성</button><button class="${selectedButton(state.playerGenderId === "FEMALE")}" data-action="set-player-gender" data-gender-id="FEMALE">여성</button></div></article><article><small>SECRETARY AUTOMATA</small><h2>비서 외형</h2><div class="choice-row"><button class="${selectedButton(state.secretaryPresentationId === "FEMALE")}" data-action="set-secretary-presentation" data-presentation-id="FEMALE">여성형</button><button class="${selectedButton(state.secretaryPresentationId === "MALE")}" data-action="set-secretary-presentation" data-presentation-id="MALE">남성형</button></div></article><article class="relationship-setup"><small>RELATIONSHIP CAST</small><h2>관계 인물 구성</h2><div class="choice-row three"><button class="${selectedButton(state.relationshipGenderPreset === "ALL_FEMALE")}" data-action="set-relationship-preset" data-preset-id="ALL_FEMALE">전원 여성</button><button class="${selectedButton(state.relationshipGenderPreset === "MALE_CENTERED")}" data-action="set-relationship-preset" data-preset-id="MALE_CENTERED">남성 중심</button><button class="${selectedButton(state.relationshipGenderPreset === "PER_ROLE")}" data-action="set-relationship-preset" data-preset-id="PER_ROLE">역할별 선택</button></div>${roleChoices}<p>관계 인물은 손님으로 시작해 단골·연락책·협력 NPC로 발전합니다. 마녀 관계 인물은 모든 구성에서 여성으로 고정됩니다.</p></article>${endingRouteChoices}</div><div class="center-action"><button class="button primary large" data-action="confirm-new-game">이 설정으로 상속 장부를 연다</button></div></section>`;
+}
+
+function renderStory(controller) {
+  const node = controller.currentStoryNode;
+  if (!node) return `<section class="screen-shell story-screen"><h1>장면 데이터를 찾을 수 없습니다.</h1></section>`;
+  return `<section class="screen-shell story-screen"><article class="story-card"><p class="eyebrow">${escapeHtml(node.eyebrow)}</p><span class="story-glyph" aria-hidden="true">◆</span><h1>${escapeHtml(node.title)}</h1>${(node.paragraphs ?? []).map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}<button class="button primary large" data-action="continue-story">장부를 계속 읽는다</button></article></section>`;
 }
 
 function renderRuleRows(rules, sourceLabel, withPoints = false) {
@@ -121,6 +165,10 @@ function renderGuestChip(data, guestId, controller, options = {}) {
     </button>`;
 }
 
+function renderElevatorLanding(floor, compact = false) {
+  return `<div class="elevator-landing${compact ? " compact" : ""}" aria-label="${floor}층 엘리베이터, A열 객실과 바로 인접"><span class="elevator-indicator" aria-hidden="true">${floor}</span><div class="elevator-doors" aria-hidden="true"><i></i><i></i></div><small>${compact ? "EV" : "승강기"}</small><span class="elevator-noise" aria-hidden="true">)))</span></div>`;
+}
+
 function renderRoom(data, room, board, occupantId, controller, evaluation) {
   const blocked = board.blockedRooms.has(room.id);
   const selected = occupantId && occupantId === controller.state.selectedGuestId;
@@ -129,6 +177,8 @@ function renderRoom(data, room, board, occupantId, controller, evaluation) {
   const attrText = attrs.map(attributeLabel).join(" · ") || "일반";
   const condition = controller.state.roomConditions[room.id] ?? { cleanliness: 100, durability: 100 };
   const classes = ["room-card"];
+  if (room.wing === 0) classes.push("elevator-adjacent");
+  if (attrs.includes("noisy")) classes.push("noisy-room");
   if (blocked) classes.push("blocked");
   if (selected) classes.push("selected-room");
   if (occupantId && invalidGuestIds.has(occupantId)) classes.push("has-violation");
@@ -143,7 +193,7 @@ function renderRoom(data, room, board, occupantId, controller, evaluation) {
         ${blocked
           ? `<div class="facility-in-room"><span>${board.unlockedRooms.has(room.id) ? "◇" : "＋"}</span><b>${escapeHtml(board.blockedReasons.get(room.id) ?? "사용 불가")}</b></div>`
           : occupantId
-            ? renderGuestChip(data, occupantId, controller, { selected, invalid: invalidGuestIds.has(occupantId), score: evaluation.guestScores[occupantId]?.total ?? 0 })
+            ? renderGuestChip(data, occupantId, controller, { selected, invalid: invalidGuestIds.has(occupantId), score: evaluation.guestScores[occupantId]?.preferenceTotal ?? 0 })
             : `<span class="empty-room">빈 객실</span>`}
       </div>
       ${bonuses.length ? `<span class="room-bonus">${bonuses.map((item) => `${escapeHtml(item.label)} ${signed(item.points)}`).join(" · ")}</span>` : ""}
@@ -157,7 +207,7 @@ function renderGuestDetail(controller, evaluation) {
   const guest = data.indexes.guests[guestId];
   const species = speciesOf(data, guest.species);
   const rules = getGuestRules(data, guestId);
-  const score = evaluation.guestScores[guestId]?.total ?? 0;
+  const score = evaluation.guestScores[guestId]?.preferenceTotal ?? 0;
   const placedRoom = state.placements[guestId];
   const guestViolations = evaluation.violations.filter((item) => item.guestId === guestId);
   const locked = controller.isLockedGuest(guestId);
@@ -185,7 +235,7 @@ function renderGuestDetail(controller, evaluation) {
     </div>
     <section class="rule-group"><h3><span class="rule-dot soft"></span> 개인 선호 <small>손님 카드 정보</small></h3>${renderRuleRows(rules.personalPreferences, "개인", true)}</section>
     ${hiddenPreferences.length ? `<section class="rule-group hidden-preference-group"><h3><span class="rule-dot hidden"></span> ${escapeHtml(species.name)} ${guest.rank} 숨은 선호 <small>${unreadHiddenCount ? `결산 전 ${unreadHiddenCount}` : "열람 완료"}</small></h3>${knownHidden.length ? renderRuleRows(knownHidden, "열람", true) : `<p class="unread-preference">첫 투숙 결산 뒤 같은 종족·등급의 공통 선호로 열람됩니다.</p>`}</section>` : ""}
-    ${locked ? `<p class="revisit-bonus">연박은 같은 예약으로 이어지며 재방문 보너스는 중복되지 않습니다.</p>` : history?.visits ? `<p class="revisit-bonus">↻ 지난 만족 ${history.lastSatisfaction} · 재방문 보너스 ${signed(revisitBonus)}</p>` : ""}
+    ${locked ? `<p class="revisit-bonus">연박은 같은 예약으로 이어지며 재방문 보너스는 중복되지 않습니다.</p>` : history?.visits ? `<p class="revisit-bonus">↻ 지난 숙박 기록 · 재방문 보너스 ${signed(revisitBonus)}</p>` : ""}
     ${guestViolations.length
       ? `<section class="violation-box"><h3>객실을 배정할 수 없는 이유</h3>${guestViolations.map((item) => `<p>! ${escapeHtml(item.message)}</p>`).join("")}</section>`
       : `<p class="all-clear">✓ 수첩에 기록된 공통 규정에 맞는 객실입니다.</p>`}
@@ -199,6 +249,11 @@ function renderGroupEffects(evaluation) {
   return evaluation.groupEffects.map((effect) =>
     `<span class="effect-chip ${effect.type}"><b>${effect.type === "synergy" ? "시너지" : "상극"}</b>${escapeHtml(effect.label)} ${signed(effect.points)}</span>`,
   ).join("");
+}
+
+function renderDislikeRows(rules = []) {
+  if (!rules.length) return `<p class="empty-rules">등급 공통 불호 없음</p>`;
+  return rules.map((rule) => `<p class="rule-row"><span>불호</span><b>${escapeHtml(rule.label)}</b><small>호텔 격차 +${rule.ignored_at_prestige_gap}부터 관용</small></p>`).join("");
 }
 
 function renderPlacement(controller) {
@@ -215,7 +270,7 @@ function renderPlacement(controller) {
     : `<div class="service-timer ${timerClass}" aria-live="polite" data-video-target="service-timer"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · 회당 -5초</span></div>`;
   const floorRows = [...new Set(data.rooms.map((room) => room.floor))].sort((a, b) => b - a).map((floor) => {
     const rooms = data.rooms.filter((room) => room.floor === floor).sort((a, b) => a.wing - b.wing);
-    return `<div class="floor-row"><div class="floor-label"><b>F${floor}</b><span>${floor === 1 ? "로비층" : `${floor}층`}</span></div>${rooms.map((sourceRoom) => renderRoom(data, board.rooms[sourceRoom.id], board, occupantByRoom[sourceRoom.id], controller, evaluation)).join("")}</div>`;
+    return `<div class="floor-row"><div class="floor-label"><b>F${floor}</b><span>${floor === 1 ? "로비층" : `${floor}층`}</span></div>${renderElevatorLanding(floor)}${rooms.map((sourceRoom) => renderRoom(data, board.rooms[sourceRoom.id], board, occupantByRoom[sourceRoom.id], controller, evaluation)).join("")}</div>`;
   }).join("");
   return `
     <section class="screen-shell placement-screen">
@@ -237,7 +292,7 @@ function renderPlacement(controller) {
       <footer class="action-bar">
         <div class="score-cluster">
           <span class="status-chip ${evaluation.valid ? "clear" : "warning"}">${evaluation.valid ? "객실 배정 가능" : `배정 불가 ${evaluation.violations.length}건`}</span>
-          <span><small>현재 만족도 합계</small><b>${evaluation.placementScore}</b></span>
+          <span><small>현재 선호 점수</small><b>${evaluation.placementScore}</b></span>
           <span><small>배치 인원</small><b>${Object.keys(state.placements).length} / ${state.acceptedGuestIds.length}</b></span>
         </div>
         <div class="placement-actions">${isTutorial ? `<button class="button secondary" data-action="skip-tutorial">연습 건너뛰기</button>` : ""}<button class="button primary" data-action="finish-night" ${evaluation.valid ? "" : "disabled"}>${isTutorial ? "연습 완료 · 첫 영업 시작" : "밤 마감하기"}</button></div>
@@ -255,14 +310,28 @@ function resultBreakdown(controller, result) {
   return `
     ${emergency ? `<section class="emergency-report"><div><p class="eyebrow">CHECK-IN DEADLINE</p><h2>마감 후 프런트 긴급 배정</h2></div><p><b>자동 배정</b> ${escapeHtml(names(emergency.autoAssignedGuestIds))}<br /><b>강제 취소</b> ${escapeHtml(names(result.canceledGuestIds))}</p></section>` : ""}
     <div class="result-grid" data-video-target="night-result">
-      <article><small>현재 만족도 합계</small><strong>${result.placementScore}</strong><span>선호·시너지·상극 합산</span></article>
-      <article><small>평판 변화</small><strong>${signed(result.reputationDelta)}</strong><span>수용과 거절 합산</span></article>
+      <article><small>선호 점수 합계</small><strong>${result.placementScore}</strong><span>선호·시너지·상극 합산</span></article>
+      <article><small>평판 변화</small><strong>${signed(result.reputationDelta)}</strong><span>후기·거절·취소 합산</span></article>
       <article><small>기본 숙박비</small><strong>${result.baseFees}G</strong><span>수용 손님</span></article>
-      <article><small>팁</small><strong>${result.tips}G</strong><span>현재 만족도 환산</span></article>
+      <article><small>팁</small><strong>${result.tips}G</strong><span>선호 점수 환산</span></article>
       <article class="featured"><small>총수입</small><strong>${result.income}G</strong><span>이번 영업</span></article>
-      <article class="featured"><small>영업 평가</small><strong>${result.evaluationScore}</strong><span>${escapeHtml(result.grade)}</span></article>
+      <article class="featured"><small>영업 평가</small><strong>${escapeHtml(result.grade)}</strong><span>손님별 후기 종합</span></article>
     </div>
     <div class="result-notes"><p><b>수용:</b> ${escapeHtml(names(result.acceptedGuestIds))}</p><p><b>거절:</b> ${escapeHtml(names(result.rejectedGuestIds))}</p>${result.canceledGuestIds?.length ? `<p class="canceled"><b>수용 후 취소:</b> ${escapeHtml(names(result.canceledGuestIds))}</p>` : ""}</div>`;
+}
+
+function renderGuestReviews(controller, result) {
+  const reviews = result.guestReviews ?? [];
+  if (!reviews.length) return "";
+  const reactionLabel = {
+    positive: "호평",
+    neutral: "무난",
+    negative: "아쉬움",
+  };
+  return `<section class="guest-review-section" data-video-target="guest-reviews"><div class="guest-review-heading"><p class="eyebrow">GUEST REVIEWS</p><h3>오늘의 투숙 후기</h3><p>내부 만족도 수치 대신 손님이 기억한 경험과 평판 영향을 확인합니다.</p></div><div class="guest-review-grid">${reviews.map((review) => {
+    const guest = controller.data.indexes.guests[review.guestId];
+    return `<article class="guest-review-card ${review.reaction}"><div><span>${escapeHtml(reactionLabel[review.reaction] ?? review.reaction)}</span>${rankTag(controller.data, guest.rank)}</div><h4>${escapeHtml(guest.name)} · ${escapeHtml(review.headline)}</h4><p>“${escapeHtml(review.comment)}”</p><small>평판 영향 ${signed(review.reputationImpact)} · ${escapeHtml(review.reputationInfluenceLabel)}</small></article>`;
+  }).join("")}</div></section>`;
 }
 
 function renderRoomWear(controller) {
@@ -277,21 +346,54 @@ function renderDiscoveries(controller) {
   return `<section class="discovery-report" data-video-target="hidden-preference-discovery"><div><p class="eyebrow">SPECIES PREFERENCE REVEALED</p><h3>종족·등급 숨은 선호를 열람했습니다</h3></div><div>${discoveries.map((item) => `<span><b>${escapeHtml(controller.data.indexes.species[item.speciesId]?.name ?? item.speciesId)} · ${escapeHtml(item.rankId)}</b>${escapeHtml(item.label)} ${signed(item.points)}</span>`).join("")}</div></section>`;
 }
 
+function renderResultActions(controller, isLast) {
+  if (controller.isScenarioMode) {
+    return `<div class="center-action"><button class="button primary large" data-action="open-result-review">비서에게 마감 장부를 건넨다</button></div>`;
+  }
+  const continueLabel = isLast ? "초청 영업 종합 결과" : "객실 정비와 공사 준비";
+  if (controller.isEndlessMode) {
+    return `<div class="center-action split-actions"><button class="button secondary large" data-action="retry-stage">이번 영업 다시</button><button class="button primary large" data-action="continue-result">다음 영업 준비</button></div>`;
+  }
+  return `<div class="center-action"><button class="button primary large" data-action="continue-result">${continueLabel}</button></div>`;
+}
+
 function renderResult(controller) {
   const result = controller.currentResult;
   const isLast = controller.currentNightNumber >= controller.totalNights;
   const nextOdds = isLast ? null : rankOddsFor(controller.data, controller.currentNightNumber + 1, controller.state.hotelReputation);
+  const eyebrow = controller.isScenarioMode
+    ? `CAMPAIGN DAY ${controller.currentNightNumber} COMPLETE`
+    : `PRE-OPENING NIGHT ${controller.currentNightNumber} COMPLETE`;
+  const summary = controller.isScenarioMode
+    ? (isLast ? "상속 유지 조건을 판정할 마지막 장부입니다." : "마감 서명 뒤 캠페인 장부와 다음 영업으로 진행합니다.")
+    : (isLast ? "개장 전 다섯 밤의 운영 기록을 확인합니다." : "수입과 평판이 다음 손님과 시설 제안의 범위를 바꿉니다.");
   return `
     <section class="screen-shell result-screen">
-      <div class="result-hero"><p class="eyebrow">PRE-OPENING NIGHT ${controller.currentNightNumber} COMPLETE</p><span class="result-glyph">✦</span><h1>${controller.currentNightNumber}번째 영업을 마쳤습니다.</h1><p>${isLast ? "개장 전 다섯 밤의 운영 기록을 확인합니다." : "수입과 평판이 다음 손님과 시설 제안의 범위를 바꿉니다."}</p></div>
+      <div class="result-hero"><p class="eyebrow">${escapeHtml(eyebrow)}</p><span class="result-glyph">✦</span><h1>${controller.currentNightNumber}번째 영업을 마쳤습니다.</h1><p>${escapeHtml(summary)}</p></div>
       ${resultBreakdown(controller, result)}
+      ${renderGuestReviews(controller, result)}
       <div class="result-operational-reports">
         ${renderDiscoveries(controller)}
         ${renderRoomWear(controller)}
       </div>
       ${nextOdds ? renderOddsStrip(controller.data, nextOdds, "next-rank-odds") : ""}
-      <div class="center-action"><button class="button primary large" data-action="continue-result">${isLast ? "초청 영업 종합 결과" : "객실 정비와 공사 준비"}</button></div>
+      ${renderResultActions(controller, isLast)}
     </section>`;
+}
+
+function secretaryPortrait(controller) {
+  const presentationId = controller.state.secretaryPresentationId;
+  const presentationClass = presentationId === "MALE" ? "male" : "female";
+  return `<div class="secretary-portrait ${presentationClass}" aria-label="비서 오토마타"><span aria-hidden="true">◇</span><small>SECRETARY AUTOMATA</small></div>`;
+}
+
+function renderDayOpening(controller) {
+  const repeated = controller.state.foresightRetryCount > 0;
+  return `<section class="screen-shell secretary-scene day-opening-scene"><div class="scene-heading"><p class="eyebrow">MORNING BRIEFING · DAY ${controller.currentNightNumber}</p><h1>영업 개시 보고</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>${repeated ? "잠시만요. 처음 펼친 장부인데… 지배인님께서는 다음 항목을 이미 알고 계신 표정이군요." : "좋은 아침입니다, 지배인님. 오늘 접수된 예약과 객실 현황을 순서대로 읽어 드리겠습니다."}</p><p>준비가 끝나는 대로 예약 장부를 개방하겠습니다.</p></article></div><div class="center-action"><button class="button primary large" data-action="start-day-business">오늘 영업을 개시한다</button></div></section>`;
+}
+
+function renderResultReview(controller) {
+  return `<section class="screen-shell secretary-scene result-review-scene"><div class="scene-heading"><p class="eyebrow">CLOSING REPORT · DAY ${controller.currentNightNumber}</p><h1>마감 확인</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>오늘 장부의 수입, 평판과 객실 변동을 모두 정리했습니다.</p><p>이 내용으로 마감 서명을 남길까요, 지배인님?</p></article></div><div class="center-action split-actions"><button class="button secondary large" data-action="restart-day-through-secretary">아침 장부부터 다시 읽어 줘.</button><button class="button primary large" data-action="accept-secretary-report">이대로 서명하지.</button></div></section>`;
 }
 
 function renderMaintenance(controller) {
@@ -377,6 +479,7 @@ function renderReservationCard(controller, guestId) {
   const rules = getGuestRules(data, guestId);
   const special = state.specialInviteGuestIds.includes(guestId);
   const history = state.guestHistory[guestId];
+  const lastReactionLabel = { positive: "호평", neutral: "무난", negative: "아쉬움" }[history?.lastReaction] ?? "무난";
   const revisitBonus = revisitBonusFor(data, history);
   const wearScale = data.balance?.wear_scale ?? 1;
   const cleanlinessLoss = guest.room_wear?.cleanliness ?? (guest.cleanliness_impact ?? 1) * wearScale;
@@ -385,8 +488,8 @@ function renderReservationCard(controller, guestId) {
     <article class="reservation-card rarity-${guest.rank.toLowerCase()} ${decision ?? "pending"} ${special ? "special-invite" : ""}" style="--rank-color:${escapeHtml(rankOf(data, guest.rank).color)}" ${special ? "data-video-target=ssr-invite" : ""}>
       ${special ? `<div class="special-ribbon">왕실 특별 초청</div>` : ""}
       <div class="reservation-top"><span class="reservation-symbol">${escapeHtml(species.icon)}</span><div><p>${escapeHtml(species.name)} · ${guest.stay_nights ?? 1}박</p><h2>${escapeHtml(guest.name)}</h2></div>${rankTag(data, guest.rank, "compact")}</div>
-      <div class="reservation-stats"><span><small>숙박비</small><b>${guest.base_fee}G</b></span><span><small>호평</small><b>+${guest.satisfied_reputation}</b></span><span><small>거절</small><b>${guest.reject_reputation}</b></span></div>
-      <div class="reservation-rules"><p><b>공개 개인 선호 ${rules.personalPreferences.length}</b> · ${rules.personalPreferences.map((rule) => `${escapeHtml(rule.label)} ${signed(rule.points)}`).join(", ")}</p>${(rules.hiddenPreferences ?? []).length ? `<p><b>${escapeHtml(species.name)} ${guest.rank} 숨은 선호</b> · ${(rules.hiddenPreferences ?? []).length}개 · 투숙 결산 후 열람</p>` : ""}${history?.visits ? `<p class="revisit-copy"><b>재방문</b> · 지난 만족 ${history.lastSatisfaction}, 이번 보너스 ${signed(revisitBonus)}</p>` : ""}<p><b>객실 영향</b> · 청결 -${cleanlinessLoss}, 내구 -${durabilityLoss}</p></div>
+      <div class="reservation-stats"><span><small>숙박비</small><b>${guest.base_fee}G</b></span><span><small>평판 영향</small><b>${escapeHtml(rankOf(data, guest.rank).reputation_influence_label)}</b></span><span><small>거절</small><b>${guest.reject_reputation}</b></span></div>
+      <div class="reservation-rules"><p><b>공개 개인 선호 ${rules.personalPreferences.length}</b> · ${rules.personalPreferences.map((rule) => `${escapeHtml(rule.label)} ${signed(rule.points)}`).join(", ")}</p><p><b>등급 기대</b> · 선호 ${rules.rankPreferences.length}개, 불호 ${rules.rankDislikes.length}개</p>${(rules.hiddenPreferences ?? []).length ? `<p><b>${escapeHtml(species.name)} ${guest.rank} 숨은 선호</b> · ${(rules.hiddenPreferences ?? []).length}개 · 투숙 결산 후 열람</p>` : ""}${history?.visits ? `<p class="revisit-copy"><b>재방문</b> · 지난 후기 ${lastReactionLabel}, 이번 보너스 ${signed(revisitBonus)}</p>` : ""}<p><b>객실 영향</b> · 청결 -${cleanlinessLoss}, 내구 -${durabilityLoss}</p></div>
       <div class="decision-buttons"><button class="button small accept" data-action="accept" data-guest-id="${guestId}">수용</button><button class="button small reject" data-action="reject" data-guest-id="${guestId}">거절</button></div>
       ${decision ? `<div class="decision-stamp">${decision === "accept" ? "수용 예정" : "거절 예정"}</div>` : ""}
     </article>`;
@@ -431,7 +534,7 @@ function renderReservationBoard(controller) {
   );
   const rows = [...new Set(data.rooms.map((room) => room.floor))].sort((a, b) => b - a).map((floor) => {
     const rooms = data.rooms.filter((room) => room.floor === floor).sort((a, b) => a.wing - b.wing);
-    return `<div class="occupancy-floor"><b>F${floor}</b>${rooms.map((room) => {
+    return `<div class="occupancy-floor"><b>F${floor}</b>${renderElevatorLanding(floor, true)}${rooms.map((room) => {
       const stayover = stayoverByRoom[room.id];
       const built = metrics.board.unlockedRooms.has(room.id);
       const unavailable = built && metrics.board.blockedRooms.has(room.id);
@@ -476,9 +579,9 @@ function renderSpeciesRulesPage(controller) {
 }
 
 function renderRankRulesPage(controller) {
-  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">SERVICE CLASS</p><h2>N·R·SR·SSR 응대 규정</h2><p>등급이 높을수록 보상과 손실, 선택적 고득점 요청이 함께 커집니다.</p></div><div class="manual-entry-grid" data-video-target="rank-handbook">${controller.data.ranks.map((rank) => {
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">GUEST CLASS</p><h2>N·R·SR·SSR 투숙 기대</h2><p>등급이 높을수록 선호·불호가 많고 한 번의 후기가 평판에 더 크게 반영됩니다.</p></div><div class="manual-entry-grid" data-video-target="rank-handbook">${controller.data.ranks.map((rank) => {
     const locked = !controller.state.seenRankIds.includes(rank.id);
-    return `<article class="manual-entry rarity-${rank.id.toLowerCase()} ${locked ? "locked" : ""}" style="--rank-color:${escapeHtml(rank.color)}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(rank.symbol)}</span><div><small>${locked ? `미열람 규칙 · 초청 영업 ${rank.unlock_stage}회차 이후` : "열람 완료 · 등급 규정"}</small><h3>${locked ? "아직 만나지 않은 등급" : `${rank.id} · ${escapeHtml(rank.name)}`}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>평판과 영업 회차 조건을 만족해 첫 예약이 도착하면 응대 규정을 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 응대 조건</b>${renderRuleRows(rank.hard_constraints, "필수")}</div><div class="manual-section preference"><b>등급 공통 선호</b>${renderRuleRows(rank.soft_preferences, "선호", true)}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}</article>`;
+    return `<article class="manual-entry rarity-${rank.id.toLowerCase()} ${locked ? "locked" : ""}" style="--rank-color:${escapeHtml(rank.color)}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(rank.symbol)}</span><div><small>${locked ? `미열람 규칙 · 초청 영업 ${rank.unlock_stage}회차 이후` : `평판 영향 ${escapeHtml(rank.reputation_influence_label)}`}</small><h3>${locked ? "아직 만나지 않은 등급" : `${rank.id} · ${escapeHtml(rank.name)}`}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>평판과 영업 회차 조건을 만족해 첫 예약이 도착하면 투숙 기대를 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 숙박 조건</b>${renderRuleRows(rank.hard_constraints, "필수")}</div><div class="manual-section preference"><b>등급 공통 선호</b>${renderRuleRows(rank.soft_preferences, "선호", true)}</div><div class="manual-section dislike"><b>등급 공통 불호</b>${renderDislikeRows(rank.soft_dislikes)}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}</article>`;
   }).join("")}</div></div>`;
 }
 
@@ -506,16 +609,41 @@ function renderFinal(controller) {
   const totalRep = nightResults.reduce((sum, result) => sum + result.reputationDelta, 0);
   const expandedRooms = ownedUpgradeIds.filter((id) => (controller.data.indexes.upgrades[id]?.room_unlocks ?? []).length).length;
   const lastResult = nightResults.at(-1);
-  return `<section class="screen-shell final-screen"><div class="result-hero" data-video-target="showcase-final"><p class="eyebrow">PRE-OPENING INVITATIONAL COMPLETE</p><span class="result-glyph">◆</span><h1>개장 전 다섯 영업을 마쳤습니다.</h1><p>수용과 배치, 공사 계약으로 달라진 호텔의 운영 기록입니다.</p></div><div class="final-summary"><article><small>완료 영업</small><strong>${nightResults.length} / 5</strong></article><article><small>누적 수입</small><strong>${totalIncome}G</strong></article><article><small>누적 평판</small><strong>${signed(totalRep)}</strong></article><article><small>시설·증축</small><strong>${ownedUpgradeIds.length}개 · 증축 ${expandedRooms}</strong></article></div>${resultBreakdown(controller, lastResult)}<div class="center-action"><button class="button primary large" data-action="restart">다른 시드로 다시 시작</button></div></section>`;
+  const record = controller.state.runRecord;
+  const isComplete = record?.outcome === "COMPLETE";
+  const campaign = controller.isScenarioMode;
+  const heroEyebrow = campaign ? "CAMPAIGN GREYBOX COMPLETE" : "PRE-OPENING INVITATIONAL COMPLETE";
+  const heroTitle = campaign
+    ? (record?.title ?? (isComplete ? "베스페라의 상속을 지켜냈습니다." : "상속 조건을 채우지 못했습니다."))
+    : "개장 전 다섯 영업을 마쳤습니다.";
+  const heroDescription = campaign
+    ? (record?.description ?? "캠페인 종료 기록입니다.")
+    : "수용과 배치, 공사 계약으로 달라진 호텔의 운영 기록입니다.";
+  const restartLabel = campaign ? "새 캠페인 준비" : "다른 시드로 다시 시작";
+  const incomeLabel = campaign ? "현재 골드" : "누적 수입";
+  const incomeValue = campaign ? controller.state.gold : totalIncome;
+  const reputationLabel = campaign ? "현재 평판" : "누적 평판";
+  const reputationValue = campaign ? controller.state.hotelReputation : totalRep;
+  const epilogues = campaign && record?.relationship_epilogues?.length
+    ? `<section class="relationship-epilogues"><div><p class="eyebrow">RELATIONSHIP EPILOGUES</p><h2>인연을 맺은 손님들의 이후</h2></div><div>${record.relationship_epilogues.map((epilogue) => `<article class="${epilogue.selected ? "selected" : ""}"><small>${escapeHtml(epilogue.npc_stage)}${epilogue.selected ? " · 선택한 동반자" : ""}</small><h3>${escapeHtml(epilogue.label)}</h3><p>${escapeHtml(epilogue.description)}</p></article>`).join("")}</div></section>`
+    : "";
+  const managerOutcome = campaign && record?.manager_outcome
+    ? `<p><b>지배인의 이후 · ${escapeHtml(record.manager_outcome.title)}</b> — ${escapeHtml(record.manager_outcome.description)}</p>`
+    : "";
+  return `<section class="screen-shell final-screen"><div class="result-hero ${campaign && !isComplete ? "failure" : ""}" data-video-target="showcase-final"><p class="eyebrow">${escapeHtml(heroEyebrow)}${record?.ending_tier ? ` · ${escapeHtml(record.ending_tier)}` : ""}</p><span class="result-glyph">◆</span><h1>${escapeHtml(heroTitle)}</h1><p>${escapeHtml(heroDescription)}</p></div><article class="run-record-card" data-video-target="run-record"><div><small>ENDING · ${escapeHtml(record?.ending_id ?? "UNRESOLVED")}</small><h2>${escapeHtml(record?.title ?? "종료 판정 기록 없음")}</h2></div><span class="status-chip ${isComplete ? "clear" : "warning"}">${isComplete ? (campaign ? "성공" : "완료") : campaign ? "실패" : "미완료"}</span><p>기록 ID <b>${escapeHtml(record?.record_id ?? "-")}</b> · 이 브라우저에 보존된 실행 기록 ${controller.state.recordArchiveCount}개</p>${managerOutcome}</article><div class="final-summary"><article><small>완료 영업</small><strong>${nightResults.length} / ${controller.totalNights}</strong></article><article><small>${incomeLabel}</small><strong>${incomeValue}G</strong></article><article><small>${reputationLabel}</small><strong>${signed(reputationValue)}</strong></article><article><small>시설·증축</small><strong>${ownedUpgradeIds.length}개 · 증축 ${expandedRooms}</strong></article><article><small>실행 시드</small><strong>${controller.state.runSeed}</strong></article></div>${epilogues}${lastResult && !campaign ? resultBreakdown(controller, lastResult) : ""}<div class="center-action"><button class="button primary large" data-action="restart">${escapeHtml(restartLabel)}</button></div></section>`;
 }
 
 export function renderApp(app, controller) {
   const { phase } = controller.state;
   let content = "";
   if (phase === PHASES.TITLE) content = renderTitle(controller);
+  else if (phase === PHASES.NEW_GAME) content = renderNewGame(controller);
   else if ([PHASES.TUTORIAL, PHASES.PLACEMENT].includes(phase)) content = renderPlacement(controller);
+  else if (phase === PHASES.STORY) content = renderStory(controller);
+  else if (phase === PHASES.DAY_OPENING) content = renderDayOpening(controller);
   else if (phase === PHASES.RESERVATION) content = renderReservation(controller);
   else if (phase === PHASES.RESULT) content = renderResult(controller);
+  else if (phase === PHASES.RESULT_REVIEW) content = renderResultReview(controller);
   else if (phase === PHASES.UPGRADE) content = renderUpgrade(controller);
   else if (phase === PHASES.FINAL) content = renderFinal(controller);
   app.innerHTML = `<div class="app-frame">${renderHeader(controller)}<div class="content-frame">${content}</div>${renderHandbook(controller)}${renderReservationBoard(controller)}</div>`;

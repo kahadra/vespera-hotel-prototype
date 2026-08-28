@@ -9,10 +9,23 @@ export function setupInput(app, controller, rerender) {
     else if (action === "open-reservation-board") controller.openReservationBoard();
     else if (action === "close-reservation-board") controller.closeReservationBoard();
     else if (action === "handbook-tab") controller.selectHandbookTab(target.dataset.tab);
+    else if (action === "resume") controller.resumeRun();
     else if (action === "start") controller.start();
+    else if (action === "set-player-gender") controller.setPlayerGender(target.dataset.genderId);
+    else if (action === "set-secretary-presentation") controller.setSecretaryPresentation(target.dataset.presentationId);
+    else if (action === "set-relationship-preset") controller.setRelationshipGenderPreset(target.dataset.presetId);
+    else if (action === "set-relationship-role") controller.setRelationshipRolePresentation(target.dataset.roleId, target.dataset.presentationId);
+    else if (action === "set-greybox-ending-route") controller.setGreyboxEndingRoute(target.dataset.routeId);
+    else if (action === "confirm-new-game") controller.confirmNewGame();
+    else if (action === "continue-story") controller.continueStory();
     else if (action === "skip-tutorial") controller.skipTutorial();
+    else if (action === "start-day-business") controller.startDayBusiness();
     else if (action === "finish-night") controller.finishNight();
     else if (action === "continue-result") controller.continueAfterResult();
+    else if (action === "retry-stage") controller.retryCurrentStage();
+    else if (action === "open-result-review") controller.openResultReview();
+    else if (action === "accept-secretary-report") controller.acceptSecretaryReport();
+    else if (action === "restart-day-through-secretary") controller.restartDayThroughSecretary();
     else if (action === "buy-upgrade") controller.buyUpgrade(target.dataset.upgradeId);
     else if (action === "finish-upgrade") controller.finishUpgrade();
     else if (action === "skip-upgrade") controller.skipUpgrade();
@@ -24,6 +37,7 @@ export function setupInput(app, controller, rerender) {
     else if (target.dataset.guestId) {
       controller.selectGuest(target.dataset.guestId);
     }
+    controller.saveCheckpoint();
     rerender();
   });
 
@@ -58,10 +72,12 @@ export function setupInput(app, controller, rerender) {
     if (room) {
       event.preventDefault();
       controller.placeGuest(guestId, room.dataset.roomId);
+      controller.saveCheckpoint();
       rerender();
     } else if (waiting) {
       event.preventDefault();
       controller.unplaceGuest(guestId);
+      controller.saveCheckpoint();
       rerender();
     }
   });

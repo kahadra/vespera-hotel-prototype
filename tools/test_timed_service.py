@@ -22,6 +22,107 @@ from smoke_browser import (
 )
 
 
+def assert_guest_review_settlement(client: CdpClient, result_index: int) -> dict:
+    """Settlement exposes qualitative reviews while exact satisfaction stays internal."""
+
+    result = client.evaluate(
+        f"""
+        (() => {{
+          const controller = window.__vesperaController;
+          const nightResult = controller.state.nightResults[{result_index}];
+          const section = document.querySelector('[data-video-target="guest-reviews"]');
+          const cards = [...(section?.querySelectorAll('.guest-review-card') ?? [])];
+          return {{
+            phase: controller.state.phase,
+            reviewCount: nightResult?.guestReviews?.length ?? -1,
+            acceptedCount: nightResult?.acceptedGuestIds?.length ?? -1,
+            cardCount: cards.length,
+            hasSection: Boolean(section),
+            leaksInternalField: Boolean(section?.innerHTML.includes('satisfaction')),
+            satisfactionReputation: nightResult?.satisfactionReputation,
+            summedReviewImpact: (nightResult?.guestReviews ?? [])
+              .reduce((sum, review) => sum + review.reputationImpact, 0),
+            reactions: (nightResult?.guestReviews ?? []).map(review => {{
+              const guest = controller.data.indexes.guests[review.guestId];
+              const threshold = controller.data.indexes.ranks[guest.rank]
+                .positive_satisfaction_threshold;
+              const expectedReaction = review.satisfaction < 0
+                ? 'negative'
+                : review.satisfaction >= threshold ? 'positive' : 'neutral';
+              return {{
+                reaction: review.reaction,
+                expectedReaction,
+                reputationImpact: review.reputationImpact,
+              }};
+            }}),
+          }};
+        }})()
+        """
+    )
+    assert result["phase"] == "RESULT", result
+    assert result["hasSection"], result
+    assert result["reviewCount"] == result["acceptedCount"], result
+    assert result["cardCount"] == result["reviewCount"], result
+    assert result["leaksInternalField"] is False, result
+    assert result["summedReviewImpact"] == result["satisfactionReputation"], result
+    assert all(
+        item["reaction"] == item["expectedReaction"]
+        for item in result["reactions"]
+    ), result
+    assert all(
+        item["reputationImpact"] == 0
+        for item in result["reactions"]
+        if item["reaction"] == "neutral"
+    ), result
+    return {
+        "night": result_index + 1,
+        "reviews": result["reviewCount"],
+        "reactions": {
+            reaction: sum(1 for item in result["reactions"] if item["reaction"] == reaction)
+            for reaction in ("positive", "neutral", "negative")
+        },
+        "review_reputation": result["satisfactionReputation"],
+        "exact_satisfaction_hidden": True,
+    }
+
+
+def assert_elevator_room_context(client: CdpClient) -> dict:
+    """Each floor visually places an elevator immediately beside noisy A rooms."""
+
+    result = client.evaluate(
+        """
+        (() => {
+          const rows = [...document.querySelectorAll('.hotel-board .floor-row')];
+          return {
+            rowCount: rows.length,
+            floors: rows.map(row => {
+              const elevator = row.querySelector('.elevator-landing');
+              const roomA = row.querySelector('.room-card.elevator-adjacent');
+              const elevatorRect = elevator?.getBoundingClientRect();
+              const roomRect = roomA?.getBoundingClientRect();
+              return {
+                elevatorPresent: Boolean(elevator),
+                accessibleContext: elevator?.getAttribute('aria-label') ?? '',
+                roomId: roomA?.dataset.roomId ?? null,
+                noisyRoom: Boolean(roomA?.classList.contains('noisy-room')),
+                gap: elevatorRect && roomRect
+                  ? Math.round(roomRect.left - elevatorRect.right)
+                  : null,
+              };
+            }),
+          };
+        })()
+        """
+    )
+    assert result["rowCount"] == 3, result
+    assert all(item["elevatorPresent"] for item in result["floors"]), result
+    assert all(item["roomId"].endswith("-A") for item in result["floors"]), result
+    assert all(item["noisyRoom"] for item in result["floors"]), result
+    assert all(0 <= item["gap"] <= 10 for item in result["floors"]), result
+    assert all("A열 객실과 바로 인접" in item["accessibleContext"] for item in result["floors"]), result
+    return result
+
+
 def assert_reservation_cardinality_gates(client: CdpClient) -> dict:
     """Probe booking and physical cardinality gates, restoring the run."""
 
@@ -631,6 +732,9 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
     hard_feasibility_check: dict | None = None
     facility_service_check: dict | None = None
     drag_drop_checks: dict | None = None
+    review_settlements: list[dict] = []
+    elevator_context: dict | None = None
+    checkpoint_reload: dict | None = None
     try:
         client.command("Runtime.enable")
         client.command("Page.enable")
@@ -642,17 +746,183 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
         wait_for(client, "document.readyState === 'complete'")
         wait_for(client, "Boolean(window.__vesperaController)")
+        # Shared profile knowledge is a product feature; this deterministic
+        # regression owns a clean browser-storage fixture.
+        client.evaluate("localStorage.clear(); true")
+        client.command("Page.navigate", {"url": "about:blank"})
+        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": seeded_url(url, seed)})
+        wait_for(client, "document.readyState === 'complete'")
+        wait_for(client, "Boolean(window.__vesperaController)")
         assert_preopening_copy(
             client,
             "개장 전 초청 영업에",
             "PRE-OPENING INVITATIONAL",
         )
 
+        campaign_secretary_contract = client.evaluate(
+            """
+            (async () => {
+              const [{ GameController }, { renderApp }] = await Promise.all([
+                import('./src/state.js'),
+                import('./src/render.js'),
+              ]);
+              const source = window.__vesperaController.data;
+              const campaignData = {
+                ...source,
+                prototype_mode: { ...source.prototype_mode, type: 'CAMPAIGN' },
+              };
+              const memoryStorage = () => {
+                const values = new Map();
+                return {
+                  getItem: key => values.has(key) ? values.get(key) : null,
+                  setItem: (key, value) => values.set(key, value),
+                  removeItem: key => values.delete(key),
+                };
+              };
+              const campaign = new GameController(campaignData, {
+                seed: 314159,
+                storage: memoryStorage(),
+              });
+              const host = document.createElement('div');
+              const selected = campaign.setSecretaryPresentation('MALE');
+              const opened = campaign.beginOperatingDay(0);
+              renderApp(host, campaign);
+              const openingText = host.innerText;
+              const openingPhase = campaign.state.phase;
+              campaign.startDayBusiness();
+              const businessPhase = campaign.state.phase;
+              campaign.completeNight({
+                income: 9,
+                reputationDelta: 2,
+                acceptedGuestIds: [],
+                rejectedGuestIds: [],
+                canceledGuestIds: [],
+                placements: {},
+                guestScores: {},
+                guestReviews: [],
+              });
+              campaign.state.discoveredHiddenPreferenceIds.push('TEST:HIDDEN');
+              campaign.state.lastDiscoveries = [{ hiddenId: 'TEST:HIDDEN' }];
+              const reviewOpened = campaign.openResultReview();
+              renderApp(host, campaign);
+              const reviewText = host.innerText;
+              const restarted = campaign.restartDayThroughSecretary();
+              renderApp(host, campaign);
+              const repeatedOpeningText = host.innerText;
+
+              const showcase = new GameController(source, {
+                seed: 314159,
+                storage: memoryStorage(),
+              });
+              showcase.beginOperatingDay(0);
+              showcase.state.phase = 'RESULT';
+              const showcaseReviewOpened = showcase.openResultReview();
+
+              const endlessData = {
+                ...source,
+                prototype_mode: { ...source.prototype_mode, type: 'ENDLESS' },
+              };
+              const endless = new GameController(endlessData, {
+                seed: 271828,
+                storage: memoryStorage(),
+              });
+              endless.beginOperatingDay(0);
+              const endlessStartPhase = endless.state.phase;
+              endless.completeNight({
+                income: 7,
+                reputationDelta: 1,
+                acceptedGuestIds: [],
+                rejectedGuestIds: [],
+                canceledGuestIds: [],
+                placements: {},
+                guestScores: {},
+                guestReviews: [],
+              });
+              const endlessRetried = endless.retryCurrentStage();
+              return {
+                selected,
+                opened,
+                openingPhase,
+                businessPhase,
+                reviewOpened,
+                restarted,
+                restoredPhase: campaign.state.phase,
+                restoredGold: campaign.state.gold,
+                restoredResults: campaign.state.nightResults.length,
+                retryCount: campaign.state.foresightRetryCount,
+                remembered: campaign.state.discoveredHiddenPreferenceIds.includes('TEST:HIDDEN'),
+                presentation: campaign.state.secretaryPresentationId,
+                openingHasBriefing: openingText.includes('영업 개시 보고'),
+                reviewHasIndirectChoice: reviewText.includes('아침 장부부터 다시 읽어 줘.'),
+                repeatedOpeningHasClue: repeatedOpeningText.includes('처음 펼친 장부인데'),
+                leaksExplanation: ['예지', '관측', '시뮬레이션', '세계선'].some(
+                  term => `${openingText} ${reviewText} ${repeatedOpeningText}`.includes(term),
+                ),
+                showcaseReviewOpened,
+                endlessStartPhase,
+                endlessRetried,
+                endlessRestoredPhase: endless.state.phase,
+              };
+            })()
+            """
+        )
+        assert campaign_secretary_contract == {
+            "selected": True,
+            "opened": True,
+            "openingPhase": "DAY_OPENING",
+            "businessPhase": "PLACEMENT",
+            "reviewOpened": True,
+            "restarted": True,
+            "restoredPhase": "DAY_OPENING",
+            "restoredGold": 0,
+            "restoredResults": 0,
+            "retryCount": 1,
+            "remembered": True,
+            "presentation": "MALE",
+            "openingHasBriefing": True,
+            "reviewHasIndirectChoice": True,
+            "repeatedOpeningHasClue": True,
+            "leaksExplanation": False,
+            "showcaseReviewOpened": False,
+            "endlessStartPhase": "PLACEMENT",
+            "endlessRetried": True,
+            "endlessRestoredPhase": "PLACEMENT",
+        }, campaign_secretary_contract
+
         # Tutorial: two guests, no deadline, and a valid solution starts Night 1.
         client.click('[data-action="start"]')
         tutorial = controller_state(client)
         assert tutorial["phase"] == "TUTORIAL"
         assert tutorial["serviceTimerMs"] is None
+        checkpoint_before_reload = {
+            "phase": tutorial["phase"],
+            "runSeed": tutorial["runSeed"],
+            "acceptedGuestIds": tutorial["acceptedGuestIds"],
+        }
+        client.command("Page.navigate", {"url": "about:blank"})
+        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": seeded_url(url, seed)})
+        wait_for(client, "document.readyState === 'complete'")
+        wait_for(client, "Boolean(window.__vesperaController)")
+        reloaded_title = controller_state(client)
+        assert reloaded_title["phase"] == "TITLE", reloaded_title
+        assert client.evaluate("window.__vesperaController.hasCheckpoint()") is True
+        require_text(client, "지난 영업 이어하기")
+        client.click('[data-action="resume"]')
+        resumed = controller_state(client)
+        assert resumed["phase"] == checkpoint_before_reload["phase"], resumed
+        assert resumed["runSeed"] == checkpoint_before_reload["runSeed"], resumed
+        assert resumed["acceptedGuestIds"] == checkpoint_before_reload["acceptedGuestIds"], resumed
+        assert resumed["serviceTimerMs"] is None, resumed
+        checkpoint_reload = {
+            "saved_phase": checkpoint_before_reload["phase"],
+            "reloaded_at_title": True,
+            "resume_action_visible": True,
+            "restored_seed": resumed["runSeed"],
+            "restored_phase": resumed["phase"],
+        }
+        elevator_context = assert_elevator_room_context(client)
         require_text(client, "시간 제한 없음")
         dispatch_drag(client, "G01_LUNE", 'article.room-card[data-room-id="F3-B"]')
         dispatch_drag(client, "G02_MORROW", 'article.room-card[data-room-id="F1-B"]')
@@ -693,7 +963,9 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         assert report1["autoAssignedGuestIds"]
         require_text(client, "프런트 긴급 배정")
         assert_preopening_copy(client, "PRE-OPENING NIGHT 1 COMPLETE")
+        assert "이번 영업 다시" not in client.body_text()
         no_maximum_reveal(client)
+        review_settlements.append(assert_guest_review_settlement(client, 0))
 
         renovation = continue_through_renovation(client, probe_category_gate=True)
         upgrades.extend(renovation["chosenIds"])
@@ -730,11 +1002,12 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         wait_for(client, "window.__vesperaController.state.phase === 'RESULT'")
         assert len(controller_state(client)["nightResults"]) == 2
         no_maximum_reveal(client)
+        review_settlements.append(assert_guest_review_settlement(client, 1))
         renovation = continue_through_renovation(client)
         upgrades.extend(renovation["chosenIds"])
 
-        # Night 3 guarantees an R+ guest. Settlement reveals the species x rank
-        # preference, and returning fixed guest Morrow receives a revisit item.
+        # Night 3 favors an R+ guest, and returning fixed guest Morrow receives
+        # a revisit item. The complete route must reveal hidden data by Night 5.
         capacity_audits.append(assert_capacity_contract(
             client,
             "night3",
@@ -748,7 +1021,7 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         client.click('[data-action="finish-night"]')
         wait_for(client, "window.__vesperaController.state.phase === 'RESULT'")
         after_night3 = controller_state(client)
-        assert after_night3["lastDiscoveries"], after_night3["nightResults"][2]
+        review_settlements.append(assert_guest_review_settlement(client, 2))
         assert any(
             item.get("source") == "revisit"
             for score in after_night3["nightResults"][2]["guestScores"].values()
@@ -832,6 +1105,7 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         assert after_night4["nightResults"][3]["placements"][stayover_id] == stayover_room
         assert stayover_id not in after_night4["stayovers"], "Two-night stayover must release after its second night"
         no_maximum_reveal(client)
+        review_settlements.append(assert_guest_review_settlement(client, 3))
 
         # Once released, the worn room can be serviced in the next preparation step.
         client.click('[data-action="continue-result"]')
@@ -878,12 +1152,18 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         client.click('[data-action="finish-night"]')
         wait_for(client, "window.__vesperaController.state.phase === 'RESULT'")
         assert len(controller_state(client)["nightResults"]) == 5
+        review_settlements.append(assert_guest_review_settlement(client, 4))
         client.click('[data-action="continue-result"]')
         wait_for(client, "window.__vesperaController.state.phase === 'FINAL'")
         final = controller_state(client)
         assert final["phase"] == "FINAL"
         assert len(final["nightResults"]) == 5
         assert final["runSeed"] == seed
+        assert final["runRecord"]["ending_id"] == "PREOPENING_COMPLETE"
+        assert final["runRecord"]["outcome"] == "COMPLETE"
+        assert final["runRecord"]["metrics"]["completed_nights"] == 5
+        assert final["recordArchiveCount"] >= 1
+        assert final["discoveredHiddenPreferenceIds"], final["nightResults"]
         assert_preopening_copy(
             client,
             "PRE-OPENING INVITATIONAL COMPLETE",
@@ -904,6 +1184,43 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         ]
         if exception_events:
             raise AssertionError(f"Browser errors detected: {exception_events}")
+
+        record_and_restart = client.evaluate(
+            """
+            (() => {
+              const controller = window.__vesperaController;
+              const before = {
+                count: controller.state.recordArchiveCount,
+                recordId: controller.state.runRecord.record_id,
+                seed: controller.state.runSeed,
+              };
+              controller.completeRun();
+              const afterDuplicateCompletion = {
+                count: controller.state.recordArchiveCount,
+                recordId: controller.state.runRecord.record_id,
+              };
+              controller.restart();
+              return {
+                before,
+                afterDuplicateCompletion,
+                restarted: {
+                  phase: controller.state.phase,
+                  seed: controller.state.runSeed,
+                  runRecord: controller.state.runRecord,
+                  archiveCount: controller.state.recordArchiveCount,
+                },
+              };
+            })()
+            """
+        )
+        assert record_and_restart["afterDuplicateCompletion"] == {
+            "count": record_and_restart["before"]["count"],
+            "recordId": record_and_restart["before"]["recordId"],
+        }, record_and_restart
+        assert record_and_restart["restarted"]["phase"] == "TITLE", record_and_restart
+        assert record_and_restart["restarted"]["seed"] == (seed + 1) & 0xFFFFFFFF, record_and_restart
+        assert record_and_restart["restarted"]["runRecord"] is None, record_and_restart
+        assert record_and_restart["restarted"]["archiveCount"] == record_and_restart["before"]["count"], record_and_restart
 
         return {
             "status": "PASS",
@@ -957,6 +1274,11 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
                 "night5": route5,
             },
             "results": len(final["nightResults"]),
+            "guest_review_settlements": review_settlements,
+            "elevator_room_context": elevator_context,
+            "record_and_restart": record_and_restart,
+            "checkpoint_reload": checkpoint_reload,
+            "campaign_secretary_contract": campaign_secretary_contract,
             "final_phase": final["phase"],
         }
     finally:
