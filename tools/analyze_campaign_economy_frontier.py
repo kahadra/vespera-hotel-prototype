@@ -37,8 +37,8 @@ AUDIT_LIMIT_KO = (
 PARTIAL_SETTLEMENT_LIMIT = (
     "CHAPTER_MINIMUM_PLUS_MANUAL pays as much of a chapter gap as available cash allows, "
     "then records the hurdle as missed if a gap remains. This is an analyzer-only partial-settlement "
-    "assumption, not a decision that the game will debit partial amounts instead of using an atomic "
-    "settlement or recovery-operation contract."
+    "assumption, not a decision that the game will debit partial amounts instead of applying the "
+    "player's explicit repayment atomically and failing a missed chapter hurdle."
 )
 
 
@@ -817,8 +817,8 @@ def policy_definitions() -> dict[str, str]:
         POLICY_CHAPTER_MANUAL: (
             "At each chapter boundary, pay the gap to the cumulative minimum from available cash, "
             "then apply player-scheduled extra repayments. Earlier extras reduce later cumulative gaps. "
-            "A cash-short gap receives a partial payment in this analyzer only; the actual game may use "
-            "an atomic settlement or recovery-operation rule instead."
+            "A cash-short gap receives a partial payment in this analyzer only; the actual game applies "
+            "only the player's explicit repayment atomically and closes a missed chapter hurdle."
         ),
         POLICY_FINAL_LUMP: (
             "Make no repayment before day 56, then pay as much of the remaining principal as cash allows."

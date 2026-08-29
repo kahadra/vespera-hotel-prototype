@@ -1,6 +1,6 @@
 import { campaignOperationId } from "./campaign-progress.js";
 
-export const RUN_RECORD_SCHEMA_VERSION = 4;
+export const RUN_RECORD_SCHEMA_VERSION = 5;
 export const RUN_RECORD_STORAGE_KEY = "vespera.hotel.run-records.v1";
 export const RUN_RECORD_LIMIT = 20;
 
@@ -18,9 +18,39 @@ function formalOperationDescriptor(config, record) {
     stageNumber: record.resultIdentity.stageNumber,
     operationKind: record.resultIdentity.operationKind,
     templateIndex: record.resultIdentity.templateIndex,
-    recoveryBoundaryStageNumber: record.recoveryBoundaryStageNumber,
     templatePolicyId: config.scenario_template_policy_id,
     templateProductionReady: config.scenario_templates_production_ready,
+  };
+}
+
+function formalFinanceLedger(state) {
+  return Array.isArray(state.campaignFinance?.ledger)
+    ? state.campaignFinance.ledger
+    : [];
+}
+
+function formalDay56DebtGateEvidence(data, state) {
+  const boundaryStageNumber = 56;
+  const ledger = formalFinanceLedger(state);
+  const boundaryIndex = ledger.findIndex(
+    (entry) => entry?.stageNumber === boundaryStageNumber,
+  );
+  if (boundaryIndex < 0) return null;
+  const entry = ledger[boundaryIndex];
+  const baseFinance = data.campaign?.formal_finance?.base_year;
+  return {
+    type: "CAMPAIGN_DEBT_GATE_EVIDENCE",
+    gateId: baseFinance?.debt_gate_id ?? null,
+    passed: entry.closingDebt === 0,
+    boundaryStageNumber,
+    financeConfigId: baseFinance?.id ?? null,
+    financeConfigVersion: baseFinance?.version ?? null,
+    originalPrincipal: Number(state.campaignFinance?.originalPrincipal ?? 0),
+    cumulativeRepaymentAtBoundary: Number(entry.cumulativeRepayment ?? 0),
+    remainingDebtAtBoundary: Number(entry.closingDebt ?? 0),
+    checkpointOutcome: entry.checkpoint?.outcome ?? null,
+    ledgerEntryCountAtBoundary: boundaryIndex + 1,
+    debtGraceAfterBoundary: false,
   };
 }
 
@@ -28,9 +58,12 @@ function formalRunFields(data, state) {
   if (!isFormalCampaign(data)) return {};
   const config = data.campaign.formal_progress;
   const progress = state.campaignProgress;
+  const finance = state.campaignFinance;
   const lastRecord = progress.operationRecords.at(-1);
   return {
     progression_authority: config.id,
+    finance_authority: finance?.configId ?? null,
+    day_56_debt_gate_evidence: formalDay56DebtGateEvidence(data, state),
     campaign_stage_limit: progress.stageLimit,
     true_extension_unlocked: progress.trueExtensionUnlocked,
     last_operation_id: lastRecord
@@ -105,10 +138,36 @@ export function summarizeRun(data, state) {
     dream_demon_other_species_network: dreamDemonOtherSpeciesAllies >= dreamDemonRequiredSpeciesCount ? 1 : 0,
   };
   if (isFormal) {
+    const finance = state.campaignFinance;
+    const financeLedger = formalFinanceLedger(state);
+    const debtGateEvidence = formalDay56DebtGateEvidence(data, state);
+    const baseFinance = data.campaign?.formal_finance?.base_year;
     campaignMetrics.campaign_completed_stages = state.campaignProgress.completedStageCount;
-    campaignMetrics.recovery_operations = state.campaignProgress.operationRecords.filter(
-      (record) => record.resultIdentity.operationKind === "RECOVERY",
-    ).length;
+    campaignMetrics.campaign_starting_cash = Number(baseFinance?.starting_cash ?? 0);
+    campaignMetrics.campaign_original_principal = Number(finance?.originalPrincipal ?? 0);
+    campaignMetrics.campaign_total_income = sum(
+      financeLedger,
+      (entry) => Number(entry.income ?? 0),
+    );
+    campaignMetrics.campaign_total_upkeep = sum(
+      financeLedger,
+      (entry) => Number(entry.upkeep ?? 0),
+    );
+    campaignMetrics.campaign_total_reactivation_spend = sum(
+      financeLedger,
+      (entry) => Number(entry.reactivation ?? 0),
+    );
+    campaignMetrics.campaign_total_room_service_spend = sum(
+      financeLedger,
+      (entry) => Number(entry.roomService ?? 0),
+    );
+    campaignMetrics.campaign_total_repayment = sum(
+      financeLedger,
+      (entry) => Number(entry.manualRepayment ?? 0),
+    );
+    campaignMetrics.campaign_remaining_debt = Number(finance?.remainingDebt ?? 0);
+    campaignMetrics.campaign_day_56_debt_cleared = debtGateEvidence?.passed ? 1 : 0;
+    campaignMetrics.campaign_finance_ledger_entries = financeLedger.length;
   }
   const endlessMetrics = {
     endless_closed: state.endlessClosed ? 1 : 0,
@@ -250,7 +309,7 @@ export function readRunRecords(storage = globalThis.localStorage) {
     const parsed = JSON.parse(storage.getItem(RUN_RECORD_STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((record) => [1, 2, 3, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
+      .filter((record) => [1, 2, 3, 4, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
       .map((record) => ({
         profile_id: "default",
         description: "",
@@ -266,6 +325,8 @@ export function readRunRecords(storage = globalThis.localStorage) {
         endless_audit_history: [],
         endless_audit_history_omitted_count: 0,
         endless_closure_reason: null,
+        finance_authority: null,
+        day_56_debt_gate_evidence: null,
         ...record,
         schema_version: RUN_RECORD_SCHEMA_VERSION,
       }));

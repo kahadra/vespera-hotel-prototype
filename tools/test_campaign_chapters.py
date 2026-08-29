@@ -86,14 +86,13 @@ def run(base_url: str, debug_port: int):
               invalidCase('wrongSeason', schedule => { schedule.chapters[2].season_id = 'SPRING'; });
               invalidCase('duplicateId', schedule => { schedule.chapters[1].id = schedule.chapters[0].id; });
               invalidCase('nonSequentialNumber', schedule => { schedule.chapters[1].number = 3; });
-              invalidCase('finalRecovery', schedule => {
-                schedule.chapters[4].debt_settlement.recovery_eligible = true;
+              invalidCase('staleRecoveryField', schedule => {
+                schedule.chapters[0].debt_settlement.recovery_eligible = true;
               });
               invalidCase('noneWithTarget', schedule => {
                 schedule.chapters[0].debt_settlement = {
                   kind: 'NONE',
                   target_id: 'BAD',
-                  recovery_eligible: false,
                 };
               });
               invalidCase('missingCoverage', schedule => { schedule.chapters.pop(); });
@@ -110,6 +109,13 @@ def run(base_url: str, debug_port: int):
                 schedules.base_year,
                 driftedExtended,
                 calendars.base_year,
+                calendars.true_extension,
+                options,
+              ));
+              const staleExtended = clone(schedules.true_extension);
+              staleExtended.chapters[5].debt_settlement.recovery_eligible = false;
+              invalid.staleNoneRecoveryField = rejects(() => validateCampaignChapterSchedule(
+                staleExtended,
                 calendars.true_extension,
                 options,
               ));
@@ -188,9 +194,7 @@ def run(base_url: str, debug_port: int):
             "FINAL_CLEARANCE",
         ], base
         assert all(item["hidden"] is False for item in base), base
-        assert [item["debtSettlement"]["recoveryEligible"] for item in base] == [
-            True, True, True, True, False
-        ], base
+        assert all(set(item["debtSettlement"]) == {"kind", "targetId"} for item in base), base
 
         extended = contracts["extendedChapters"]
         assert extended[:5] == base, extended
@@ -207,7 +211,6 @@ def run(base_url: str, debug_port: int):
             "debtSettlement": {
                 "kind": "NONE",
                 "targetId": None,
-                "recoveryEligible": False,
             },
         }, extended[5]
 

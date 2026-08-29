@@ -6,8 +6,15 @@ import {
   validateCampaignProgressConfig,
   validateCampaignProgressState,
 } from "./campaign-progress.js";
+import {
+  CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE,
+  validateCampaignFinanceConfig,
+  validateCampaignFinanceState,
+} from "./campaign-finance.js";
+import { displayRelicEffectValue } from "./relics.js";
+import { createBoardState } from "./rules.js";
 
-export const RUN_SAVE_SCHEMA_VERSION = 5;
+export const RUN_SAVE_SCHEMA_VERSION = 6;
 export const PROFILE_SCHEMA_VERSION = 1;
 export const ACTIVE_RUN_STORAGE_KEY = "vespera.hotel.active-run.v1";
 export const ACTIVE_RUN_STORAGE_PREFIX = "vespera.hotel.active-run.v2";
@@ -39,6 +46,16 @@ const FORMAL_POST_OPERATION_PHASES = new Set([
   "UPGRADE",
 ]);
 
+const FORMAL_FINANCE_PENDING_PHASES = new Set([
+  "RESULT",
+  "RESULT_REVIEW",
+]);
+
+const FORMAL_FINANCE_SETTLED_POST_PHASES = new Set([
+  "STORY",
+  "UPGRADE",
+]);
+
 const FORMAL_CHECKPOINT_PHASES = new Set([
   "DAY_OPENING",
   "RESERVATION",
@@ -63,12 +80,34 @@ function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function exactKeys(value, expectedKeys) {
+  if (!isPlainObject(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function nonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
 function isDenseArray(value) {
   if (!Array.isArray(value)) return false;
   for (let index = 0; index < value.length; index += 1) {
     if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
   }
   return true;
+}
+
+function denseUniqueStrings(value) {
+  return isDenseArray(value)
+    && value.every((item) => typeof item === "string" && item.length > 0)
+    && new Set(value).size === value.length;
 }
 
 function isFormalCampaign(data) {
@@ -87,13 +126,74 @@ function formalCampaignProgressConfig(data) {
   return config;
 }
 
+function formalCampaignFinanceConfigs(data) {
+  if (!isFormalCampaign(data)) return null;
+  const authority = data?.campaign?.formal_finance;
+  if (!isPlainObject(authority) || !isPlainObject(authority.runtime_policy)) return null;
+  const base = authority.base_year;
+  const extended = authority.true_extension;
+  try {
+    validateCampaignFinanceConfig(base);
+    validateCampaignFinanceConfig(extended);
+  } catch {
+    return null;
+  }
+
+  const progressConfig = formalCampaignProgressConfig(data);
+  if (!progressConfig
+    || base.total_stages !== progressConfig.base_stage_limit
+    || extended.total_stages !== progressConfig.true_stage_limit
+    || base.debt_gate_id !== progressConfig.true_entry_gate_id
+    || base.id === extended.id
+    || base.version !== extended.version) return null;
+  for (const key of [
+    "contract_status",
+    "debt_deadline_stage",
+    "debt_gate_id",
+    "starting_cash",
+    "principal",
+  ]) {
+    if (base[key] !== extended[key]) return null;
+  }
+  if (!sameJson(base.chapter_cumulative_targets, extended.chapter_cumulative_targets)) return null;
+  const runtimePolicy = authority.runtime_policy;
+  if (!exactKeys(runtimePolicy, [
+    "id",
+    "version",
+    "status",
+    "balance_verdict",
+    "base_daily_upkeep",
+    "upkeep_per_owned_upgrade",
+  ])
+    || typeof runtimePolicy.id !== "string"
+    || runtimePolicy.id.trim().length === 0
+    || !Number.isSafeInteger(runtimePolicy.version)
+    || runtimePolicy.version < 1
+    || runtimePolicy.status !== "PROVISIONAL"
+    || runtimePolicy.balance_verdict !== "NOT_EVALUATED"
+    || !nonNegativeSafeInteger(runtimePolicy.base_daily_upkeep)
+    || !nonNegativeSafeInteger(runtimePolicy.upkeep_per_owned_upgrade)) return null;
+  return {
+    base,
+    extended,
+    runtimePolicy,
+  };
+}
+
+function formalCampaignFinanceConfig(data, state) {
+  const configs = formalCampaignFinanceConfigs(data);
+  if (!configs || !state?.campaignProgress) return null;
+  return state.campaignProgress.trueExtensionUnlocked === true
+    ? configs.extended
+    : configs.base;
+}
+
 function descriptorFromOperationRecord(config, record) {
   return {
     type: "CAMPAIGN_OPERATION",
     stageNumber: record.resultIdentity.stageNumber,
     operationKind: record.resultIdentity.operationKind,
     templateIndex: record.resultIdentity.templateIndex,
-    recoveryBoundaryStageNumber: record.recoveryBoundaryStageNumber,
     templatePolicyId: config.scenario_template_policy_id,
     templateProductionReady: config.scenario_templates_production_ready,
   };
@@ -113,9 +213,86 @@ function validFormalResult(config, runSeed, result, operationRecord) {
   return result.campaignOperationId === expectedOperationId
     && sameJson(result.campaignResultIdentity, expectedResultIdentity)
     && sameJson(result.campaignResultIdentity, operationRecord.resultIdentity)
-    && result.campaignRecoveryBoundaryStageNumber === operationRecord.recoveryBoundaryStageNumber
     && operationRecord.resultIdentity.templateIndex >= 0
     && operationRecord.resultIdentity.templateIndex < config.scenario_template_count;
+}
+
+function validFinanceOperationIdentity(financeRecord, result, operationRecord) {
+  return Boolean(financeRecord && result && operationRecord)
+    && financeRecord.campaignOperationId === result.campaignOperationId
+    && sameJson(financeRecord.campaignResultIdentity, result.campaignResultIdentity)
+    && sameJson(financeRecord.campaignResultIdentity, operationRecord.resultIdentity)
+    && financeRecord.income === result.income;
+}
+
+function validFormalFinanceState(data, state, progress) {
+  const config = formalCampaignFinanceConfig(data, state);
+  if (!config) return false;
+  try {
+    validateCampaignFinanceState(config, state.campaignFinance);
+  } catch {
+    return false;
+  }
+
+  const finance = state.campaignFinance;
+  const expenses = state.campaignPendingExpenses;
+  const repayment = state.campaignSelectedRepayment;
+  if (!exactKeys(expenses, ["reactivation", "roomService"])
+    || !nonNegativeSafeInteger(expenses.reactivation)
+    || !nonNegativeSafeInteger(expenses.roomService)
+    || !nonNegativeSafeInteger(repayment)
+    || !nonNegativeSafeInteger(state.gold)
+    || finance.status !== "ACTIVE"
+    || finance.totalStages !== progress.stageLimit) return false;
+
+  const pendingPhase = FORMAL_FINANCE_PENDING_PHASES.has(state.phase);
+  const settledPhase = FORMAL_PRE_OPERATION_PHASES.has(state.phase)
+    || FORMAL_FINANCE_SETTLED_POST_PHASES.has(state.phase)
+    || state.phase === "TUTORIAL"
+    || state.phase === "RELIC_OFFER";
+  if (!pendingPhase && !settledPhase) return false;
+  if (pendingPhase) {
+    if (progress.completedStageCount < 1
+      || finance.completedStageCount !== progress.completedStageCount - 1
+      || finance.pendingDayResult === null) return false;
+    const latestIndex = progress.completedStageCount - 1;
+    if (!validFinanceOperationIdentity(
+      finance.pendingDayResult,
+      state.nightResults[latestIndex],
+      progress.operationRecords[latestIndex],
+    )) return false;
+  } else if (finance.completedStageCount !== progress.completedStageCount
+    || finance.pendingDayResult !== null) return false;
+
+  if (!finance.ledger.every((entry, index) => validFinanceOperationIdentity(
+    entry,
+    state.nightResults[index],
+    progress.operationRecords[index],
+  ))) return false;
+
+  if (finance.pendingDayResult === null) {
+    const accountedCash = state.gold + expenses.reactivation + expenses.roomService;
+    if (!Number.isSafeInteger(accountedCash) || accountedCash !== finance.cash) return false;
+  } else if (expenses.reactivation !== 0
+    || expenses.roomService !== 0
+    || state.gold !== finance.cash) return false;
+
+  if (repayment > 0 && state.phase !== "RESULT_REVIEW") return false;
+  if (state.phase !== "RESULT_REVIEW" && repayment !== 0) return false;
+  if (repayment > finance.cash || repayment > finance.remainingDebt) return false;
+  if (finance.pendingDayResult?.stageNumber > CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE
+    && repayment !== 0) return false;
+
+  if (progress.trueExtensionUnlocked) {
+    const deadlineEntry = finance.ledger[CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE - 1];
+    if (finance.completedStageCount < CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE
+      || finance.remainingDebt !== 0
+      || finance.debtClearedAtDeadline !== true
+      || deadlineEntry?.stageNumber !== CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE
+      || deadlineEntry.closingDebt !== 0
+      || deadlineEntry.checkpoint?.outcome !== "DEBT_CLEARED") return false;
+  }
+  return true;
 }
 
 function formalPhasePosition(state) {
@@ -124,7 +301,10 @@ function formalPhasePosition(state) {
   if (state.phase === "STORY") {
     return state.campaignProgress.completedStageCount === 0 ? "PRELUDE" : "POST";
   }
-  if (["TUTORIAL", "RELIC_OFFER"].includes(state.phase)) return "PRELUDE";
+  if (state.phase === "RELIC_OFFER") {
+    return state.campaignProgress.completedStageCount === 0 ? "PRELUDE" : "POST";
+  }
+  if (state.phase === "TUTORIAL") return "PRELUDE";
   return null;
 }
 
@@ -144,6 +324,7 @@ function validFormalCampaignState(data, state) {
   if (!progress.operationRecords.every(
     (record, index) => validFormalResult(config, state.runSeed, state.nightResults[index], record),
   )) return false;
+  if (!validFormalFinanceState(data, state, progress)) return false;
 
   const position = formalPhasePosition(state);
   if (!position) return false;
@@ -347,6 +528,8 @@ function validState(data, state) {
     && state.ownedUpgradeIds.every((id) => Boolean(data.indexes.upgrades[id]))
     && Array.isArray(state.ownedDisplayRelicIds ?? [])
     && (state.ownedDisplayRelicIds ?? []).every((id) => Boolean(data.indexes.displayRelics?.[id]))
+    && nonNegativeSafeInteger(state.foresightRetryCount)
+    && denseUniqueStrings(state.foresightDiscoveryIds)
     && (state.phase !== "RELIC_OFFER"
       || (Array.isArray(state.pendingDisplayRelicOffer?.relicIds)
         && state.pendingDisplayRelicOffer.relicIds.length > 0
@@ -396,6 +579,215 @@ function formalRecordIdentity(config, runSeed, record) {
   }
 }
 
+function validFormalCheckpointFinancePrefix(state, checkpoint, position, expectedLength) {
+  const liveFinance = state.campaignFinance;
+  const checkpointFinance = checkpoint.campaignFinance;
+  if (!isPlainObject(liveFinance)
+    || !isPlainObject(checkpointFinance)
+    || !isDenseArray(liveFinance.ledger)
+    || !isDenseArray(checkpointFinance.ledger)
+    || !exactKeys(checkpoint.campaignPendingExpenses, ["reactivation", "roomService"])
+    || !exactKeys(state.campaignPendingExpenses, ["reactivation", "roomService"])
+    || checkpointFinance.completedStageCount !== expectedLength
+    || checkpointFinance.pendingDayResult !== null
+    || !sameJson(checkpointFinance.ledger, liveFinance.ledger.slice(0, expectedLength))) {
+    return false;
+  }
+
+  if (position === "PRE") {
+    return sameJson(checkpointFinance, liveFinance)
+      && sameJson(checkpoint.campaignPendingExpenses, state.campaignPendingExpenses)
+      && checkpoint.campaignSelectedRepayment === state.campaignSelectedRepayment
+      && checkpoint.gold === state.gold;
+  }
+
+  const openingRecord = FORMAL_FINANCE_PENDING_PHASES.has(state.phase)
+    ? liveFinance.pendingDayResult
+    : liveFinance.ledger[expectedLength];
+  if (!openingRecord) return false;
+  const cumulativeBefore = Object.prototype.hasOwnProperty.call(
+    openingRecord,
+    "cumulativeRepaymentBefore",
+  )
+    ? openingRecord.cumulativeRepaymentBefore
+    : openingRecord.cumulativeRepayment - openingRecord.manualRepayment;
+  return checkpointFinance.cash === openingRecord.openingCash
+    && checkpointFinance.remainingDebt === openingRecord.openingDebt
+    && checkpointFinance.cumulativeRepayment === cumulativeBefore
+    && checkpoint.campaignPendingExpenses.reactivation === openingRecord.reactivation
+    && checkpoint.campaignPendingExpenses.roomService === openingRecord.roomService
+    && checkpoint.campaignSelectedRepayment === 0
+    && checkpoint.gold + openingRecord.reactivation + openingRecord.roomService
+      === openingRecord.openingCash;
+}
+
+function arrayIsExactPrefix(prefix, values) {
+  return Array.isArray(prefix)
+    && Array.isArray(values)
+    && prefix.length <= values.length
+    && sameJson(prefix, values.slice(0, prefix.length));
+}
+
+function upgradeCostTotal(data, upgradeIds) {
+  let total = 0;
+  for (const upgradeId of upgradeIds) {
+    const cost = data.indexes.upgrades[upgradeId]?.cost;
+    if (!nonNegativeSafeInteger(cost) || !Number.isSafeInteger(total + cost)) return null;
+    total += cost;
+  }
+  return total;
+}
+
+function validFormalCheckpointImmutableState(data, state, checkpoint) {
+  if (!sameJson(checkpoint.ownedDisplayRelicIds, state.ownedDisplayRelicIds)
+    || checkpoint.playerGenderId !== state.playerGenderId
+    || checkpoint.relationshipGenderPreset !== state.relationshipGenderPreset
+    || !sameJson(
+      checkpoint.relationshipPresentationIds,
+      state.relationshipPresentationIds,
+    )
+    || checkpoint.secretaryPresentationId !== state.secretaryPresentationId) {
+    return false;
+  }
+
+  // UPGRADE legitimately appends purchases after the day-opening checkpoint.
+  // Every other savable formal phase must retain the exact opening inventory.
+  if (state.phase !== "UPGRADE") {
+    return sameJson(checkpoint.ownedUpgradeIds, state.ownedUpgradeIds);
+  }
+  if (!arrayIsExactPrefix(checkpoint.ownedUpgradeIds, state.ownedUpgradeIds)) return false;
+  const purchasedIds = state.ownedUpgradeIds.slice(checkpoint.ownedUpgradeIds.length);
+  const purchaseCost = upgradeCostTotal(data, purchasedIds);
+  return purchaseCost !== null
+    && sameJson(purchasedIds, state.renovationPurchaseIds)
+    && purchaseCost === state.campaignPendingExpenses.reactivation;
+}
+
+function validRoomConditionMap(data, roomConditions) {
+  const roomIds = data.rooms.map((room) => room.id);
+  if (!exactKeys(roomConditions, roomIds)) return false;
+  return roomIds.every((roomId) => {
+    const condition = roomConditions[roomId];
+    return exactKeys(condition, ["cleanliness", "durability"])
+      && Number.isFinite(condition.cleanliness)
+      && condition.cleanliness >= 0
+      && condition.cleanliness <= 100
+      && Number.isFinite(condition.durability)
+      && condition.durability >= 0
+      && condition.durability <= 100;
+  });
+}
+
+function clampRoomCondition(value) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function reconstructFormalPostNightState(data, checkpoint, result) {
+  if (!denseUniqueStrings(result?.acceptedGuestIds)
+    || !isPlainObject(result?.placements)
+    || !isPlainObject(checkpoint.stayovers)) return null;
+  const roomConditions = clone(checkpoint.roomConditions);
+  const stayovers = {};
+  const wearScale = data.balance?.wear_scale ?? 1;
+  if (!Number.isFinite(wearScale) || wearScale < 0) return null;
+
+  for (const guestId of result.acceptedGuestIds) {
+    const guest = data.indexes.guests[guestId];
+    const roomId = result.placements[guestId];
+    const condition = roomConditions[roomId];
+    if (!guest || !data.indexes.rooms[roomId] || !condition) return null;
+    const cleanlinessLoss = guest.room_wear?.cleanliness
+      ?? (guest.cleanliness_impact ?? 1) * wearScale;
+    const durabilityLoss = guest.room_wear?.durability
+      ?? (guest.durability_impact ?? 0) * wearScale;
+    if (!Number.isFinite(cleanlinessLoss)
+      || cleanlinessLoss < 0
+      || !Number.isFinite(durabilityLoss)
+      || durabilityLoss < 0) return null;
+    condition.cleanliness = clampRoomCondition(condition.cleanliness - cleanlinessLoss);
+    condition.durability = clampRoomCondition(condition.durability - durabilityLoss);
+
+    const existing = checkpoint.stayovers[guestId];
+    if (existing) {
+      if (!exactKeys(existing, ["roomId", "remainingNights"])
+        || existing.roomId !== roomId
+        || !Number.isSafeInteger(existing.remainingNights)
+        || existing.remainingNights < 1) return null;
+      if (existing.remainingNights > 1) {
+        stayovers[guestId] = {
+          roomId,
+          remainingNights: existing.remainingNights - 1,
+        };
+      }
+    } else if ((guest.stay_nights ?? 1) > 1) {
+      stayovers[guestId] = {
+        roomId,
+        remainingNights: guest.stay_nights - 1,
+      };
+    }
+  }
+  return { roomConditions, stayovers };
+}
+
+function validFormalCheckpointRoomState(data, state, checkpoint, position) {
+  if (!validRoomConditionMap(data, state.roomConditions)
+    || !validRoomConditionMap(data, checkpoint.roomConditions)) return false;
+  if (position === "PRE") {
+    return sameJson(checkpoint.roomConditions, state.roomConditions)
+      && sameJson(checkpoint.stayovers, state.stayovers);
+  }
+
+  const expected = reconstructFormalPostNightState(
+    data,
+    checkpoint,
+    state.nightResults.at(-1),
+  );
+  if (!expected || !sameJson(expected.stayovers, state.stayovers)) return false;
+  if (state.phase !== "UPGRADE") {
+    return state.campaignPendingExpenses.roomService === 0
+      && sameJson(expected.roomConditions, state.roomConditions);
+  }
+
+  let board;
+  try {
+    board = createBoardState(data, {
+      ownedFacilityIds: state.ownedUpgradeIds,
+      roomConditions: {},
+      protectedRoomIds: [],
+    });
+  } catch {
+    return false;
+  }
+  const stayoverRoomIds = new Set(
+    Object.values(expected.stayovers).map((entry) => entry.roomId),
+  );
+  let servicedRoomCount = 0;
+  for (const room of data.rooms) {
+    const before = expected.roomConditions[room.id];
+    const live = state.roomConditions[room.id];
+    if (sameJson(before, live)) continue;
+    const restored = live.cleanliness === 100 && live.durability === 100;
+    const neededService = before.cleanliness !== 100 || before.durability !== 100;
+    if (!restored
+      || !neededService
+      || stayoverRoomIds.has(room.id)
+      || board.blockedRooms.has(room.id)) return false;
+    servicedRoomCount += 1;
+  }
+
+  const baseCost = data.balance?.room_service_cost ?? 8;
+  const reduction = displayRelicEffectValue(
+    data,
+    state.ownedDisplayRelicIds,
+    "ROOM_SERVICE_COST_REDUCTION",
+  );
+  const serviceCost = Math.max(0, baseCost - reduction);
+  const totalServiceCost = servicedRoomCount * serviceCost;
+  return nonNegativeSafeInteger(serviceCost)
+    && Number.isSafeInteger(totalServiceCost)
+    && totalServiceCost === state.campaignPendingExpenses.roomService;
+}
+
 function validFormalStageCheckpoint(data, state, checkpoint) {
   const config = formalCampaignProgressConfig(data);
   if (!config) return false;
@@ -417,6 +809,14 @@ function validFormalStageCheckpoint(data, state, checkpoint) {
   if (!sameJson(
     checkpoint.campaignProgress.operationRecords,
     state.campaignProgress.operationRecords.slice(0, expectedCheckpointLength),
+  )) return false;
+  if (!validFormalCheckpointImmutableState(data, state, checkpoint)) return false;
+  if (!validFormalCheckpointRoomState(data, state, checkpoint, position)) return false;
+  if (!validFormalCheckpointFinancePrefix(
+    state,
+    checkpoint,
+    position,
+    expectedCheckpointLength,
   )) return false;
 
   const checkpointIdentity = formalOperationIdentity(
@@ -440,7 +840,7 @@ function normalizeRunSave(data, save) {
     if (save?.schema_version !== RUN_SAVE_SCHEMA_VERSION) return null;
     return clone(save);
   }
-  if (![3, 4, RUN_SAVE_SCHEMA_VERSION].includes(save?.schema_version)) return null;
+  if (![3, 4, 5, RUN_SAVE_SCHEMA_VERSION].includes(save?.schema_version)) return null;
   const normalized = clone(save);
   normalized.schema_version = RUN_SAVE_SCHEMA_VERSION;
   normalized.profile_id = typeof save.profile_id === "string" ? save.profile_id : "default";
@@ -460,8 +860,11 @@ function validRunSave(data, save) {
     && validStageCheckpoint(data, save.stage_checkpoint ?? null);
   if (!generallyValid || !isFormalCampaign(data)) return Boolean(generallyValid);
   const config = formalCampaignProgressConfig(data);
+  const financeConfig = formalCampaignFinanceConfig(data, save.state);
   return Boolean(config)
     && save.stage_authority_id === config.id
+    && Boolean(financeConfig)
+    && save.finance_authority_id === financeConfig.id
     && save.state.profileId === save.profile_id
     && validFormalStageCheckpoint(data, save.state, save.stage_checkpoint ?? null);
 }
@@ -469,11 +872,15 @@ function validRunSave(data, save) {
 export function createRunSave(data, state, stageCheckpoint = null) {
   if (!SAVABLE_PHASES.has(state.phase)) return null;
   const config = formalCampaignProgressConfig(data);
+  const financeConfig = formalCampaignFinanceConfig(data, state);
   const save = {
     schema_version: RUN_SAVE_SCHEMA_VERSION,
     data_schema_version: data.schema_version,
     mode_id: data.prototype_mode.type,
-    ...(isFormalCampaign(data) ? { stage_authority_id: config?.id ?? null } : {}),
+    ...(isFormalCampaign(data) ? {
+      stage_authority_id: config?.id ?? null,
+      finance_authority_id: financeConfig?.id ?? null,
+    } : {}),
     profile_id: state.profileId ?? "default",
     saved_at: new Date().toISOString(),
     state: createSnapshot(state),

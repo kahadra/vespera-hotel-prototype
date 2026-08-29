@@ -23,12 +23,15 @@ def run(base_url: str, debug_port: int):
               const {
                 CAMPAIGN_FINANCE_BALANCE_VERDICT,
                 CAMPAIGN_FINANCE_DEBT_GATE_ID,
+                CAMPAIGN_FINANCE_OPERATION_KINDS,
+                CAMPAIGN_FINANCE_SCHEMA_VERSION,
                 CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE,
                 validateCampaignFinanceConfig,
                 validateCampaignFinanceState,
                 createCampaignFinanceState,
                 commitCampaignDayResult,
                 settleCampaignDay,
+                campaignRepaymentForecast,
                 campaignDebtGateEvidence,
                 unlockCampaignFinanceTrueExtension,
               } = finance;
@@ -114,6 +117,13 @@ def run(base_url: str, debug_port: int):
 
               const initial = createCampaignFinanceState(baseConfig);
               const initialSnapshot = JSON.stringify(initial);
+              const initialForecast = campaignRepaymentForecast(baseConfig, initial);
+              const detachedForecast = campaignRepaymentForecast(baseConfig, initial);
+              detachedForecast.remainingAmount = 999;
+              const forecastDetached = campaignRepaymentForecast(
+                baseConfig,
+                initial,
+              ).remainingAmount === 10;
               const day1Input = dayResult(initial, {
                 income: 12,
                 upkeep: 2,
@@ -122,6 +132,15 @@ def run(base_url: str, debug_port: int):
               });
               const day1InputSnapshot = JSON.stringify(day1Input);
               const day1Committed = commitCampaignDayResult(baseConfig, initial, day1Input);
+              const day1ForecastWithoutProposal = campaignRepaymentForecast(
+                baseConfig,
+                day1Committed,
+              );
+              const day1ForecastWithProposal = campaignRepaymentForecast(
+                baseConfig,
+                day1Committed,
+                4,
+              );
               const day1CommittedSnapshot = JSON.stringify(day1Committed);
               const day1Settled = settleCampaignDay(
                 baseConfig,
@@ -139,7 +158,20 @@ def run(base_url: str, debug_port: int):
               detachedCopy.ledger[0].income = 999;
               immutableInputs.oldLedgerDetached = day1Settled.ledger[0].income === 12;
 
-              let mixedRun = advanceTo(baseConfig, day2Settled, 6);
+              const explicitRepayments = {
+                '2': 3,
+                '4': 7,
+                '9': 5,
+                '14': 5,
+                '18': 10,
+                '28': 10,
+                '35': 10,
+                '42': 10,
+                '49': 15,
+                '56': 25,
+              };
+              let mixedRun = closeDay(baseConfig, day1Settled, explicitRepayments['2']);
+              mixedRun = advanceTo(baseConfig, mixedRun, 6, explicitRepayments);
               const day7Committed = commitCampaignDayResult(
                 baseConfig,
                 mixedRun,
@@ -151,27 +183,21 @@ def run(base_url: str, debug_port: int):
                 remainingDebt: day7Committed.remainingDebt,
                 cashAfterOperations: day7Committed.cash,
               };
+              const metAtBoundaryForecast = campaignRepaymentForecast(
+                baseConfig,
+                day7Committed,
+              );
               mixedRun = settleCampaignDay(
                 baseConfig,
                 day7Committed,
-                { manualRepayment: 10 },
+                { manualRepayment: explicitRepayments['7'] ?? 0 },
               );
               const day7Checkpoint = clone(mixedRun.ledger.at(-1).checkpoint);
+              const afterDay7Forecast = campaignRepaymentForecast(baseConfig, mixedRun);
 
-              mixedRun = advanceTo(baseConfig, mixedRun, 14);
+              mixedRun = advanceTo(baseConfig, mixedRun, 14, explicitRepayments);
               const day14Checkpoint = clone(mixedRun.ledger.at(-1).checkpoint);
-              mixedRun = closeDay(
-                baseConfig,
-                mixedRun,
-                0,
-                { operationKind: 'RECOVERY' },
-              );
-              const recoveryOperationEntry = clone(mixedRun.ledger.at(-1));
-              mixedRun = advanceTo(baseConfig, mixedRun, 56, {
-                '28': 30,
-                '42': 20,
-                '56': 40,
-              });
+              mixedRun = advanceTo(baseConfig, mixedRun, 56, explicitRepayments);
               const day56Entry = clone(mixedRun.ledger[55]);
               const passedEvidence = campaignDebtGateEvidence(baseConfig, mixedRun);
               const baseCompleteState = mixedRun;
@@ -212,9 +238,75 @@ def run(base_url: str, debug_port: int):
               const day57Entry = clone(mixedRun.ledger[56]);
               mixedRun = advanceTo(extendedConfig, mixedRun, 70);
 
-              let failedRun = createCampaignFinanceState(baseConfig);
-              failedRun = advanceTo(baseConfig, failedRun, 56);
-              const failedEvidence = campaignDebtGateEvidence(baseConfig, failedRun);
+              let hurdleBoundaryState = createCampaignFinanceState(baseConfig);
+              hurdleBoundaryState = advanceTo(baseConfig, hurdleBoundaryState, 6);
+              const hurdleBoundaryCommitted = commitCampaignDayResult(
+                baseConfig,
+                hurdleBoundaryState,
+                dayResult(hurdleBoundaryState),
+              );
+              const hurdleBoundaryForecast = campaignRepaymentForecast(
+                baseConfig,
+                hurdleBoundaryCommitted,
+                9,
+              );
+              const hurdleBoundaryMetForecast = campaignRepaymentForecast(
+                baseConfig,
+                hurdleBoundaryCommitted,
+                10,
+              );
+              let hurdleMissRun = settleCampaignDay(
+                baseConfig,
+                hurdleBoundaryCommitted,
+                { manualRepayment: 0 },
+              );
+              const hurdleMissCheckpoint = clone(hurdleMissRun.ledger.at(-1).checkpoint);
+
+              let overTargetState = createCampaignFinanceState(baseConfig);
+              overTargetState = advanceTo(baseConfig, overTargetState, 6);
+              overTargetState = closeDay(baseConfig, overTargetState, 25);
+              const overTargetForecast = campaignRepaymentForecast(
+                baseConfig,
+                overTargetState,
+              );
+
+              let debtBoundState = createCampaignFinanceState(baseConfig);
+              debtBoundState = advanceTo(baseConfig, debtBoundState, 42, {
+                '7': 10,
+                '14': 10,
+                '28': 20,
+                '42': 55,
+              });
+              const debtBoundCommitted = commitCampaignDayResult(
+                baseConfig,
+                debtBoundState,
+                dayResult(debtBoundState),
+              );
+
+              let deadlineMissRun = createCampaignFinanceState(baseConfig);
+              deadlineMissRun = advanceTo(baseConfig, deadlineMissRun, 56, {
+                '7': 10,
+                '14': 10,
+                '28': 20,
+                '42': 20,
+              });
+              const failedEvidence = campaignDebtGateEvidence(baseConfig, deadlineMissRun);
+              const closedHurdleForecast = campaignRepaymentForecast(
+                baseConfig,
+                hurdleMissRun,
+              );
+              const closedDeadlineForecast = campaignRepaymentForecast(
+                baseConfig,
+                deadlineMissRun,
+              );
+              const completedBaseForecast = campaignRepaymentForecast(
+                baseConfig,
+                baseCompleteState,
+              );
+              const postDeadlineForecast = campaignRepaymentForecast(
+                extendedConfig,
+                day57Committed,
+              );
 
               const zeroConfig = {
                 ...clone(baseConfig),
@@ -414,6 +506,42 @@ def run(base_url: str, debug_port: int):
                 day1Committed,
                 { manualRepayment: 0, extra: true },
               ));
+              invalid.forecastNonzeroBeforeResult = rejects(() => campaignRepaymentForecast(
+                baseConfig,
+                initial,
+                1,
+              ));
+              invalid.forecastNegativeProposal = rejects(() => campaignRepaymentForecast(
+                baseConfig,
+                day1Committed,
+                -1,
+              ));
+              invalid.forecastUnsafeProposal = rejects(() => campaignRepaymentForecast(
+                baseConfig,
+                day1Committed,
+                Number.MAX_SAFE_INTEGER,
+              ));
+              invalid.forecastPastCash = rejects(() => campaignRepaymentForecast(
+                baseConfig,
+                day1Committed,
+                day1Committed.cash + 1,
+              ));
+              invalid.forecastPastDebt = rejects(() => campaignRepaymentForecast(
+                baseConfig,
+                debtBoundCommitted,
+                6,
+              ));
+              invalid.forecastProposalAfterHurdleMiss = rejects(
+                () => campaignRepaymentForecast(baseConfig, hurdleMissRun, 1),
+              );
+              invalid.forecastProposalAfterDeadline = rejects(
+                () => campaignRepaymentForecast(extendedConfig, day57Committed, 1),
+              );
+              invalid.forecastTamperedState = rejects(() => {
+                const candidate = clone(day1Committed);
+                candidate.cash += 1;
+                campaignRepaymentForecast(baseConfig, candidate);
+              });
               invalid.gateBeforeDeadline = rejects(() => campaignDebtGateEvidence(
                 baseConfig,
                 day1Settled,
@@ -423,10 +551,15 @@ def run(base_url: str, debug_port: int):
                 day57Committed,
                 { manualRepayment: 1 },
               ));
+              invalid.day8AfterMissedHurdle = rejects(() => commitCampaignDayResult(
+                baseConfig,
+                hurdleMissRun,
+                dayResult(hurdleMissRun, { stageNumber: 8, income: 100 }),
+              ));
               invalid.day57AfterMissedDeadline = rejects(() => commitCampaignDayResult(
                 baseConfig,
-                failedRun,
-                dayResult(failedRun, { stageNumber: 57, income: 100 }),
+                deadlineMissRun,
+                dayResult(deadlineMissRun, { stageNumber: 57, income: 100 }),
               ));
               invalid.sparseLedger = rejects(() => {
                 const candidate = clone(day1Settled);
@@ -460,11 +593,29 @@ def run(base_url: str, debug_port: int):
               });
               invalid.tamperedCheckpointOrder = rejects(() => {
                 const candidate = clone(mixedRun);
-                candidate.ledger[6].checkpoint.outcome = 'RECOVERY_REQUIRED';
+                candidate.ledger[6].checkpoint.outcome = 'CHAPTER_HURDLE_MISSED';
                 validateCampaignFinanceState(extendedConfig, candidate);
               });
+              invalid.checkpointExtraField = rejects(() => {
+                const candidate = clone(mixedRun);
+                candidate.ledger[6].checkpoint.extra = true;
+                validateCampaignFinanceState(extendedConfig, candidate);
+              });
+              invalid.appendAfterMissedHurdle = rejects(() => {
+                const candidate = clone(hurdleMissRun);
+                const copiedDay8 = clone(mixedRun.ledger[7]);
+                candidate.ledger.push(copiedDay8);
+                candidate.completedStageCount = 8;
+                candidate.cash = copiedDay8.closingCash;
+                candidate.remainingDebt = copiedDay8.closingDebt;
+                candidate.cumulativeRepayment = copiedDay8.cumulativeRepayment;
+                candidate.phase = 'AWAITING_RESULT';
+                candidate.status = 'ACTIVE';
+                candidate.nextStageNumber = 9;
+                validateCampaignFinanceState(baseConfig, candidate);
+              });
               invalid.retroactiveDeadlineFlag = rejects(() => {
-                const candidate = clone(failedRun);
+                const candidate = clone(deadlineMissRun);
                 candidate.debtClearedAtDeadline = true;
                 candidate.status = 'ACTIVE';
                 candidate.phase = 'AWAITING_RESULT';
@@ -480,8 +631,14 @@ def run(base_url: str, debug_port: int):
               invalid.unlockFailedDebt = rejects(() => unlockCampaignFinanceTrueExtension(
                 baseConfig,
                 extendedConfig,
-                failedRun,
+                deadlineMissRun,
                 failedEvidence,
+              ));
+              invalid.unlockMissedHurdle = rejects(() => unlockCampaignFinanceTrueExtension(
+                baseConfig,
+                extendedConfig,
+                hurdleMissRun,
+                passedEvidence,
               ));
               invalid.unlockWrongEvidence = rejects(() => unlockCampaignFinanceTrueExtension(
                 baseConfig,
@@ -534,6 +691,21 @@ def run(base_url: str, debug_port: int):
                 configValid: validateCampaignFinanceConfig(baseConfig)
                   && validateCampaignFinanceConfig(extendedConfig),
                 initial,
+                forecasts: {
+                  initial: initialForecast,
+                  detached: forecastDetached,
+                  day1WithoutProposal: day1ForecastWithoutProposal,
+                  day1WithProposal: day1ForecastWithProposal,
+                  metAtBoundary: metAtBoundaryForecast,
+                  afterDay7: afterDay7Forecast,
+                  hurdleBoundary: hurdleBoundaryForecast,
+                  hurdleBoundaryMet: hurdleBoundaryMetForecast,
+                  overTarget: overTargetForecast,
+                  closedHurdle: closedHurdleForecast,
+                  closedDeadline: closedDeadlineForecast,
+                  completedBase: completedBaseForecast,
+                  postDeadline: postDeadlineForecast,
+                },
                 immutableInputs,
                 day1Committed: {
                   phase: day1Committed.phase,
@@ -546,7 +718,6 @@ def run(base_url: str, debug_port: int):
                 preRepaymentAtSeven,
                 day7Checkpoint,
                 day14Checkpoint,
-                recoveryOperationEntry,
                 day56Entry,
                 passedEvidence,
                 extensionStart,
@@ -562,12 +733,22 @@ def run(base_url: str, debug_port: int):
                   configId: mixedRun.configId,
                   valid: validateCampaignFinanceState(extendedConfig, mixedRun),
                 },
-                failedState: {
-                  completedStageCount: failedRun.completedStageCount,
-                  status: failedRun.status,
-                  phase: failedRun.phase,
-                  nextStageNumber: failedRun.nextStageNumber,
-                  remainingDebt: failedRun.remainingDebt,
+                hurdleMissState: {
+                  completedStageCount: hurdleMissRun.completedStageCount,
+                  status: hurdleMissRun.status,
+                  phase: hurdleMissRun.phase,
+                  nextStageNumber: hurdleMissRun.nextStageNumber,
+                  remainingDebt: hurdleMissRun.remainingDebt,
+                  checkpoint: hurdleMissCheckpoint,
+                  valid: validateCampaignFinanceState(baseConfig, hurdleMissRun),
+                },
+                deadlineMissState: {
+                  completedStageCount: deadlineMissRun.completedStageCount,
+                  status: deadlineMissRun.status,
+                  phase: deadlineMissRun.phase,
+                  nextStageNumber: deadlineMissRun.nextStageNumber,
+                  remainingDebt: deadlineMissRun.remainingDebt,
+                  valid: validateCampaignFinanceState(baseConfig, deadlineMissRun),
                 },
                 failedEvidence,
                 zeroConfig: {
@@ -585,6 +766,8 @@ def run(base_url: str, debug_port: int):
                   ),
                 },
                 constants: {
+                  financeSchemaVersion: CAMPAIGN_FINANCE_SCHEMA_VERSION,
+                  operationKinds: CAMPAIGN_FINANCE_OPERATION_KINDS,
                   balanceVerdict: CAMPAIGN_FINANCE_BALANCE_VERDICT,
                   settlementSequence: CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE,
                 },
@@ -598,7 +781,74 @@ def run(base_url: str, debug_port: int):
         assert contracts["initial"]["cash"] == 50, contracts["initial"]
         assert contracts["initial"]["remainingDebt"] == 100, contracts["initial"]
         assert contracts["initial"]["totalStages"] == 56, contracts["initial"]
+        assert contracts["initial"]["schemaVersion"] == 2, contracts["initial"]
         assert contracts["initial"]["balanceVerdict"] == "NOT_EVALUATED"
+        forecasts = contracts["forecasts"]
+        forecast_keys = {
+            "nextCheckpointStage",
+            "targetCumulativeRepayment",
+            "projectedCumulativeRepayment",
+            "remainingAmount",
+            "remainingRepaymentOpportunities",
+            "requiredAverageRepayment",
+        }
+        assert set(forecasts["initial"]) == forecast_keys, forecasts["initial"]
+        assert forecasts["initial"] == {
+            "nextCheckpointStage": 7,
+            "targetCumulativeRepayment": 10,
+            "projectedCumulativeRepayment": 0,
+            "remainingAmount": 10,
+            "remainingRepaymentOpportunities": 7,
+            "requiredAverageRepayment": 2,
+        }, forecasts["initial"]
+        assert forecasts["detached"] is True, forecasts
+        assert forecasts["day1WithoutProposal"] == forecasts["initial"], forecasts
+        assert forecasts["day1WithProposal"] == {
+            "nextCheckpointStage": 7,
+            "targetCumulativeRepayment": 10,
+            "projectedCumulativeRepayment": 4,
+            "remainingAmount": 6,
+            "remainingRepaymentOpportunities": 7,
+            "requiredAverageRepayment": 1,
+        }, forecasts["day1WithProposal"]
+        assert forecasts["metAtBoundary"] == {
+            "nextCheckpointStage": 7,
+            "targetCumulativeRepayment": 10,
+            "projectedCumulativeRepayment": 10,
+            "remainingAmount": 0,
+            "remainingRepaymentOpportunities": 1,
+            "requiredAverageRepayment": 0,
+        }, forecasts["metAtBoundary"]
+        assert forecasts["afterDay7"] == {
+            "nextCheckpointStage": 14,
+            "targetCumulativeRepayment": 20,
+            "projectedCumulativeRepayment": 10,
+            "remainingAmount": 10,
+            "remainingRepaymentOpportunities": 7,
+            "requiredAverageRepayment": 2,
+        }, forecasts["afterDay7"]
+        assert forecasts["hurdleBoundary"] == {
+            "nextCheckpointStage": 7,
+            "targetCumulativeRepayment": 10,
+            "projectedCumulativeRepayment": 9,
+            "remainingAmount": 1,
+            "remainingRepaymentOpportunities": 1,
+            "requiredAverageRepayment": 1,
+        }, forecasts["hurdleBoundary"]
+        assert forecasts["hurdleBoundaryMet"]["remainingAmount"] == 0, forecasts
+        assert forecasts["hurdleBoundaryMet"]["requiredAverageRepayment"] == 0, forecasts
+        assert forecasts["overTarget"] == {
+            "nextCheckpointStage": 14,
+            "targetCumulativeRepayment": 20,
+            "projectedCumulativeRepayment": 25,
+            "remainingAmount": 0,
+            "remainingRepaymentOpportunities": 7,
+            "requiredAverageRepayment": 0,
+        }, forecasts["overTarget"]
+        assert forecasts["closedHurdle"] is None, forecasts
+        assert forecasts["closedDeadline"] is None, forecasts
+        assert forecasts["completedBase"] is None, forecasts
+        assert forecasts["postDeadline"] is None, forecasts
         assert all(contracts["immutableInputs"].values()), contracts["immutableInputs"]
 
         committed = contracts["day1Committed"]
@@ -631,9 +881,9 @@ def run(base_url: str, debug_port: int):
 
         assert contracts["preRepaymentAtSeven"] == {
             "ledgerCount": 6,
-            "cumulativeRepayment": 0,
-            "remainingDebt": 100,
-            "cashAfterOperations": 65,
+            "cumulativeRepayment": 10,
+            "remainingDebt": 90,
+            "cashAfterOperations": 55,
         }, contracts["preRepaymentAtSeven"]
         assert contracts["day7Checkpoint"] == {
             "type": "CAMPAIGN_DEBT_CHECKPOINT",
@@ -644,27 +894,23 @@ def run(base_url: str, debug_port: int):
             "remainingDebt": 90,
             "shortfallAmount": 0,
             "outcome": "MET",
-            "recoveryRequirement": None,
             "debtDeadlineExtended": False,
         }, contracts["day7Checkpoint"]
-        recovery = contracts["day14Checkpoint"]
-        assert recovery["outcome"] == "RECOVERY_REQUIRED", recovery
-        assert recovery["shortfallAmount"] == 10, recovery
-        assert recovery["debtDeadlineExtended"] is False, recovery
-        assert recovery["recoveryRequirement"] == {
-            "type": "CAMPAIGN_FINANCE_RECOVERY_REQUIREMENT",
-            "required": True,
-            "boundaryStageNumber": 14,
-            "shortfallAmount": 10,
-            "deadlineExtensionAllowed": False,
-            "penaltyPolicyStatus": "TBD",
-        }, recovery
-        assert contracts["recoveryOperationEntry"]["campaignResultIdentity"] == {
-            "stageNumber": 15,
-            "operationKind": "RECOVERY",
-            "templateIndex": 4,
-        }, contracts["recoveryOperationEntry"]
-        assert contracts["recoveryOperationEntry"]["campaignOperationId"] == "FINANCE-OP-15"
+        day14 = contracts["day14Checkpoint"]
+        assert day14["outcome"] == "MET", day14
+        assert day14["cumulativeRepayment"] == 20, day14
+        assert day14["shortfallAmount"] == 0, day14
+        assert set(day14) == {
+            "type",
+            "stageNumber",
+            "kind",
+            "targetAmount",
+            "cumulativeRepayment",
+            "remainingDebt",
+            "shortfallAmount",
+            "outcome",
+            "debtDeadlineExtended",
+        }, day14
 
         day56 = contracts["day56Entry"]
         assert day56["checkpoint"]["outcome"] == "DEBT_CLEARED", day56
@@ -706,15 +952,37 @@ def run(base_url: str, debug_port: int):
             "valid": True,
         }, contracts["finalState"]
 
-        failed = contracts["failedState"]
+        hurdle_miss = contracts["hurdleMissState"]
+        assert hurdle_miss["completedStageCount"] == 7, hurdle_miss
+        assert hurdle_miss["status"] == "CHAPTER_HURDLE_MISSED", hurdle_miss
+        assert (
+            hurdle_miss["phase"] == "CLOSED"
+            and hurdle_miss["nextStageNumber"] is None
+        ), hurdle_miss
+        assert hurdle_miss["remainingDebt"] == 100, hurdle_miss
+        assert hurdle_miss["valid"] is True, hurdle_miss
+        assert hurdle_miss["checkpoint"] == {
+            "type": "CAMPAIGN_DEBT_CHECKPOINT",
+            "stageNumber": 7,
+            "kind": "CUMULATIVE_MINIMUM",
+            "targetAmount": 10,
+            "cumulativeRepayment": 0,
+            "remainingDebt": 100,
+            "shortfallAmount": 10,
+            "outcome": "CHAPTER_HURDLE_MISSED",
+            "debtDeadlineExtended": False,
+        }, hurdle_miss
+
+        failed = contracts["deadlineMissState"]
         assert failed["completedStageCount"] == 56, failed
         assert failed["status"] == "DEBT_DEADLINE_MISSED", failed
         assert failed["phase"] == "CLOSED" and failed["nextStageNumber"] is None, failed
-        assert failed["remainingDebt"] == 100, failed
+        assert failed["remainingDebt"] == 40, failed
+        assert failed["valid"] is True, failed
         failed_evidence = contracts["failedEvidence"]
         assert failed_evidence["passed"] is False, failed_evidence
         assert failed_evidence["checkpointOutcome"] == "DEBT_DEADLINE_MISSED"
-        assert failed_evidence["remainingDebtAtBoundary"] == 100
+        assert failed_evidence["remainingDebtAtBoundary"] == 40
         assert failed_evidence["debtGraceAfterBoundary"] is False
         assert contracts["zeroConfig"] == {
             "passed": True,
@@ -725,6 +993,8 @@ def run(base_url: str, debug_port: int):
 
         assert all(contracts["conservation"].values()), contracts["conservation"]
         assert contracts["constants"] == {
+            "financeSchemaVersion": 2,
+            "operationKinds": ["NORMAL"],
             "balanceVerdict": "NOT_EVALUATED",
             "settlementSequence": (
                 "RESULT_COMMIT_THEN_OPTIONAL_REPAYMENT_THEN_CHECKPOINT"
@@ -747,12 +1017,25 @@ def run(base_url: str, debug_port: int):
             "status": "PASS",
             "mode": "CAMPAIGN_FINANCE_CONTRACT",
             "balance_verdict": contracts["constants"]["balanceVerdict"],
+            "finance_schema_version": contracts["constants"]["financeSchemaVersion"],
             "settlement_sequence": contracts["constants"]["settlementSequence"],
             "checkpoint_stages": [7, 14, 28, 42, 56],
-            "recovery_outcome": contracts["day14Checkpoint"]["outcome"],
-            "recovery_penalty_status": contracts["day14Checkpoint"][
-                "recoveryRequirement"
-            ]["penaltyPolicyStatus"],
+            "forecast_initial_average": forecasts["initial"][
+                "requiredAverageRepayment"
+            ],
+            "forecast_boundary_opportunities": forecasts["hurdleBoundary"][
+                "remainingRepaymentOpportunities"
+            ],
+            "forecast_closed_null": all(
+                forecasts[key] is None
+                for key in (
+                    "closedHurdle",
+                    "closedDeadline",
+                    "completedBase",
+                    "postDeadline",
+                )
+            ),
+            "chapter_hurdle_miss_outcome": contracts["hurdleMissState"]["status"],
             "day_56_gate": contracts["passedEvidence"]["passed"],
             "true_extension_prefix": contracts["extensionStart"]["prefixPreserved"],
             "day_57_debt_grace": contracts["passedEvidence"]["debtGraceAfterBoundary"],

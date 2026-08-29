@@ -18,26 +18,28 @@ function positiveSafeInteger(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+function exactKeys(value, expectedKeys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
 function validateDebtSettlement(value, owner) {
   assert(value && typeof value === "object" && !Array.isArray(value),
     `${owner}.debt_settlement must be an object`);
   assert(CHAPTER_DEBT_SETTLEMENT_KINDS.includes(value.kind),
     `${owner}.debt_settlement.kind is unknown`);
   if (value.kind === "NONE") {
-    assert(value.target_id === undefined,
-      `${owner}.debt_settlement.target_id cannot accompany NONE`);
-    assert(value.recovery_eligible === false,
-      `${owner}.debt_settlement.recovery_eligible must be false for NONE`);
+    assert(exactKeys(value, ["kind"]),
+      `${owner}.debt_settlement NONE must contain only kind`);
     return;
   }
+  assert(exactKeys(value, ["kind", "target_id"]),
+    `${owner}.debt_settlement must contain only kind and target_id`);
   assert(nonEmptyString(value.target_id),
     `${owner}.debt_settlement.target_id must be a non-empty string`);
-  assert(typeof value.recovery_eligible === "boolean",
-    `${owner}.debt_settlement.recovery_eligible must be boolean`);
-  if (value.kind === "FINAL_CLEARANCE") {
-    assert(value.recovery_eligible === false,
-      `${owner}.debt_settlement.recovery_eligible must be false for FINAL_CLEARANCE`);
-  }
 }
 
 export function validateCampaignChapterSchedule(schedule, calendarConfig, options = {}) {
@@ -115,7 +117,6 @@ function compileUnchecked(schedule, calendarConfig, options = {}) {
     debtSettlement: {
       kind: chapter.debt_settlement.kind,
       targetId: chapter.debt_settlement.target_id ?? null,
-      recoveryEligible: chapter.debt_settlement.recovery_eligible,
     },
   }));
   const days = calendar.days.map((calendarDay) => {

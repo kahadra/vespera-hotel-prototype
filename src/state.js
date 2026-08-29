@@ -20,6 +20,10 @@ import {
   renovationRoomIds,
 } from "./upgrades.js";
 import { getGuestRules } from "./data.js";
+import {
+  compileCampaignChapters,
+  validateCampaignChapterPrefix,
+} from "./campaign-chapters.js";
 import { createRunRecord, readRunRecords, storeRunRecord } from "./run.js";
 import {
   campaignOperationDescriptor,
@@ -27,9 +31,18 @@ import {
   campaignResultIdentity,
   completeCampaignOperation,
   createCampaignProgress,
-  queueCampaignRecovery,
   unlockTrueCampaignExtension,
 } from "./campaign-progress.js";
+import {
+  campaignRepaymentForecast,
+  campaignDebtGateEvidence,
+  commitCampaignDayResult,
+  createCampaignFinanceState,
+  settleCampaignDay,
+  unlockCampaignFinanceTrueExtension,
+  validateCampaignFinanceConfig,
+  validateCampaignFinanceState,
+} from "./campaign-finance.js";
 import {
   clearActiveRunSave,
   readActiveRunSave,
@@ -126,13 +139,216 @@ function initialCampaignProgress(data) {
   return createCampaignProgress(data.campaign.formal_progress);
 }
 
+const FORMAL_FINANCE_RUNTIME_POLICY_KEYS = Object.freeze([
+  "id",
+  "version",
+  "status",
+  "balance_verdict",
+  "base_daily_upkeep",
+  "upkeep_per_owned_upgrade",
+]);
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasExactKeys(value, expectedKeys) {
+  if (!isPlainObject(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function nonNegativeSafeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function positiveSafeInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function safeAmountSum(owner, ...amounts) {
+  if (!amounts.every(nonNegativeSafeInteger)) {
+    throw new Error(`${owner} requires non-negative safe-integer amounts`);
+  }
+  const total = amounts.reduce((sum, amount) => sum + amount, 0);
+  if (!Number.isSafeInteger(total)) throw new Error(`${owner} exceeds the safe-integer range`);
+  return total;
+}
+
+function validateFormalFinanceConfigPair(baseConfig, extendedConfig) {
+  validateCampaignFinanceConfig(baseConfig);
+  validateCampaignFinanceConfig(extendedConfig);
+  if (baseConfig.total_stages !== 56) {
+    throw new Error("FORMAL_CAMPAIGN finance base_year must end at day 56");
+  }
+  if (extendedConfig.total_stages !== 70) {
+    throw new Error("FORMAL_CAMPAIGN finance true_extension must end at day 70");
+  }
+  if (baseConfig.id === extendedConfig.id) {
+    throw new Error("FORMAL_CAMPAIGN finance configs require distinct ids");
+  }
+  if (baseConfig.version !== extendedConfig.version) {
+    throw new Error("FORMAL_CAMPAIGN finance configs must share one contract version");
+  }
+  for (const key of [
+    "contract_status",
+    "debt_deadline_stage",
+    "debt_gate_id",
+    "starting_cash",
+    "principal",
+  ]) {
+    if (baseConfig[key] !== extendedConfig[key]) {
+      throw new Error(`FORMAL_CAMPAIGN true_extension cannot change ${key}`);
+    }
+  }
+  for (const stageNumber of [7, 14, 28, 42, 56]) {
+    if (baseConfig.chapter_cumulative_targets[String(stageNumber)]
+      !== extendedConfig.chapter_cumulative_targets[String(stageNumber)]) {
+      throw new Error("FORMAL_CAMPAIGN true_extension must preserve chapter debt targets");
+    }
+  }
+}
+
+function validateFormalChapterFinanceAlignment(data, baseConfig, extendedConfig) {
+  const calendars = data.campaign?.calendar;
+  const schedules = data.campaign?.chapters;
+  if (
+    !isPlainObject(calendars)
+    || !isPlainObject(calendars.base_year)
+    || !isPlainObject(calendars.true_extension)
+    || !isPlainObject(schedules)
+    || !isPlainObject(schedules.base_year)
+    || !isPlainObject(schedules.true_extension)
+  ) {
+    throw new Error("FORMAL_CAMPAIGN finance requires base and true chapter calendars");
+  }
+  const rankIds = data.campaign?.formal_rank_ids;
+  const species = data.campaign?.formal_species;
+  if (!Array.isArray(rankIds) || !Array.isArray(species)) {
+    throw new Error("FORMAL_CAMPAIGN chapter validation requires rank and species authorities");
+  }
+  const chapterOptions = {
+    calendarValidationOptions: {
+      rankIds,
+      speciesIds: species.map((entry) => entry?.id),
+    },
+  };
+  const baseChapters = compileCampaignChapters(
+    schedules.base_year,
+    calendars.base_year,
+    chapterOptions,
+  );
+  const extendedChapters = compileCampaignChapters(
+    schedules.true_extension,
+    calendars.true_extension,
+    chapterOptions,
+  );
+  validateCampaignChapterPrefix(
+    schedules.base_year,
+    schedules.true_extension,
+    calendars.base_year,
+    calendars.true_extension,
+    chapterOptions,
+  );
+
+  const targetStages = Object.keys(baseConfig.chapter_cumulative_targets)
+    .map(Number)
+    .sort((left, right) => left - right);
+  const settlementChapters = baseChapters.chapters.filter(
+    (chapter) => chapter.debtSettlement.kind !== "NONE",
+  );
+  const settlementStages = settlementChapters
+    .map((chapter) => chapter.endStage)
+    .sort((left, right) => left - right);
+  if (JSON.stringify(settlementStages) !== JSON.stringify(targetStages)) {
+    throw new Error("FORMAL_CAMPAIGN chapter ends must match finance checkpoint stages");
+  }
+  for (const chapter of settlementChapters) {
+    const expectedKind = chapter.endStage === baseConfig.debt_deadline_stage
+      ? "FINAL_CLEARANCE"
+      : "CUMULATIVE_MINIMUM";
+    if (chapter.debtSettlement.kind !== expectedKind) {
+      throw new Error("FORMAL_CAMPAIGN chapter settlement kind conflicts with finance authority");
+    }
+  }
+  const extendedSettlementStages = extendedChapters.chapters
+    .filter((chapter) => chapter.debtSettlement.kind !== "NONE")
+    .map((chapter) => chapter.endStage)
+    .sort((left, right) => left - right);
+  if (JSON.stringify(extendedSettlementStages) !== JSON.stringify(targetStages)) {
+    throw new Error("FORMAL_CAMPAIGN true extension cannot add debt checkpoints");
+  }
+  const extensionChapters = extendedChapters.chapters.slice(baseChapters.chapters.length);
+  if (
+    extensionChapters.length === 0
+    || extensionChapters.some((chapter) => chapter.debtSettlement.kind !== "NONE")
+  ) {
+    throw new Error("FORMAL_CAMPAIGN true extension chapters cannot carry debt settlement");
+  }
+  const trueEntryDay = extendedChapters.days[baseConfig.debt_deadline_stage];
+  if (
+    trueEntryDay?.stageNumber !== baseConfig.debt_deadline_stage + 1
+    || trueEntryDay.isChapterStart !== true
+    || trueEntryDay.entryGateId !== baseConfig.debt_gate_id
+  ) {
+    throw new Error("FORMAL_CAMPAIGN true chapter entry gate conflicts with finance authority");
+  }
+  if (baseConfig.total_stages !== baseChapters.totalStages
+    || extendedConfig.total_stages !== extendedChapters.totalStages) {
+    throw new Error("FORMAL_CAMPAIGN chapter and finance stage limits must match");
+  }
+}
+
+function formalCampaignFinanceAuthority(data) {
+  if (data.prototype_mode?.type !== "FORMAL_CAMPAIGN") return null;
+  const authority = data.campaign?.formal_finance;
+  if (!isPlainObject(authority)) {
+    throw new Error("FORMAL_CAMPAIGN requires data.campaign.formal_finance");
+  }
+  const { base_year: baseConfig, true_extension: extendedConfig } = authority;
+  if (!isPlainObject(baseConfig) || !isPlainObject(extendedConfig)) {
+    throw new Error("FORMAL_CAMPAIGN finance requires base_year and true_extension configs");
+  }
+  validateFormalFinanceConfigPair(baseConfig, extendedConfig);
+  validateFormalChapterFinanceAlignment(data, baseConfig, extendedConfig);
+
+  const policy = authority.runtime_policy;
+  if (!hasExactKeys(policy, FORMAL_FINANCE_RUNTIME_POLICY_KEYS)) {
+    throw new Error("FORMAL_CAMPAIGN finance runtime_policy has an invalid shape");
+  }
+  if (typeof policy.id !== "string" || !policy.id.trim() || !positiveSafeInteger(policy.version)) {
+    throw new Error("FORMAL_CAMPAIGN finance runtime_policy requires a valid id and version");
+  }
+  if (policy.status !== "PROVISIONAL" || policy.balance_verdict !== "NOT_EVALUATED") {
+    throw new Error("FORMAL_CAMPAIGN finance runtime_policy must remain PROVISIONAL/NOT_EVALUATED");
+  }
+  if (
+    !nonNegativeSafeInteger(policy.base_daily_upkeep)
+    || !nonNegativeSafeInteger(policy.upkeep_per_owned_upgrade)
+  ) {
+    throw new Error("FORMAL_CAMPAIGN finance upkeep values must be non-negative safe integers");
+  }
+  return authority;
+}
+
+function initialCampaignFinance(data) {
+  const authority = formalCampaignFinanceAuthority(data);
+  return authority ? createCampaignFinanceState(authority.base_year) : null;
+}
+
 function initialState(data, seed, recordArchiveCount = 0, profile = null) {
   const defaults = data.campaign?.new_game_defaults ?? {};
+  const campaignFinance = initialCampaignFinance(data);
   return {
     phase: PHASES.TITLE,
     profileId: profile?.profile_id ?? "default",
     currentNightIndex: 0,
     campaignProgress: initialCampaignProgress(data),
+    campaignFinance,
+    campaignPendingExpenses: { reactivation: 0, roomService: 0 },
+    campaignSelectedRepayment: 0,
     storyNodeId: null,
     playerGenderId: defaults.player_gender_id ?? "MALE",
     relationshipGenderPreset: defaults.relationship_gender_preset ?? "ALL_FEMALE",
@@ -173,7 +389,7 @@ function initialState(data, seed, recordArchiveCount = 0, profile = null) {
     endlessClosed: false,
     endlessClosureReason: null,
     selectedEndingRelationshipRoleId: null,
-    gold: 0,
+    gold: campaignFinance?.cash ?? 0,
     hotelReputation: 0,
     ownedUpgradeIds: [],
     ownedDisplayRelicIds: [],
@@ -309,6 +525,110 @@ export class GameController {
 
   get formalCampaignProgressConfig() {
     return this.data.campaign?.formal_progress;
+  }
+
+  get formalCampaignFinanceAuthority() {
+    return formalCampaignFinanceAuthority(this.data);
+  }
+
+  get activeCampaignFinanceConfig() {
+    if (!this.isFormalCampaignMode) return null;
+    const finance = this.state.campaignFinance;
+    if (!finance) throw new Error("FORMAL_CAMPAIGN state is missing campaignFinance");
+    const authority = this.formalCampaignFinanceAuthority;
+    const candidates = [authority.base_year, authority.true_extension];
+    const config = candidates.find(
+      (candidate) => candidate.id === finance.configId
+        && candidate.version === finance.configVersion,
+    );
+    if (!config) throw new Error("FORMAL_CAMPAIGN finance state references an unknown config");
+    validateCampaignFinanceState(config, finance);
+    return config;
+  }
+
+  get formalCampaignFinanceRuntimePolicy() {
+    return this.formalCampaignFinanceAuthority?.runtime_policy ?? null;
+  }
+
+  formalCampaignRepaymentForecast() {
+    if (!this.isFormalCampaignMode) return null;
+    return campaignRepaymentForecast(
+      this.activeCampaignFinanceConfig,
+      this.state.campaignFinance,
+      this.state.campaignSelectedRepayment,
+    );
+  }
+
+  calculateFormalCampaignUpkeep() {
+    if (!this.isFormalCampaignMode) return 0;
+    const policy = this.formalCampaignFinanceRuntimePolicy;
+    const upgradeCount = this.state.ownedUpgradeIds.length;
+    if (!nonNegativeSafeInteger(upgradeCount)) {
+      throw new Error("FORMAL_CAMPAIGN owned upgrade count is invalid");
+    }
+    const upgradeUpkeep = policy.upkeep_per_owned_upgrade * upgradeCount;
+    if (!Number.isSafeInteger(upgradeUpkeep)) {
+      throw new Error("FORMAL_CAMPAIGN upgrade upkeep exceeds the safe-integer range");
+    }
+    return safeAmountSum(
+      "FORMAL_CAMPAIGN daily upkeep",
+      policy.base_daily_upkeep,
+      upgradeUpkeep,
+    );
+  }
+
+  verifyFormalCampaignLiveCash() {
+    if (!this.isFormalCampaignMode) return true;
+    const pending = this.state.campaignPendingExpenses;
+    if (!hasExactKeys(pending, ["reactivation", "roomService"])) {
+      throw new Error("FORMAL_CAMPAIGN campaignPendingExpenses has an invalid shape");
+    }
+    const pendingTotal = safeAmountSum(
+      "FORMAL_CAMPAIGN pending expenses",
+      pending.reactivation,
+      pending.roomService,
+    );
+    if (!nonNegativeSafeInteger(this.state.gold)) {
+      throw new Error("FORMAL_CAMPAIGN live gold must be a non-negative safe integer");
+    }
+    const accountedCash = safeAmountSum(
+      "FORMAL_CAMPAIGN live cash invariant",
+      this.state.gold,
+      pendingTotal,
+    );
+    const config = this.activeCampaignFinanceConfig;
+    if (accountedCash !== this.state.campaignFinance.cash) {
+      throw new Error("FORMAL_CAMPAIGN live gold plus pending expenses must equal finance cash");
+    }
+    if (this.state.campaignFinance.completedStageCount
+      !== this.state.campaignProgress.completedStageCount) {
+      throw new Error("FORMAL_CAMPAIGN finance and progress completed stages are out of sync");
+    }
+    if (config.total_stages !== this.state.campaignProgress.stageLimit) {
+      throw new Error("FORMAL_CAMPAIGN finance and progress stage limits are out of sync");
+    }
+    return true;
+  }
+
+  addFormalCampaignPendingExpense(kind, amount) {
+    if (!this.isFormalCampaignMode) return true;
+    if (!["reactivation", "roomService"].includes(kind)) {
+      throw new Error("FORMAL_CAMPAIGN pending expense kind is invalid");
+    }
+    if (!nonNegativeSafeInteger(amount)) {
+      throw new Error("FORMAL_CAMPAIGN pending expense must be a non-negative safe integer");
+    }
+    const next = safeAmountSum(
+      `FORMAL_CAMPAIGN pending ${kind}`,
+      this.state.campaignPendingExpenses[kind],
+      amount,
+    );
+    this.state.campaignPendingExpenses = {
+      ...this.state.campaignPendingExpenses,
+      [kind]: next,
+    };
+    this.verifyFormalCampaignLiveCash();
+    return true;
   }
 
   formalCampaignCurrentStageIndex() {
@@ -580,7 +900,9 @@ export class GameController {
     };
     this.state.truthEvidenceCount = route.truth_evidence_count ?? 0;
     this.state.peaceAllianceComplete = route.peace_alliance_complete === true;
-    this.state.chapterHurdleFailures = route.chapter_hurdle_failures ?? 0;
+    if (!this.isFormalCampaignMode) {
+      this.state.chapterHurdleFailures = route.chapter_hurdle_failures ?? 0;
+    }
     this.state.selectedEndingRelationshipRoleId = route.selected_ending_relationship_role_id ?? null;
     return true;
   }
@@ -1062,44 +1384,67 @@ export class GameController {
   }
 
   completeNight(result) {
-    const formalCompletion = this.prepareFormalCampaignCompletion();
-    const resolvedResult = this.applyDisplayRelicResultEffects(result);
-    if (formalCompletion) {
-      resolvedResult.campaignOperationId = formalCompletion.operationId;
-      resolvedResult.campaignResultIdentity = clone(formalCompletion.resultIdentity);
-      resolvedResult.campaignRecoveryBoundaryStageNumber =
-        formalCompletion.operation.recoveryBoundaryStageNumber;
+    const formalSnapshot = this.isFormalCampaignMode ? clone(this.state) : null;
+    try {
+      if (this.isFormalCampaignMode) this.verifyFormalCampaignLiveCash();
+      const formalCompletion = this.prepareFormalCampaignCompletion();
+      const resolvedResult = this.applyDisplayRelicResultEffects(result);
+      if (formalCompletion) {
+        resolvedResult.campaignOperationId = formalCompletion.operationId;
+        resolvedResult.campaignResultIdentity = clone(formalCompletion.resultIdentity);
+        const pending = this.state.campaignPendingExpenses;
+        const config = this.activeCampaignFinanceConfig;
+        this.state.campaignFinance = commitCampaignDayResult(
+          config,
+          this.state.campaignFinance,
+          {
+            stageNumber: formalCompletion.operation.stageNumber,
+            campaignOperationId: formalCompletion.operationId,
+            campaignResultIdentity: clone(formalCompletion.resultIdentity),
+            income: resolvedResult.income,
+            upkeep: this.calculateFormalCampaignUpkeep(),
+            reactivation: pending.reactivation,
+            roomService: pending.roomService,
+          },
+        );
+        this.state.campaignPendingExpenses = { reactivation: 0, roomService: 0 };
+        this.state.gold = this.state.campaignFinance.cash;
+      } else {
+        this.state.gold += resolvedResult.income;
+      }
+      this.state.hotelReputation += resolvedResult.reputationDelta;
+      this.updateGuestHistoryAndDiscoveries(resolvedResult);
+      this.applyRoomWearAndStays(resolvedResult);
+      if (formalCompletion) {
+        this.state.nightResults.push(resolvedResult);
+        this.state.campaignProgress = formalCompletion.nextProgress;
+      } else if (this.isEndlessMode) {
+        this.state.nightResults.push(resolvedResult);
+        this.state.endlessCompletedOperations += 1;
+        this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
+        this.state.endlessLifetimeMetrics = {
+          totalIncome: this.state.endlessLifetimeMetrics.totalIncome + Number(resolvedResult.income ?? 0),
+          reputationDelta: round2(
+            this.state.endlessLifetimeMetrics.reputationDelta
+            + Number(resolvedResult.reputationDelta ?? 0),
+          ),
+          acceptedGuests: this.state.endlessLifetimeMetrics.acceptedGuests
+            + (resolvedResult.acceptedGuestIds?.length ?? 0),
+          rejectedGuests: this.state.endlessLifetimeMetrics.rejectedGuests
+            + (resolvedResult.rejectedGuestIds?.length ?? 0),
+          canceledGuests: this.state.endlessLifetimeMetrics.canceledGuests
+            + (resolvedResult.canceledGuestIds?.length ?? 0),
+          emergencyNights: this.state.endlessLifetimeMetrics.emergencyNights
+            + (resolvedResult.emergencyReport?.timedOut ? 1 : 0),
+        };
+      } else this.state.nightResults[this.state.currentNightIndex] = resolvedResult;
+      this.state.serviceTimerMs = null;
+      this.state.emergencyReport = resolvedResult.emergencyReport;
+      this.state.phase = PHASES.RESULT;
+    } catch (error) {
+      if (formalSnapshot) this.state = formalSnapshot;
+      throw error;
     }
-    this.state.gold += resolvedResult.income;
-    this.state.hotelReputation += resolvedResult.reputationDelta;
-    this.updateGuestHistoryAndDiscoveries(resolvedResult);
-    this.applyRoomWearAndStays(resolvedResult);
-    if (formalCompletion) {
-      this.state.nightResults.push(resolvedResult);
-      this.state.campaignProgress = formalCompletion.nextProgress;
-    } else if (this.isEndlessMode) {
-      this.state.nightResults.push(resolvedResult);
-      this.state.endlessCompletedOperations += 1;
-      this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
-      this.state.endlessLifetimeMetrics = {
-        totalIncome: this.state.endlessLifetimeMetrics.totalIncome + Number(resolvedResult.income ?? 0),
-        reputationDelta: round2(
-          this.state.endlessLifetimeMetrics.reputationDelta
-          + Number(resolvedResult.reputationDelta ?? 0),
-        ),
-        acceptedGuests: this.state.endlessLifetimeMetrics.acceptedGuests
-          + (resolvedResult.acceptedGuestIds?.length ?? 0),
-        rejectedGuests: this.state.endlessLifetimeMetrics.rejectedGuests
-          + (resolvedResult.rejectedGuestIds?.length ?? 0),
-        canceledGuests: this.state.endlessLifetimeMetrics.canceledGuests
-          + (resolvedResult.canceledGuestIds?.length ?? 0),
-        emergencyNights: this.state.endlessLifetimeMetrics.emergencyNights
-          + (resolvedResult.emergencyReport?.timedOut ? 1 : 0),
-      };
-    } else this.state.nightResults[this.state.currentNightIndex] = resolvedResult;
-    this.state.serviceTimerMs = null;
-    this.state.emergencyReport = resolvedResult.emergencyReport;
-    this.state.phase = PHASES.RESULT;
   }
 
   ownedRelicWithEffect(effectId) {
@@ -1209,6 +1554,10 @@ export class GameController {
 
   continueAfterResult() {
     if (this.state.phase !== PHASES.RESULT) return false;
+    if (
+      this.isFormalCampaignMode
+      && this.state.campaignFinance?.phase === "RESULT_COMMITTED"
+    ) return false;
     if (this.isEndlessMode) {
       const seasonLength = Number(this.data.endless?.season_length ?? this.totalNights);
       if (this.state.endlessSeasonNightIndex + 1 >= seasonLength) {
@@ -1248,40 +1597,137 @@ export class GameController {
 
   openResultReview() {
     if (!this.isScenarioMode || this.state.phase !== PHASES.RESULT) return false;
+    this.state.campaignSelectedRepayment = 0;
     this.state.phase = PHASES.RESULT_REVIEW;
     return true;
   }
 
-  queueFormalCampaignRecovery(boundaryStageNumber) {
-    if (
-      !this.isFormalCampaignMode
-      || ![PHASES.RESULT, PHASES.RESULT_REVIEW].includes(this.state.phase)
-    ) return false;
-    this.state.campaignProgress = queueCampaignRecovery(
-      this.formalCampaignProgressConfig,
-      this.state.campaignProgress,
-      boundaryStageNumber,
-    );
+  setFormalCampaignRepayment(amount) {
+    if (!this.isFormalCampaignMode || this.state.phase !== PHASES.RESULT_REVIEW) return false;
+    if (!nonNegativeSafeInteger(amount)) return false;
+    const config = this.activeCampaignFinanceConfig;
+    const finance = this.state.campaignFinance;
+    if (finance.phase !== "RESULT_COMMITTED" || !finance.pendingDayResult) return false;
+    if (amount > finance.cash || amount > finance.remainingDebt) return false;
+    if (finance.pendingDayResult.stageNumber > config.debt_deadline_stage && amount !== 0) {
+      return false;
+    }
+    this.state.campaignSelectedRepayment = amount;
     return true;
   }
 
   unlockFormalCampaignTrueExtension(gateEvidence) {
-    if (
-      !this.isFormalCampaignMode
-      || ![PHASES.RESULT, PHASES.RESULT_REVIEW].includes(this.state.phase)
-    ) return false;
-    this.state.campaignProgress = unlockTrueCampaignExtension(
-      this.formalCampaignProgressConfig,
-      this.state.campaignProgress,
-      gateEvidence,
-    );
-    return true;
+    void gateEvidence;
+    return false;
   }
 
   acceptSecretaryReport() {
     if (this.state.phase !== PHASES.RESULT_REVIEW) return false;
-    this.state.phase = PHASES.RESULT;
-    return this.continueAfterResult();
+    if (!this.isFormalCampaignMode) {
+      this.state.phase = PHASES.RESULT;
+      return this.continueAfterResult();
+    }
+
+    const snapshot = clone(this.state);
+    try {
+      const config = this.activeCampaignFinanceConfig;
+      const settledFinance = settleCampaignDay(config, this.state.campaignFinance, {
+        manualRepayment: this.state.campaignSelectedRepayment,
+      });
+      const entry = settledFinance.ledger.at(-1);
+      const result = this.state.nightResults.at(-1);
+      const operationRecord = this.state.campaignProgress.operationRecords[
+        entry.stageNumber - 1
+      ];
+      if (
+        !entry
+        || entry.campaignOperationId !== result?.campaignOperationId
+        || JSON.stringify(entry.campaignResultIdentity)
+          !== JSON.stringify(result?.campaignResultIdentity)
+        || JSON.stringify(entry.campaignResultIdentity)
+          !== JSON.stringify(operationRecord?.resultIdentity)
+      ) {
+        throw new Error("FORMAL_CAMPAIGN settled finance identity is out of sync");
+      }
+
+      this.state.campaignFinance = settledFinance;
+      this.state.campaignSelectedRepayment = 0;
+      this.state.gold = settledFinance.cash;
+
+      const checkpoint = entry.checkpoint;
+      if (checkpoint?.outcome === "CHAPTER_HURDLE_MISSED") {
+        if (
+          checkpoint.kind !== "CUMULATIVE_MINIMUM"
+          || entry.stageNumber >= config.debt_deadline_stage
+          || checkpoint.stageNumber !== entry.stageNumber
+          || settledFinance.phase !== "CLOSED"
+          || settledFinance.status !== "CHAPTER_HURDLE_MISSED"
+        ) {
+          throw new Error("FORMAL_CAMPAIGN chapter hurdle miss is inconsistent");
+        }
+        this.state.chapterHurdleFailures += 1;
+        this.state.phase = PHASES.RESULT;
+        this.completeRun();
+        return true;
+      }
+
+      if (entry.stageNumber === config.debt_deadline_stage) {
+        if (checkpoint?.outcome === "DEBT_DEADLINE_MISSED") {
+          if (
+            settledFinance.phase !== "CLOSED"
+            || settledFinance.status !== "DEBT_DEADLINE_MISSED"
+          ) {
+            throw new Error("FORMAL_CAMPAIGN debt deadline miss is inconsistent");
+          }
+          this.state.chapterHurdleFailures += 1;
+          this.state.phase = PHASES.RESULT;
+          this.completeRun();
+          return true;
+        }
+        if (checkpoint?.outcome !== "DEBT_CLEARED") {
+          throw new Error("FORMAL_CAMPAIGN day 56 requires an exact debt checkpoint outcome");
+        }
+        const truthThreshold = this.data.campaign?.ending_thresholds?.truth_evidence;
+        if (!nonNegativeSafeInteger(truthThreshold)) {
+          throw new Error("FORMAL_CAMPAIGN ending truth-evidence threshold is invalid");
+        }
+        const trueRouteEligible = this.state.truthEvidenceCount >= truthThreshold
+          && this.state.peaceAllianceComplete === true;
+        if (trueRouteEligible) {
+          const authority = this.formalCampaignFinanceAuthority;
+          const debtEvidence = campaignDebtGateEvidence(authority.base_year, settledFinance);
+          const extendedFinance = unlockCampaignFinanceTrueExtension(
+            authority.base_year,
+            authority.true_extension,
+            settledFinance,
+            debtEvidence,
+          );
+          const extendedProgress = unlockTrueCampaignExtension(
+            this.formalCampaignProgressConfig,
+            this.state.campaignProgress,
+            debtEvidence,
+          );
+          this.state.campaignFinance = extendedFinance;
+          this.state.campaignProgress = extendedProgress;
+        } else {
+          this.state.phase = PHASES.RESULT;
+          this.completeRun();
+          return true;
+        }
+      }
+
+      if (entry.stageNumber === 70) {
+        this.state.phase = PHASES.RESULT;
+        this.completeRun();
+        return true;
+      }
+
+      this.state.phase = PHASES.RESULT;
+      return this.continueAfterResult();
+    } catch (error) {
+      this.state = snapshot;
+      throw error;
+    }
   }
 
   restartDayThroughSecretary() {
@@ -1330,10 +1776,23 @@ export class GameController {
       this.state.gold,
     );
     if (!purchase.ok) return false;
-    this.state.ownedUpgradeIds = purchase.ownedIds;
-    this.state.gold = purchase.gold;
-    this.state.renovationPurchaseIds.push(upgradeId);
-    return true;
+    const spent = this.state.gold - purchase.gold;
+    if (this.isFormalCampaignMode && !nonNegativeSafeInteger(spent)) {
+      throw new Error("Upgrade purchase produced an invalid FORMAL_CAMPAIGN expense");
+    }
+    const formalSnapshot = this.isFormalCampaignMode ? clone(this.state) : null;
+    try {
+      this.state.ownedUpgradeIds = purchase.ownedIds;
+      this.state.gold = purchase.gold;
+      if (this.isFormalCampaignMode) {
+        this.addFormalCampaignPendingExpense("reactivation", spent);
+      }
+      this.state.renovationPurchaseIds.push(upgradeId);
+      return true;
+    } catch (error) {
+      if (formalSnapshot) this.state = formalSnapshot;
+      throw error;
+    }
   }
 
   upgradeBlockedByStayover(upgradeId) {
@@ -1425,11 +1884,20 @@ export class GameController {
     const condition = this.state.roomConditions[roomId];
     if (!condition || this.state.gold < cost) return false;
     if (condition.cleanliness === 100 && condition.durability === 100) return false;
-    this.state.gold -= cost;
-    this.state.roomConditions[roomId] = { cleanliness: 100, durability: 100 };
-    const relic = this.ownedRelicWithEffect("ROOM_SERVICE_COST_REDUCTION");
-    if (relic) this.recordDisplayRelicTrigger(relic.id);
-    return true;
+    const formalSnapshot = this.isFormalCampaignMode ? clone(this.state) : null;
+    try {
+      this.state.gold -= cost;
+      if (this.isFormalCampaignMode) {
+        this.addFormalCampaignPendingExpense("roomService", cost);
+      }
+      this.state.roomConditions[roomId] = { cleanliness: 100, durability: 100 };
+      const relic = this.ownedRelicWithEffect("ROOM_SERVICE_COST_REDUCTION");
+      if (relic) this.recordDisplayRelicTrigger(relic.id);
+      return true;
+    } catch (error) {
+      if (formalSnapshot) this.state = formalSnapshot;
+      throw error;
+    }
   }
 
   roomServiceCost() {

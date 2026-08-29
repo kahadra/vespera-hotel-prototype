@@ -191,7 +191,7 @@ def run(base_url: str, debug_port: int, seed: int):
         assert final["runRecord"]["outcome"] == "COMPLETE", final["runRecord"]
         assert final["runRecord"]["ending_id"] == "NORMAL_STEWARDSHIP", final["runRecord"]
         assert final["runRecord"]["ending_tier"] == "NORMAL", final["runRecord"]
-        assert final["runRecord"]["schema_version"] == 4, final["runRecord"]
+        assert final["runRecord"]["schema_version"] == 5, final["runRecord"]
         assert final["runRecord"]["player_gender_id"] == "FEMALE", final["runRecord"]
         assert len(final["runRecord"]["relationship_epilogues"]) == 2, final["runRecord"]
         assert "베스페라의 평범한 인간 지배인" in client.body_text()

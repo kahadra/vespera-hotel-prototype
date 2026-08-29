@@ -21,6 +21,8 @@ def run(base_url: str, debug_port: int):
             (async () => {
               const progressModule = await import('./src/campaign-progress.js');
               const {
+                CAMPAIGN_PROGRESS_SCHEMA_VERSION,
+                CAMPAIGN_OPERATION_KINDS,
                 FORMAL_CAMPAIGN_PROGRESS_CONFIG,
                 validateCampaignProgressConfig,
                 validateCampaignProgressState,
@@ -30,7 +32,6 @@ def run(base_url: str, debug_port: int):
                 campaignOperationId,
                 campaignResultIdentity,
                 completeCampaignOperation,
-                queueCampaignRecovery,
                 unlockTrueCampaignExtension,
                 compileCampaignGreyboxOperationPlan,
                 validateCampaignProgressPrefix,
@@ -64,33 +65,16 @@ def run(base_url: str, debug_port: int):
               const firstIdentity = campaignResultIdentity(config, firstOperation);
               const initialSnapshot = JSON.stringify(initial);
               const afterFirst = completeCampaignOperation(config, initial, firstOperation);
-
-              let recoveryProgress = advanceTo(createCampaignProgress(config), 7);
-              const boundarySevenRecord = clone(recoveryProgress.operationRecords.at(-1));
-              recoveryProgress = queueCampaignRecovery(config, recoveryProgress, 7);
-              const recoveryOperation = campaignOperationDescriptor(config, recoveryProgress);
-              recoveryProgress = completeCampaignOperation(config, recoveryProgress, recoveryOperation);
-              const recoveryRecord = clone(recoveryProgress.operationRecords.at(-1));
-              const afterRecoveryOperation = campaignOperationDescriptor(config, recoveryProgress);
-              const recoveryBaseComplete = advanceTo(recoveryProgress, 56);
-              const recoveryBoundaryMatrix = config.recovery_boundary_stages.map(boundary => {
-                const atBoundary = advanceTo(createCampaignProgress(config), boundary);
-                const queued = queueCampaignRecovery(config, atBoundary, boundary);
-                const operation = campaignOperationDescriptor(config, queued);
-                const completed = completeCampaignOperation(config, queued, operation);
+              const chapterBoundaryRecords = [7, 14, 28, 42, 56].map(boundary => {
+                const progress = advanceTo(createCampaignProgress(config), boundary);
                 return {
                   boundary,
-                  consumedStage: operation.stageNumber,
-                  nextStage: completed.currentStageNumber,
-                  preservedBoundary: completed.operationRecords.at(-1)
-                    .recoveryBoundaryStageNumber,
+                  currentStageNumber: progress.currentStageNumber,
+                  record: clone(progress.operationRecords.at(-1)),
                 };
               });
 
-              let baseProgress = advanceTo(createCampaignProgress(config), 55);
-              const day56Operation = campaignOperationDescriptor(config, baseProgress);
-              baseProgress = completeCampaignOperation(config, baseProgress, day56Operation);
-
+              const baseProgress = advanceTo(createCampaignProgress(config), 56);
               const gateEvidence = {
                 gateId: config.true_entry_gate_id,
                 passed: true,
@@ -139,9 +123,11 @@ def run(base_url: str, debug_port: int):
                 value.scenario_template_count = Number.MAX_SAFE_INTEGER + 1;
               });
               invalidConfig('offsetOutsideTemplates', value => { value.template_offset = 5; });
-              invalidConfig('recoveryBoundaryDrift', value => {
-                value.recovery_boundary_stages = [7, 14, 28, 43];
+              invalidConfig('missingTemplateOffset', value => { delete value.template_offset; });
+              invalidConfig('staleRecoveryBoundaries', value => {
+                value.recovery_boundary_stages = [7, 14, 28, 42];
               });
+              invalidConfig('extraConfigField', value => { value.extra = true; });
 
               invalid.templateStageZero = rejects(() => campaignScenarioTemplateIndex(config, 0));
               invalid.templateStagePastTrue = rejects(() => campaignScenarioTemplateIndex(config, 71));
@@ -155,11 +141,6 @@ def run(base_url: str, debug_port: int):
                 0x100000000,
                 firstOperation,
               ));
-              invalid.queueBeforeBoundary = rejects(() => queueCampaignRecovery(config, initial, 7));
-              const atSeven = advanceTo(createCampaignProgress(config), 7);
-              invalid.queueWrongBoundary = rejects(() => queueCampaignRecovery(config, atSeven, 14));
-              const queuedAtSeven = queueCampaignRecovery(config, atSeven, 7);
-              invalid.queueTwice = rejects(() => queueCampaignRecovery(config, queuedAtSeven, 7));
               invalid.tamperedTemplate = rejects(() => completeCampaignOperation(
                 config,
                 initial,
@@ -170,6 +151,16 @@ def run(base_url: str, debug_port: int):
                 initial,
                 { ...firstOperation, extra: true },
               ));
+              invalid.staleRecoveryOperationField = rejects(() => completeCampaignOperation(
+                config,
+                initial,
+                { ...firstOperation, recoveryBoundaryStageNumber: null },
+              ));
+              invalid.recoveryOperationKind = rejects(() => completeCampaignOperation(
+                config,
+                initial,
+                { ...firstOperation, operationKind: 'RECOVERY' },
+              ));
               invalid.staleOperation = rejects(() => completeCampaignOperation(
                 config,
                 afterFirst,
@@ -178,11 +169,6 @@ def run(base_url: str, debug_port: int):
               invalid.operationAfterBaseComplete = rejects(() => campaignOperationDescriptor(
                 config,
                 baseProgress,
-              ));
-              invalid.recoveryAtFinalBoundary = rejects(() => queueCampaignRecovery(
-                config,
-                baseProgress,
-                56,
               ));
               invalid.unlockEarly = rejects(() => unlockTrueCampaignExtension(
                 config,
@@ -213,6 +199,21 @@ def run(base_url: str, debug_port: int):
                 config,
                 trueComplete,
               ));
+              invalid.oldProgressSchema = rejects(() => {
+                const candidate = clone(initial);
+                candidate.schemaVersion = 1;
+                validateCampaignProgressState(config, candidate);
+              });
+              invalid.stalePendingRecoveryState = rejects(() => {
+                const candidate = clone(initial);
+                candidate.pendingRecoveryBoundaryStageNumber = null;
+                validateCampaignProgressState(config, candidate);
+              });
+              invalid.extraProgressField = rejects(() => {
+                const candidate = clone(initial);
+                candidate.extra = true;
+                validateCampaignProgressState(config, candidate);
+              });
               invalid.unsafeCompletedCount = rejects(() => {
                 const candidate = clone(initial);
                 candidate.completedStageCount = Number.MAX_SAFE_INTEGER + 1;
@@ -238,14 +239,14 @@ def run(base_url: str, debug_port: int):
                 candidate.operationRecords[0].resultIdentity.extra = true;
                 validateCampaignProgressState(config, candidate);
               });
-              invalid.lostRecoveryReference = rejects(() => {
-                const candidate = clone(recoveryProgress);
-                candidate.operationRecords[7].recoveryBoundaryStageNumber = null;
+              invalid.recoveryResultIdentity = rejects(() => {
+                const candidate = clone(afterFirst);
+                candidate.operationRecords[0].resultIdentity.operationKind = 'RECOVERY';
                 validateCampaignProgressState(config, candidate);
               });
-              invalid.recoveryRelabeledNormal = rejects(() => {
-                const candidate = clone(recoveryProgress);
-                candidate.operationRecords[7].resultIdentity.operationKind = 'NORMAL';
+              invalid.staleRecoveryRecordField = rejects(() => {
+                const candidate = clone(afterFirst);
+                candidate.operationRecords[0].recoveryBoundaryStageNumber = null;
                 validateCampaignProgressState(config, candidate);
               });
               invalid.planOptionNotBoolean = rejects(() => compileCampaignGreyboxOperationPlan(
@@ -254,26 +255,18 @@ def run(base_url: str, debug_port: int):
               ));
 
               return {
+                schemaVersion: CAMPAIGN_PROGRESS_SCHEMA_VERSION,
+                operationKinds: [...CAMPAIGN_OPERATION_KINDS],
                 configValid: validateCampaignProgressConfig(config),
+                configKeys: Object.keys(config).sort(),
+                queueRecoveryExportAbsent: !('queueCampaignRecovery' in progressModule),
                 initial,
                 firstOperation,
                 firstOperationId,
                 firstIdentity,
                 inputUnchanged: initialSnapshot === JSON.stringify(initial),
                 afterFirst,
-                boundarySevenRecord,
-                recoveryOperation,
-                recoveryRecord,
-                afterRecoveryOperation,
-                recoveryBaseComplete: {
-                  completedStageCount: recoveryBaseComplete.completedStageCount,
-                  status: recoveryBaseComplete.status,
-                  recoveryRecords: recoveryBaseComplete.operationRecords.filter(
-                    record => record.resultIdentity.operationKind === 'RECOVERY'
-                  ),
-                },
-                recoveryBoundaryMatrix,
-                day56Operation,
+                chapterBoundaryRecords,
                 baseComplete: {
                   completedStageCount: baseProgress.completedStageCount,
                   currentStageNumber: baseProgress.currentStageNumber,
@@ -298,6 +291,12 @@ def run(base_url: str, debug_port: int):
                   trueExtensionUnlocked: trueComplete.trueExtensionUnlocked,
                   status: trueComplete.status,
                   recordCount: trueComplete.operationRecords.length,
+                  allNormal: trueComplete.operationRecords.every(
+                    record => record.resultIdentity.operationKind === 'NORMAL'
+                  ),
+                  exactRecordShapes: trueComplete.operationRecords.every(
+                    record => JSON.stringify(Object.keys(record)) === JSON.stringify(['resultIdentity'])
+                  ),
                 },
                 plans: {
                   baseTotal: basePlan.totalStages,
@@ -313,6 +312,17 @@ def run(base_url: str, debug_port: int):
                       config,
                       { includeTrueExtension: true },
                     )),
+                  allNormal: truePlan.operations.every(operation => operation.operationKind === 'NORMAL'),
+                  exactOperationShapes: truePlan.operations.every(operation => (
+                    JSON.stringify(Object.keys(operation).sort()) === JSON.stringify([
+                      'operationKind',
+                      'stageNumber',
+                      'templateIndex',
+                      'templatePolicyId',
+                      'templateProductionReady',
+                      'type',
+                    ])
+                  )),
                   defaultTemplateIndices: truePlan.operations.slice(0, 12)
                     .map(operation => operation.templateIndex),
                   threeTemplateTotal: threeTemplatePlan.totalStages,
@@ -325,17 +335,20 @@ def run(base_url: str, debug_port: int):
             """
         )
 
+        assert contracts["schemaVersion"] == 2, contracts
+        assert contracts["operationKinds"] == ["NORMAL"], contracts
         assert contracts["configValid"] is True, contracts
+        assert "recovery_boundary_stages" not in contracts["configKeys"], contracts
+        assert contracts["queueRecoveryExportAbsent"] is True, contracts
         assert contracts["initial"] == {
             "type": "CAMPAIGN_PROGRESS_STATE",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "configId": "FORMAL_CAMPAIGN_PROGRESS",
             "configVersion": 1,
             "completedStageCount": 0,
             "currentStageNumber": 1,
             "stageLimit": 56,
             "trueExtensionUnlocked": False,
-            "pendingRecoveryBoundaryStageNumber": None,
             "status": "ACTIVE",
             "operationRecords": [],
         }, contracts["initial"]
@@ -344,7 +357,6 @@ def run(base_url: str, debug_port: int):
             "stageNumber": 1,
             "operationKind": "NORMAL",
             "templateIndex": 0,
-            "recoveryBoundaryStageNumber": None,
             "templatePolicyId": "GREYBOX_ONLY_STAGE_MODULO",
             "templateProductionReady": False,
         }, contracts["firstOperation"]
@@ -358,57 +370,22 @@ def run(base_url: str, debug_port: int):
         assert contracts["afterFirst"]["completedStageCount"] == 1, contracts
         assert contracts["afterFirst"]["currentStageNumber"] == 2, contracts
 
-        assert contracts["boundarySevenRecord"] == {
-            "resultIdentity": {
-                "stageNumber": 7,
-                "operationKind": "NORMAL",
-                "templateIndex": 1,
-            },
-            "recoveryBoundaryStageNumber": None,
-        }, contracts["boundarySevenRecord"]
-        assert contracts["recoveryOperation"] == {
-            "type": "CAMPAIGN_OPERATION",
-            "stageNumber": 8,
-            "operationKind": "RECOVERY",
-            "templateIndex": 2,
-            "recoveryBoundaryStageNumber": 7,
-            "templatePolicyId": "GREYBOX_ONLY_STAGE_MODULO",
-            "templateProductionReady": False,
-        }, contracts["recoveryOperation"]
-        assert contracts["recoveryRecord"] == {
-            "resultIdentity": {
-                "stageNumber": 8,
-                "operationKind": "RECOVERY",
-                "templateIndex": 2,
-            },
-            "recoveryBoundaryStageNumber": 7,
-        }, contracts["recoveryRecord"]
-        assert contracts["afterRecoveryOperation"]["stageNumber"] == 9, contracts
-        assert contracts["afterRecoveryOperation"]["operationKind"] == "NORMAL", contracts
-        assert contracts["recoveryBaseComplete"] == {
-            "completedStageCount": 56,
-            "status": "BASE_COMPLETE",
-            "recoveryRecords": [contracts["recoveryRecord"]],
-        }, contracts["recoveryBaseComplete"]
-        assert contracts["recoveryBoundaryMatrix"] == [
+        expected_templates = {7: 1, 14: 3, 28: 2, 42: 1, 56: 0}
+        assert contracts["chapterBoundaryRecords"] == [
             {
                 "boundary": boundary,
-                "consumedStage": boundary + 1,
-                "nextStage": boundary + 2,
-                "preservedBoundary": boundary,
+                "currentStageNumber": boundary + 1 if boundary < 56 else None,
+                "record": {
+                    "resultIdentity": {
+                        "stageNumber": boundary,
+                        "operationKind": "NORMAL",
+                        "templateIndex": expected_templates[boundary],
+                    },
+                },
             }
-            for boundary in [7, 14, 28, 42]
-        ], contracts["recoveryBoundaryMatrix"]
+            for boundary in [7, 14, 28, 42, 56]
+        ], contracts["chapterBoundaryRecords"]
 
-        assert contracts["day56Operation"] == {
-            "type": "CAMPAIGN_OPERATION",
-            "stageNumber": 56,
-            "operationKind": "NORMAL",
-            "templateIndex": 0,
-            "recoveryBoundaryStageNumber": None,
-            "templatePolicyId": "GREYBOX_ONLY_STAGE_MODULO",
-            "templateProductionReady": False,
-        }, contracts["day56Operation"]
         assert contracts["baseComplete"] == {
             "completedStageCount": 56,
             "currentStageNumber": None,
@@ -430,7 +407,6 @@ def run(base_url: str, debug_port: int):
             "stageNumber": 57,
             "operationKind": "NORMAL",
             "templateIndex": 1,
-            "recoveryBoundaryStageNumber": None,
             "templatePolicyId": "GREYBOX_ONLY_STAGE_MODULO",
             "templateProductionReady": False,
         }, contracts["day57Operation"]
@@ -441,6 +417,8 @@ def run(base_url: str, debug_port: int):
             "trueExtensionUnlocked": True,
             "status": "TRUE_COMPLETE",
             "recordCount": 70,
+            "allNormal": True,
+            "exactRecordShapes": True,
         }, contracts["trueComplete"]
 
         plans = contracts["plans"]
@@ -452,6 +430,8 @@ def run(base_url: str, debug_port: int):
         assert plans["prefixEqual"] is True, plans
         assert plans["prefixValidated"] is True, plans
         assert plans["deterministic"] is True, plans
+        assert plans["allNormal"] is True, plans
+        assert plans["exactOperationShapes"] is True, plans
         assert plans["defaultTemplateIndices"] == [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 1], plans
         assert plans["threeTemplateTotal"] == 70, plans
         assert plans["threeTemplateIndices"] == [0, 1, 2, 0, 1, 2, 0, 1, 2], plans
@@ -471,13 +451,10 @@ def run(base_url: str, debug_port: int):
         return {
             "status": "PASS",
             "mode": "CAMPAIGN_PROGRESS_CONTRACT",
+            "schema_version": contracts["schemaVersion"],
             "base_limit": contracts["baseComplete"]["stageLimit"],
             "true_limit": contracts["trueComplete"]["stageLimit"],
-            "recovery": {
-                "boundary_stage": contracts["recoveryOperation"]["recoveryBoundaryStageNumber"],
-                "consumed_stage": contracts["recoveryOperation"]["stageNumber"],
-                "next_stage": contracts["afterRecoveryOperation"]["stageNumber"],
-            },
+            "operation_kinds": contracts["operationKinds"],
             "true_gate_stage": contracts["trueStart"]["currentStageNumber"],
             "template_cycle": plans["defaultTemplateIndices"][:5],
             "template_policy": plans["templatePolicyId"],

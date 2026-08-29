@@ -1,14 +1,13 @@
-export const CAMPAIGN_FINANCE_SCHEMA_VERSION = 1;
+export const CAMPAIGN_FINANCE_SCHEMA_VERSION = 2;
 export const CAMPAIGN_FINANCE_CONTRACT_STATUS = "PROVISIONAL";
 export const CAMPAIGN_FINANCE_BALANCE_VERDICT = "NOT_EVALUATED";
 export const CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE = 56;
 export const CAMPAIGN_FINANCE_DEBT_GATE_ID = "BASE_DEBT_CLEARED_AT_STAGE_56";
 export const CAMPAIGN_FINANCE_CHECKPOINT_STAGES = Object.freeze([7, 14, 28, 42, 56]);
 export const CAMPAIGN_FINANCE_SUPPORTED_STAGE_LIMITS = Object.freeze([56, 70]);
-export const CAMPAIGN_FINANCE_OPERATION_KINDS = Object.freeze(["NORMAL", "RECOVERY"]);
+export const CAMPAIGN_FINANCE_OPERATION_KINDS = Object.freeze(["NORMAL"]);
 export const CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE =
   "RESULT_COMMIT_THEN_OPTIONAL_REPAYMENT_THEN_CHECKPOINT";
-export const CAMPAIGN_FINANCE_RECOVERY_POLICY_STATUS = "TBD";
 
 const STATE_KEYS = Object.freeze([
   "type",
@@ -201,29 +200,16 @@ function validateCampaignOperationIdentity(operationId, resultIdentity, stageNum
   );
 }
 
-function recoveryRequirement(stageNumber, shortfallAmount) {
-  return {
-    type: "CAMPAIGN_FINANCE_RECOVERY_REQUIREMENT",
-    required: true,
-    boundaryStageNumber: stageNumber,
-    shortfallAmount,
-    deadlineExtensionAllowed: false,
-    penaltyPolicyStatus: CAMPAIGN_FINANCE_RECOVERY_POLICY_STATUS,
-  };
-}
-
 function checkpointFor(config, stageNumber, cumulativeRepayment, remainingDebt) {
   if (!CAMPAIGN_FINANCE_CHECKPOINT_STAGES.includes(stageNumber)) return null;
   const targetAmount = chapterTargets(config)[String(stageNumber)];
   const shortfallAmount = Math.max(0, targetAmount - cumulativeRepayment);
   const finalCheckpoint = stageNumber === CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE;
   let outcome = "MET";
-  let recovery = null;
   if (finalCheckpoint) {
     outcome = remainingDebt === 0 ? "DEBT_CLEARED" : "DEBT_DEADLINE_MISSED";
   } else if (shortfallAmount > 0) {
-    outcome = "RECOVERY_REQUIRED";
-    recovery = recoveryRequirement(stageNumber, shortfallAmount);
+    outcome = "CHAPTER_HURDLE_MISSED";
   }
   return {
     type: "CAMPAIGN_DEBT_CHECKPOINT",
@@ -234,25 +220,39 @@ function checkpointFor(config, stageNumber, cumulativeRepayment, remainingDebt) 
     remainingDebt,
     shortfallAmount,
     outcome,
-    recoveryRequirement: recovery,
     debtDeadlineExtended: false,
   };
 }
 
-function expectedEnvelope(config, completedStageCount, debtClearedAtDeadline, pendingDayResult) {
-  const missedDeadline = completedStageCount >= CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE
-    && debtClearedAtDeadline === false;
-  if (missedDeadline) {
-    assert(completedStageCount === CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE,
-      "a missed day 56 deadline cannot advance into later stages");
+function terminalStatusForCheckpoint(checkpoint) {
+  if (checkpoint?.outcome === "CHAPTER_HURDLE_MISSED") {
+    return "CHAPTER_HURDLE_MISSED";
+  }
+  if (checkpoint?.outcome === "DEBT_DEADLINE_MISSED") {
+    return "DEBT_DEADLINE_MISSED";
+  }
+  return null;
+}
+
+function expectedEnvelope(
+  config,
+  completedStageCount,
+  debtClearedAtDeadline,
+  pendingDayResult,
+  terminalStatus,
+) {
+  if (terminalStatus !== null) {
     assert(pendingDayResult === null,
-      "a missed day 56 deadline cannot retain a pending result");
+      "a missed chapter hurdle cannot retain a pending result");
     return {
       phase: "CLOSED",
-      status: "DEBT_DEADLINE_MISSED",
+      status: terminalStatus,
       nextStageNumber: null,
     };
   }
+  assert(!(completedStageCount >= CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE
+      && debtClearedAtDeadline === false),
+  "a missed day 56 deadline must close the finance state");
   if (completedStageCount === config.total_stages) {
     assert(pendingDayResult === null,
       "completed finance cannot retain a pending result");
@@ -301,6 +301,8 @@ function expectedDebtConservation(config, entry) {
 
 function validateLedgerEntry(config, entry, stageNumber, prior, seenOperationIds) {
   const owner = `ledger[${stageNumber - 1}]`;
+  assert(prior.terminalStatus === null,
+    `${owner} cannot follow a missed chapter hurdle`);
   assert(exactKeys(entry, LEDGER_ENTRY_KEYS), `${owner} has an invalid shape`);
   assert(entry.type === "CAMPAIGN_FINANCE_LEDGER_ENTRY", `${owner}.type is unknown`);
   assert(entry.stageNumber === stageNumber, `${owner}.stageNumber must be sequential`);
@@ -384,6 +386,7 @@ function validateLedgerEntry(config, entry, stageNumber, prior, seenOperationIds
     cash: entry.closingCash,
     remainingDebt: entry.closingDebt,
     cumulativeRepayment: entry.cumulativeRepayment,
+    terminalStatus: terminalStatusForCheckpoint(checkpoint),
   };
 }
 
@@ -474,6 +477,7 @@ export function validateCampaignFinanceState(config, state) {
     cash: config.starting_cash,
     remainingDebt: config.principal,
     cumulativeRepayment: 0,
+    terminalStatus: null,
   };
   const seenOperationIds = new Set();
   state.ledger.forEach((entry, index) => {
@@ -486,6 +490,8 @@ export function validateCampaignFinanceState(config, state) {
     );
   });
   if (state.pendingDayResult !== null) {
+    assert(reconstructed.terminalStatus === null,
+      "a missed chapter hurdle cannot have a later pending result");
     assert(state.completedStageCount < config.total_stages,
       "completed finance cannot have a pending result");
     validatePendingDayResult(
@@ -526,6 +532,7 @@ export function validateCampaignFinanceState(config, state) {
     state.completedStageCount,
     state.debtClearedAtDeadline,
     state.pendingDayResult,
+    reconstructed.terminalStatus,
   );
   assert(state.phase === envelope.phase, "state.phase is inconsistent");
   assert(state.status === envelope.status, "state.status is inconsistent");
@@ -698,6 +705,7 @@ export function settleCampaignDay(config, state, settlement) {
     completedStageCount,
     debtClearedAtDeadline,
     null,
+    terminalStatusForCheckpoint(checkpoint),
   );
   const next = {
     ...state,
@@ -714,6 +722,70 @@ export function settleCampaignDay(config, state, settlement) {
   };
   validateCampaignFinanceState(config, next);
   return next;
+}
+
+/**
+ * Returns the next chapter repayment forecast using exactly these public fields:
+ * nextCheckpointStage, targetCumulativeRepayment, projectedCumulativeRepayment,
+ * remainingAmount, remainingRepaymentOpportunities, requiredAverageRepayment.
+ *
+ * This is a PROVISIONAL planning contract, not evidence that the fixture amounts
+ * are balanced. A proposed repayment is only projected while the current result
+ * is committed and ready for its final RESULT_REVIEW settlement.
+ */
+export function campaignRepaymentForecast(config, state, proposedRepayment = 0) {
+  validateCampaignFinanceState(config, state);
+  assertAmount(proposedRepayment, "proposedRepayment");
+
+  if (state.phase === "RESULT_COMMITTED") {
+    assert(state.status === "ACTIVE",
+      "a proposed repayment requires an active committed result");
+    assert(proposedRepayment <= state.cash,
+      "proposedRepayment exceeds the cash available for this settlement");
+    assert(proposedRepayment <= state.remainingDebt,
+      "proposedRepayment exceeds the debt available for this settlement");
+    if (state.pendingDayResult.stageNumber > CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE) {
+      assert(proposedRepayment === 0,
+        "day 57 and later cannot project debt repayment");
+    }
+  } else {
+    assert(proposedRepayment === 0,
+      "proposedRepayment is only allowed for a committed result");
+  }
+
+  if (state.status !== "ACTIVE"
+      || state.completedStageCount >= CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE) {
+    return null;
+  }
+  const nextCheckpointStage = CAMPAIGN_FINANCE_CHECKPOINT_STAGES.find(
+    (stageNumber) => stageNumber > state.completedStageCount,
+  );
+  if (nextCheckpointStage === undefined) return null;
+
+  const projectedCumulativeRepayment = safeSum(
+    "forecast projected cumulative repayment",
+    state.cumulativeRepayment,
+    proposedRepayment,
+  );
+  const targetCumulativeRepayment = chapterTargets(config)[String(nextCheckpointStage)];
+  const remainingAmount = Math.max(
+    0,
+    targetCumulativeRepayment - projectedCumulativeRepayment,
+  );
+  const remainingRepaymentOpportunities = nextCheckpointStage - state.completedStageCount;
+  assert(remainingRepaymentOpportunities > 0,
+    "forecast must retain at least one repayment opportunity");
+
+  return {
+    nextCheckpointStage,
+    targetCumulativeRepayment,
+    projectedCumulativeRepayment,
+    remainingAmount,
+    remainingRepaymentOpportunities,
+    requiredAverageRepayment: remainingAmount === 0
+      ? 0
+      : Math.ceil(remainingAmount / remainingRepaymentOpportunities),
+  };
 }
 
 function validateTrueExtensionConfigPair(baseConfig, extendedConfig) {

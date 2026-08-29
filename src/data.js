@@ -102,7 +102,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       debt_settlement: {
         kind: "CUMULATIVE_MINIMUM",
         target_id: "DEBT_TARGET_CHAPTER_1",
-        recovery_eligible: true,
       },
     },
     {
@@ -116,7 +115,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       debt_settlement: {
         kind: "CUMULATIVE_MINIMUM",
         target_id: "DEBT_TARGET_CHAPTER_2",
-        recovery_eligible: true,
       },
     },
     {
@@ -130,7 +128,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       debt_settlement: {
         kind: "CUMULATIVE_MINIMUM",
         target_id: "DEBT_TARGET_CHAPTER_3",
-        recovery_eligible: true,
       },
     },
     {
@@ -144,7 +141,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       debt_settlement: {
         kind: "CUMULATIVE_MINIMUM",
         target_id: "DEBT_TARGET_CHAPTER_4",
-        recovery_eligible: true,
       },
     },
     {
@@ -158,7 +154,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       debt_settlement: {
         kind: "FINAL_CLEARANCE",
         target_id: "DEBT_TARGET_FINAL_CLEARANCE",
-        recovery_eligible: false,
       },
     },
   ];
@@ -174,7 +169,6 @@ function formalCampaignChapterSchedule(includeTrueExtension = false) {
       entry_gate_id: "BASE_DEBT_CLEARED_AT_STAGE_56",
       debt_settlement: {
         kind: "NONE",
-        recovery_eligible: false,
       },
     });
   }
