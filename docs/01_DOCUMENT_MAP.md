@@ -15,7 +15,7 @@
 | `docs/02_PRODUCTION_ROADMAP.md` | 완성까지의 단계, 산출물, 통과 조건 | 작성됨 |
 | `docs/99_DECISION_LOG.md` | 확정 결정과 변경 이유 | 작성됨 |
 | `PROTOTYPE_CONCEPTS.md` | 아이디어 탐색과 보류 후보 기록 | 보존 |
-| `docs/10_IMPLEMENTATION_REPORT.md` | 세로 단면 구현 범위와 내부 검증 결과 | 작성·검증됨 |
+| `docs/10_IMPLEMENTATION_REPORT.md` | 세로 단면 구현 범위와 내부 검증 결과 | v2·캠페인·무한 영업 GREYBOX 검증됨 |
 | `docs/11_ROOM_CONDITION_AND_STAYS.md` | 청결도·내구도·연박·정비의 시간축 퍼즐 | 방향 확정·다음 프로토타입 |
 | `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·썸네일·Codex 활용 설명·제출 게이트 | 제출 입력값 준비 완료 |
 | `docs/13_CODEX_USAGE.md` | Codex 활용 네 문항 최종 원고·개발 이력 선택 문구·근거 | 제출 원고 완료 |
@@ -41,9 +41,9 @@
 | 2 | `docs/21_HOTEL_BUILDING_SYSTEM.md` | 증축 규칙, 시설 범위, 철거·정지·매각 |
 | 3 | `docs/22_HIDDEN_RULE_SYSTEM.md` | 소문, 시험 숙박, 반응, 후보 제거, 공정성 |
 | 4 | `docs/23_GENERATION_AND_SOLVABILITY.md` | 예약 생성, 유효 부분집합 보장, 최고점 산출 |
-| 5 | `docs/24_SAVE_AND_RUN_STRUCTURE.md` | 기능적 뼈대, 공용 프로필과 모드별 런 상태, 종료 판정·실행 기록·세이브 마이그레이션 (작성·첫 종료 연결 구현됨) |
+| 5 | `docs/24_SAVE_AND_RUN_STRUCTURE.md` | 기능적 뼈대, 공용 프로필과 모드별 런 상태, 종료 판정·실행 기록·세이브 마이그레이션 (캠페인·무한 영업 GREYBOX 종단 검증) |
 | 6 | `docs/25_SPECIES_AND_SYNERGY_SYSTEM.md` | 종족·계통·문화·신앙·직업 풀, 집단 인원·다종·지정 조합·시나리오 변화 시너지 (초안 작성됨) |
-| 7 | `docs/26_CAMPAIGN_AND_MODE_STRUCTURE.md` | 가변 캠페인, 영업·사건 시간 단위, 관계·엔딩 분기, 무한 영업과 모드 상태 경계 (초안 작성됨) |
+| 7 | `docs/26_CAMPAIGN_AND_MODE_STRUCTURE.md` | 가변 캠페인, 영업·사건 시간 단위, 관계·엔딩 분기, 무한 영업과 모드 상태 경계 (초안 · 무한 영업 GREYBOX 종단 검증) |
 | 8 | `docs/27_OPERATIONS_HANDBOOK.md` | 공유 운영 수첩, 발견 단계, 종족·시설·아이템·시너지·손님 교차 기록 (초안 작성됨) |
 | 9 | `docs/28_EXHIBITION_RELIC_SYSTEM.md` | 평판·관계별 전시품 후보군, 무작위 선택, 런 누적 패시브와 도감 (공용 3종 회색 상자 구현) |
 

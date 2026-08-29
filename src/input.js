@@ -22,6 +22,9 @@ export function setupInput(app, controller, rerender) {
     else if (action === "skip-display-relic") controller.skipDisplayRelicOffer();
     else if (action === "skip-tutorial") controller.skipTutorial();
     else if (action === "start-day-business") controller.startDayBusiness();
+    else if (action === "start-endless-season") controller.startEndlessSeason();
+    else if (action === "advance-endless-season") controller.advanceEndlessSeason();
+    else if (action === "close-endless-run") controller.closeEndlessRun();
     else if (action === "finish-night") controller.finishNight();
     else if (action === "continue-result") controller.continueAfterResult();
     else if (action === "retry-stage") controller.retryCurrentStage();

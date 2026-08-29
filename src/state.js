@@ -1,6 +1,11 @@
 import { calculateNightResult } from "./scoring.js";
 import { createBoardState, evaluatePlacement } from "./rules.js";
 import { createEmergencyPlan } from "./emergency.js";
+import {
+  calculateEndlessAudit,
+  endlessAuditTarget,
+  endlessRiskTier,
+} from "./endless.js";
 import { createRngState } from "./random.js";
 import {
   displayRelicById,
@@ -33,6 +38,8 @@ export const PHASES = Object.freeze({
   TUTORIAL: "TUTORIAL",
   STORY: "STORY",
   RELIC_OFFER: "RELIC_OFFER",
+  ENDLESS_BRIEFING: "ENDLESS_BRIEFING",
+  ENDLESS_AUDIT: "ENDLESS_AUDIT",
   DAY_OPENING: "DAY_OPENING",
   RESERVATION: "RESERVATION",
   PLACEMENT: "PLACEMENT",
@@ -58,6 +65,18 @@ function clone(value) {
 
 function clampCondition(value) {
   return Math.max(0, Math.min(100, value));
+}
+
+function round2(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function maxFinite(values) {
+  const finite = values
+    .filter((value) => value !== null && value !== undefined)
+    .map(Number)
+    .filter(Number.isFinite);
+  return finite.length ? Math.max(...finite) : null;
 }
 
 function relationshipPresentations(data, preset = "ALL_FEMALE") {
@@ -103,6 +122,30 @@ function initialState(data, seed, recordArchiveCount = 0, profile = null) {
     truthEvidenceCount: 0,
     peaceAllianceComplete: false,
     chapterHurdleFailures: 0,
+    endlessSeasonIndex: 0,
+    endlessSeasonNightIndex: 0,
+    endlessOverallNightIndex: 0,
+    endlessCompletedOperations: 0,
+    endlessResultHistoryOmittedCount: 0,
+    endlessSeasonStartResultIndex: 0,
+    endlessAuditTarget: endlessAuditTarget(data, 0),
+    endlessAuditPassedCount: 0,
+    endlessAuditReport: null,
+    endlessAuditHistory: [],
+    endlessAuditHistoryOmittedCount: 0,
+    endlessBestAuditScore: null,
+    endlessLifetimeMetrics: {
+      totalIncome: 0,
+      reputationDelta: 0,
+      acceptedGuests: 0,
+      rejectedGuests: 0,
+      canceledGuests: 0,
+      emergencyNights: 0,
+    },
+    endlessRunFame: 0,
+    endlessRiskTier: endlessRiskTier(data, 0),
+    endlessClosed: false,
+    endlessClosureReason: null,
     selectedEndingRelationshipRoleId: null,
     gold: 0,
     hotelReputation: 0,
@@ -174,11 +217,31 @@ export class GameController {
   }
 
   get currentNightNumber() {
-    return this.state.currentNightIndex + 1;
+    return this.isEndlessMode
+      ? this.state.endlessSeasonNightIndex + 1
+      : this.state.currentNightIndex + 1;
+  }
+
+  get endlessSeasonLength() {
+    return Number(this.data.endless?.season_length ?? this.totalNights);
+  }
+
+  get progressionStage() {
+    return this.isEndlessMode
+      ? Math.max(1, this.state.endlessOverallNightIndex + 1)
+      : this.currentNightNumber;
+  }
+
+  get nextProgressionStage() {
+    return this.isEndlessMode
+      ? this.state.endlessCompletedOperations + 1
+      : this.currentNightNumber + 1;
   }
 
   get currentResult() {
-    return this.state.nightResults[this.state.currentNightIndex] ?? null;
+    return this.isEndlessMode
+      ? this.state.nightResults.at(-1) ?? null
+      : this.state.nightResults[this.state.currentNightIndex] ?? null;
   }
 
   get currentStoryNode() {
@@ -301,9 +364,29 @@ export class GameController {
             ? Object.entries(this.state.displayRelicTriggerCounts)
               .filter(([, count]) => count > 0)
               .map(([id]) => id)
-            : []),
+          : []),
         ]),
       },
+      endless: options.commitEndlessBest && this.isEndlessMode
+        ? {
+          best_survived_nights: Math.max(
+            Number(this.profile.endless?.best_survived_nights ?? 0),
+            Number(this.state.endlessCompletedOperations ?? 0),
+          ),
+          best_cleared_seasons: Math.max(
+            Number(this.profile.endless?.best_cleared_seasons ?? 0),
+            Number(this.state.endlessAuditPassedCount ?? 0),
+          ),
+          best_audit_score: maxFinite([
+            this.profile.endless?.best_audit_score,
+            this.state.endlessBestAuditScore,
+          ]),
+          best_run_fame: Math.max(
+            Number(this.profile.endless?.best_run_fame ?? 0),
+            Number(this.state.endlessRunFame ?? 0),
+          ),
+        }
+        : { ...(this.profile.endless ?? {}) },
     }, this.recordStorage);
     return this.profile;
   }
@@ -323,6 +406,10 @@ export class GameController {
       );
       this.state.secretaryPresentationId = defaults.secretary_presentation_id ?? "FEMALE";
       this.applyGreyboxEndingRoute(defaults.greybox_ending_route_id ?? "NORMAL");
+      return true;
+    }
+    if (this.isEndlessMode) {
+      this.prepareEndlessSeason(0);
       return true;
     }
     this.startTutorial();
@@ -485,7 +572,7 @@ export class GameController {
   }
 
   prepareDisplayRelicOffer(schedule, continuation) {
-    if (!this.isScenarioMode || this.state.pendingDisplayRelicOffer) return false;
+    if ((!this.isScenarioMode && !this.isEndlessMode) || this.state.pendingDisplayRelicOffer) return false;
     const poolIds = unique(schedule.pool_ids ?? ["COMMON"]);
     const offer = generateDisplayRelicOffer(this.data, {
       runSeed: this.state.runSeed,
@@ -536,11 +623,70 @@ export class GameController {
       return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
     }
     if (continuation.action === "OPEN_UPGRADE") return this.prepareNextUpgrade();
+    if (continuation.action === "BEGIN_ENDLESS_SEASON") {
+      return this.beginEndlessNight(0);
+    }
     if (continuation.action === "COMPLETE_RUN") {
       this.completeRun();
       return true;
     }
     return false;
+  }
+
+  prepareEndlessSeason(seasonIndex = this.state.endlessSeasonIndex) {
+    if (!this.isEndlessMode) return false;
+    const resultLimit = Number(this.data.endless?.result_history_limit ?? 20);
+    const retainedBeforeSeason = Math.max(0, resultLimit - this.endlessSeasonLength);
+    if (this.state.nightResults.length > retainedBeforeSeason) {
+      const removed = this.state.nightResults.length - retainedBeforeSeason;
+      this.state.nightResults = retainedBeforeSeason > 0
+        ? this.state.nightResults.slice(-retainedBeforeSeason)
+        : [];
+      this.state.endlessResultHistoryOmittedCount += removed;
+    }
+    this.state.endlessSeasonIndex = seasonIndex;
+    this.state.endlessSeasonNightIndex = 0;
+    this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
+    this.state.endlessSeasonStartResultIndex = this.state.nightResults.length;
+    this.state.endlessAuditTarget = endlessAuditTarget(
+      this.data,
+      this.state.endlessAuditPassedCount,
+    );
+    this.state.endlessRiskTier = endlessRiskTier(
+      this.data,
+      this.state.endlessAuditPassedCount,
+    );
+    this.state.endlessAuditReport = null;
+    this.state.phase = PHASES.ENDLESS_BRIEFING;
+    this.state.handbookOpen = false;
+    this.state.reservationBoardOpen = false;
+    this.state.serviceTimerMs = null;
+    this.stageCheckpoint = null;
+    return true;
+  }
+
+  startEndlessSeason() {
+    if (!this.isEndlessMode || this.state.phase !== PHASES.ENDLESS_BRIEFING) return false;
+    const schedule = this.data.endless?.relic_offer;
+    if (schedule) {
+      return this.prepareDisplayRelicOffer(
+        { ...schedule, id: `${schedule.id}_S${this.state.endlessSeasonIndex + 1}` },
+        { action: "BEGIN_ENDLESS_SEASON" },
+      );
+    }
+    return this.beginEndlessNight(0);
+  }
+
+  beginEndlessNight(seasonNightIndex) {
+    if (!this.isEndlessMode) return false;
+    const seasonLength = Number(this.data.endless?.season_length ?? this.totalNights);
+    if (!Number.isInteger(seasonNightIndex) || seasonNightIndex < 0 || seasonNightIndex >= seasonLength) {
+      return false;
+    }
+    this.state.endlessSeasonNightIndex = seasonNightIndex;
+    this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
+    this.beginNight(seasonNightIndex % this.data.scenarios.length);
+    return true;
   }
 
   beginOperatingDay(index) {
@@ -575,7 +721,7 @@ export class GameController {
     }
     this.state.currentNightIndex = index;
     const scenario = this.currentScenario;
-    const stage = index + 1;
+    const stage = this.isEndlessMode ? this.state.endlessOverallNightIndex + 1 : index + 1;
     const stayoverIds = Object.keys(this.state.stayovers);
     const fixedGuestIds = unique([
       ...stayoverIds,
@@ -799,7 +945,26 @@ export class GameController {
     this.state.hotelReputation += resolvedResult.reputationDelta;
     this.updateGuestHistoryAndDiscoveries(resolvedResult);
     this.applyRoomWearAndStays(resolvedResult);
-    this.state.nightResults[this.state.currentNightIndex] = resolvedResult;
+    if (this.isEndlessMode) {
+      this.state.nightResults.push(resolvedResult);
+      this.state.endlessCompletedOperations += 1;
+      this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
+      this.state.endlessLifetimeMetrics = {
+        totalIncome: this.state.endlessLifetimeMetrics.totalIncome + Number(resolvedResult.income ?? 0),
+        reputationDelta: round2(
+          this.state.endlessLifetimeMetrics.reputationDelta
+          + Number(resolvedResult.reputationDelta ?? 0),
+        ),
+        acceptedGuests: this.state.endlessLifetimeMetrics.acceptedGuests
+          + (resolvedResult.acceptedGuestIds?.length ?? 0),
+        rejectedGuests: this.state.endlessLifetimeMetrics.rejectedGuests
+          + (resolvedResult.rejectedGuestIds?.length ?? 0),
+        canceledGuests: this.state.endlessLifetimeMetrics.canceledGuests
+          + (resolvedResult.canceledGuestIds?.length ?? 0),
+        emergencyNights: this.state.endlessLifetimeMetrics.emergencyNights
+          + (resolvedResult.emergencyReport?.timedOut ? 1 : 0),
+      };
+    } else this.state.nightResults[this.state.currentNightIndex] = resolvedResult;
     this.state.serviceTimerMs = null;
     this.state.emergencyReport = resolvedResult.emergencyReport;
     this.state.phase = PHASES.RESULT;
@@ -912,6 +1077,13 @@ export class GameController {
 
   continueAfterResult() {
     if (this.state.phase !== PHASES.RESULT) return false;
+    if (this.isEndlessMode) {
+      const seasonLength = Number(this.data.endless?.season_length ?? this.totalNights);
+      if (this.state.endlessSeasonNightIndex + 1 >= seasonLength) {
+        return this.finishEndlessSeasonAudit();
+      }
+      return this.prepareNextUpgrade();
+    }
     if (this.currentNightNumber >= this.totalNights) {
       this.completeRun();
       return true;
@@ -922,11 +1094,11 @@ export class GameController {
   }
 
   prepareNextUpgrade() {
-    if (this.currentNightNumber >= this.totalNights) {
+    if (!this.isEndlessMode && this.currentNightNumber >= this.totalNights) {
       this.completeRun();
       return true;
     }
-    const nextStage = this.currentNightNumber + 1;
+    const nextStage = this.nextProgressionStage;
     const offer = generateUpgradeOffer(
       this.data,
       nextStage,
@@ -1020,7 +1192,58 @@ export class GameController {
 
   finishUpgrade() {
     if (this.state.phase !== PHASES.UPGRADE) return false;
+    if (this.isEndlessMode) {
+      return this.beginEndlessNight(this.state.endlessSeasonNightIndex + 1);
+    }
     this.beginOperatingDay(this.state.currentNightIndex + 1);
+    return true;
+  }
+
+  finishEndlessSeasonAudit() {
+    if (!this.isEndlessMode || this.state.phase !== PHASES.RESULT) return false;
+    const report = calculateEndlessAudit(this.data, this.state);
+    this.state.endlessAuditReport = clone(report);
+    this.state.endlessAuditHistory.push(clone(report));
+    this.state.endlessBestAuditScore = maxFinite([
+      this.state.endlessBestAuditScore,
+      report.score,
+    ]);
+    const auditHistoryLimit = Number(this.data.endless?.audit_history_limit ?? 12);
+    if (this.state.endlessAuditHistory.length > auditHistoryLimit) {
+      const removed = this.state.endlessAuditHistory.length - auditHistoryLimit;
+      this.state.endlessAuditHistory.splice(0, removed);
+      this.state.endlessAuditHistoryOmittedCount += removed;
+    }
+    if (report.passed) {
+      this.state.endlessAuditPassedCount += 1;
+      this.state.endlessRunFame += Number(
+        this.data.endless?.run_fame?.fame_per_cleared_season ?? 0,
+      );
+      this.persistProfileKnowledge({ commitRelicTriggers: true, commitEndlessBest: true });
+    }
+    this.state.phase = PHASES.ENDLESS_AUDIT;
+    this.state.serviceTimerMs = null;
+    return true;
+  }
+
+  advanceEndlessSeason() {
+    if (
+      !this.isEndlessMode
+      || this.state.phase !== PHASES.ENDLESS_AUDIT
+      || !this.state.endlessAuditReport?.passed
+    ) return false;
+    return this.prepareEndlessSeason(this.state.endlessSeasonIndex + 1);
+  }
+
+  closeEndlessRun() {
+    if (
+      !this.isEndlessMode
+      || this.state.phase !== PHASES.ENDLESS_AUDIT
+      || this.state.endlessAuditReport?.passed !== false
+    ) return false;
+    this.state.endlessClosed = true;
+    this.state.endlessClosureReason = "AUDIT_TARGET_MISSED";
+    this.completeRun();
     return true;
   }
 
@@ -1131,7 +1354,7 @@ export class GameController {
 
   completeRun() {
     if (!this.state.runRecord) {
-      this.persistProfileKnowledge({ commitRelicTriggers: true });
+      this.persistProfileKnowledge({ commitRelicTriggers: true, commitEndlessBest: true });
       this.state.runRecord = createRunRecord(this.data, this.state);
       const records = storeRunRecord(this.state.runRecord, this.recordStorage);
       this.state.recordArchiveCount = records.length;

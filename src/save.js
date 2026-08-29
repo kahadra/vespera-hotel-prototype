@@ -1,3 +1,5 @@
+import { endlessAuditTarget, endlessRiskTier } from "./endless.js";
+
 export const RUN_SAVE_SCHEMA_VERSION = 4;
 export const PROFILE_SCHEMA_VERSION = 1;
 export const ACTIVE_RUN_STORAGE_KEY = "vespera.hotel.active-run.v1";
@@ -8,6 +10,8 @@ const SAVABLE_PHASES = new Set([
   "TUTORIAL",
   "STORY",
   "RELIC_OFFER",
+  "ENDLESS_BRIEFING",
+  "ENDLESS_AUDIT",
   "DAY_OPENING",
   "RESERVATION",
   "PLACEMENT",
@@ -22,6 +26,12 @@ function clone(value) {
 
 function uniqueStrings(values) {
   return [...new Set((values ?? []).filter((value) => typeof value === "string" && value.length > 0))];
+}
+
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 export function activeRunStorageKey(data) {
@@ -48,6 +58,12 @@ export function createDefaultProfile(now = new Date().toISOString()) {
       acquired_ids: [],
       triggered_ids: [],
     },
+    endless: {
+      best_survived_nights: 0,
+      best_cleared_seasons: 0,
+      best_audit_score: null,
+      best_run_fame: 0,
+    },
   };
 }
 
@@ -70,6 +86,12 @@ function normalizeProfile(profile) {
       seen_ids: uniqueStrings(profile?.display_relics?.seen_ids),
       acquired_ids: uniqueStrings(profile?.display_relics?.acquired_ids),
       triggered_ids: uniqueStrings(profile?.display_relics?.triggered_ids),
+    },
+    endless: {
+      best_survived_nights: Math.max(0, Number(profile?.endless?.best_survived_nights ?? 0)),
+      best_cleared_seasons: Math.max(0, Number(profile?.endless?.best_cleared_seasons ?? 0)),
+      best_audit_score: finiteOrNull(profile?.endless?.best_audit_score),
+      best_run_fame: Math.max(0, Number(profile?.endless?.best_run_fame ?? 0)),
     },
   };
 }
@@ -99,6 +121,85 @@ export function writeProfile(profile, storage = globalThis.localStorage) {
   return normalized;
 }
 
+function validEndlessAuditReport(data, report) {
+  return report
+    && typeof report.auditId === "string"
+    && report.policyId === data.endless?.audit?.policy_id
+    && report.provisional === true
+    && Number.isInteger(report.seasonNumber)
+    && report.seasonNumber >= 1
+    && Number.isInteger(report.riskTier)
+    && report.riskTier >= 1
+    && Number.isInteger(report.operations)
+    && report.operations === data.endless.season_length
+    && Number.isFinite(report.score)
+    && Number.isFinite(report.target)
+    && Number.isFinite(report.margin)
+    && Math.abs(report.margin - (report.score - report.target)) < 1e-9
+    && typeof report.passed === "boolean"
+    && Array.isArray(report.evidence)
+    && report.evidence.length === report.operations;
+}
+
+function validEndlessState(data, state) {
+  if (data.prototype_mode?.type !== "ENDLESS") return true;
+  const history = state.endlessAuditHistory;
+  const inAudit = state.phase === "ENDLESS_AUDIT";
+  const expectedPassedCount = state.endlessSeasonIndex + (
+    inAudit && state.endlessAuditReport?.passed === true ? 1 : 0
+  );
+  const expectedAuditCount = state.endlessSeasonIndex + (inAudit ? 1 : 0);
+  const lifetime = state.endlessLifetimeMetrics;
+  const currentReportMatchesHistory = !inAudit || (
+    history.length > 0
+    && JSON.stringify(history.at(-1)) === JSON.stringify(state.endlessAuditReport)
+  );
+  return Number.isInteger(state.endlessSeasonIndex)
+    && state.endlessSeasonIndex >= 0
+    && Number.isInteger(state.endlessSeasonNightIndex)
+    && state.endlessSeasonNightIndex >= 0
+    && state.endlessSeasonNightIndex < data.endless.season_length
+    && Number.isInteger(state.endlessOverallNightIndex)
+    && state.endlessOverallNightIndex === state.endlessCompletedOperations
+    && Number.isInteger(state.endlessCompletedOperations)
+    && state.endlessCompletedOperations >= 0
+    && Number.isInteger(state.endlessResultHistoryOmittedCount)
+    && state.endlessResultHistoryOmittedCount >= 0
+    && state.endlessResultHistoryOmittedCount + state.nightResults.length === state.endlessCompletedOperations
+    && state.nightResults.length <= data.endless.result_history_limit
+    && Number.isInteger(state.endlessSeasonStartResultIndex)
+    && state.endlessSeasonStartResultIndex >= 0
+    && state.endlessSeasonStartResultIndex <= state.nightResults.length
+    && state.endlessAuditTarget === endlessAuditTarget(data, state.endlessSeasonIndex)
+    && state.endlessRiskTier === endlessRiskTier(data, state.endlessSeasonIndex)
+    && Number.isInteger(state.endlessAuditPassedCount)
+    && state.endlessAuditPassedCount === expectedPassedCount
+    && Number.isFinite(state.endlessRunFame)
+    && state.endlessRunFame >= 0
+    && (state.endlessBestAuditScore === null || Number.isFinite(state.endlessBestAuditScore))
+    && lifetime
+    && Number.isFinite(lifetime.totalIncome)
+    && Number.isFinite(lifetime.reputationDelta)
+    && Number.isInteger(lifetime.acceptedGuests)
+    && lifetime.acceptedGuests >= 0
+    && Number.isInteger(lifetime.rejectedGuests)
+    && lifetime.rejectedGuests >= 0
+    && Number.isInteger(lifetime.canceledGuests)
+    && lifetime.canceledGuests >= 0
+    && Number.isInteger(lifetime.emergencyNights)
+    && lifetime.emergencyNights >= 0
+    && Array.isArray(history)
+    && history.length <= data.endless.audit_history_limit
+    && Number.isInteger(state.endlessAuditHistoryOmittedCount)
+    && state.endlessAuditHistoryOmittedCount >= 0
+    && state.endlessAuditHistoryOmittedCount + history.length === expectedAuditCount
+    && history.every((report) => validEndlessAuditReport(data, report))
+    && (inAudit ? validEndlessAuditReport(data, state.endlessAuditReport) : state.endlessAuditReport === null)
+    && currentReportMatchesHistory
+    && typeof state.endlessClosed === "boolean"
+    && (state.endlessClosureReason === null || typeof state.endlessClosureReason === "string");
+}
+
 function validState(data, state) {
   return state
     && SAVABLE_PHASES.has(state.phase)
@@ -115,6 +216,7 @@ function validState(data, state) {
       || (Array.isArray(state.pendingDisplayRelicOffer?.relicIds)
         && state.pendingDisplayRelicOffer.relicIds.length > 0
         && state.pendingDisplayRelicOffer.relicIds.every((id) => Boolean(data.indexes.displayRelics?.[id]))))
+    && validEndlessState(data, state)
     && Object.keys(state.placements ?? {}).every(
       (guestId) => Boolean(data.indexes.guests[guestId]) && Boolean(data.indexes.rooms[state.placements[guestId]]),
     );

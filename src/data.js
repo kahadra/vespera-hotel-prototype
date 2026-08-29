@@ -1,4 +1,53 @@
+import { validateEndlessData } from "./endless.js";
+
 const DATA_URL = "./data/prototype_v1.json";
+
+function commonDisplayRelics() {
+  return [
+    {
+      id: "DISPLAY_RELIC_DAWN_BELL",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "새벽의 종",
+      icon: "♢",
+      description: "하루의 첫 객실 재배치에 드는 시간을 2초 줄입니다.",
+      trigger_description: "영업 중 처음으로 배정을 바꿀 때 발동",
+      effect_id: "FIRST_RELOCATION_TIME_REDUCTION",
+      effect_params: { value: 2000 },
+      stack_group: "RELOCATION_TIME",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_SILVER_MAINTENANCE_KIT",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "은빛 정비함",
+      icon: "▣",
+      description: "막간의 객실 정비 비용을 3G 줄입니다.",
+      trigger_description: "손상된 빈 객실을 실제로 정비할 때 발동",
+      effect_id: "ROOM_SERVICE_COST_REDUCTION",
+      effect_params: { value: 3 },
+      stack_group: "ROOM_SERVICE_COST",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_UNBLEMISHED_LEDGER",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "무흠 장부",
+      icon: "▤",
+      description: "수용한 손님을 한 명도 취소하지 않고 영업을 마치면 3G를 더 받습니다.",
+      trigger_description: "손님을 수용한 유효 영업에서 취소가 없을 때 발동",
+      effect_id: "NO_CANCELLATION_GOLD_BONUS",
+      effect_params: { value: 3 },
+      stack_group: "RESULT_GOLD",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+  ];
+}
 
 export async function loadGameData(options = {}) {
   const response = await fetch(DATA_URL, { cache: "no-store" });
@@ -9,9 +58,10 @@ export async function loadGameData(options = {}) {
   const indexes = createIndexes(data);
   validateData(data, indexes);
   const loaded = { ...data, indexes };
-  return String(options.mode ?? "").toUpperCase() === "CAMPAIGN"
-    ? createCampaignGreyboxData(loaded)
-    : loaded;
+  const mode = String(options.mode ?? "").toUpperCase();
+  if (mode === "CAMPAIGN") return createCampaignGreyboxData(loaded);
+  if (mode === "ENDLESS") return createEndlessGreyboxData(loaded);
+  return loaded;
 }
 
 export function createCampaignGreyboxData(source) {
@@ -109,50 +159,7 @@ export function createCampaignGreyboxData(source) {
     role.id,
     progress("COLLABORATOR", true, { event_count: 5 }),
   ]));
-  data.display_relics = [
-    {
-      id: "DISPLAY_RELIC_DAWN_BELL",
-      type: "DISPLAY_RELIC",
-      pool_type: "COMMON",
-      name: "새벽의 종",
-      icon: "♢",
-      description: "하루의 첫 객실 재배치에 드는 시간을 2초 줄입니다.",
-      trigger_description: "영업 중 처음으로 배정을 바꿀 때 발동",
-      effect_id: "FIRST_RELOCATION_TIME_REDUCTION",
-      effect_params: { value: 2000 },
-      stack_group: "RELOCATION_TIME",
-      offer_weight: 1,
-      status: "PROVISIONAL",
-    },
-    {
-      id: "DISPLAY_RELIC_SILVER_MAINTENANCE_KIT",
-      type: "DISPLAY_RELIC",
-      pool_type: "COMMON",
-      name: "은빛 정비함",
-      icon: "▣",
-      description: "막간의 객실 정비 비용을 3G 줄입니다.",
-      trigger_description: "손상된 빈 객실을 실제로 정비할 때 발동",
-      effect_id: "ROOM_SERVICE_COST_REDUCTION",
-      effect_params: { value: 3 },
-      stack_group: "ROOM_SERVICE_COST",
-      offer_weight: 1,
-      status: "PROVISIONAL",
-    },
-    {
-      id: "DISPLAY_RELIC_UNBLEMISHED_LEDGER",
-      type: "DISPLAY_RELIC",
-      pool_type: "COMMON",
-      name: "무흠 장부",
-      icon: "▤",
-      description: "수용한 손님을 한 명도 취소하지 않고 영업을 마치면 3G를 더 받습니다.",
-      trigger_description: "손님을 수용한 유효 영업에서 취소가 없을 때 발동",
-      effect_id: "NO_CANCELLATION_GOLD_BONUS",
-      effect_params: { value: 3 },
-      stack_group: "RESULT_GOLD",
-      offer_weight: 1,
-      status: "PROVISIONAL",
-    },
-  ];
+  data.display_relics = commonDisplayRelics();
   data.prototype_mode = {
     ...data.prototype_mode,
     type: "CAMPAIGN",
@@ -420,6 +427,95 @@ export function createCampaignGreyboxData(source) {
     },
   };
   const indexes = createIndexes(data);
+  return { ...data, indexes };
+}
+
+export function createEndlessGreyboxData(source) {
+  const { indexes: _sourceIndexes, ...serializable } = source;
+  const data = JSON.parse(JSON.stringify(serializable));
+  const endlessGuestIds = new Set(
+    data.guests.filter((guest) => guest.showcase_only !== true).map((guest) => guest.id),
+  );
+  data.scenarios = data.scenarios.map((scenario) => ({
+    ...scenario,
+    name: scenario.special_invite_showcase_only
+      ? "다섯 번째 영업 · 높은 기대"
+      : scenario.name,
+    fixed_guests: (scenario.fixed_guests ?? []).filter((id) => endlessGuestIds.has(id)),
+    applicants: (scenario.applicants ?? []).filter((id) => endlessGuestIds.has(id)),
+    applicant_pool: (scenario.applicant_pool ?? []).filter((id) => endlessGuestIds.has(id)),
+    special_invite_guest_ids: [],
+    special_invite_showcase_only: false,
+  }));
+  data.display_relics = commonDisplayRelics();
+  data.prototype_mode = {
+    ...data.prototype_mode,
+    type: "ENDLESS",
+    total_nights: 5,
+    accelerated: false,
+    notice: "다섯 번의 영업마다 공개된 감사 평판을 넘겨 호텔 운영을 이어가는 무한 영업 회색 상자입니다.",
+  };
+  data.endless = {
+    id: "ENDLESS_GREYBOX_01",
+    status: "GREYBOX",
+    season_length: 5,
+    result_history_limit: 20,
+    audit_history_limit: 12,
+    audit: {
+      policy_id: "PROVISIONAL_REPUTATION_WITH_EMERGENCY_PENALTY",
+      metric_id: "DEVELOPMENT_AUDIT_SCORE",
+      initial_target: 0,
+      target_step_per_cleared_season: 2,
+      max_target: 4,
+      reachability_gain_per_remaining_operation: 4,
+      emergency_penalty: 1,
+      provisional: true,
+      description: "이번 시즌 평판 변화 합계에서 마감 긴급 처리 1회당 1점을 차감하는 개발용 감사 점수입니다.",
+    },
+    run_fame: {
+      policy_id: "PROVISIONAL_CLEARED_SEASON_COUNT",
+      fame_per_cleared_season: 1,
+      provisional: true,
+    },
+    risk: {
+      policy_id: "PROVISIONAL_CLEARED_SEASON_TIER",
+      initial_tier: 1,
+      tier_per_cleared_season: 1,
+      provisional: true,
+    },
+    relic_offer: {
+      id: "ENDLESS_COMMON_RELIC",
+      pool_ids: ["COMMON"],
+      offer_size: 3,
+    },
+  };
+  data.run_completion = {
+    record_namespace: "vespera.endless.greybox.v1",
+    ending_rules: [
+      {
+        id: "ENDLESS_HOTEL_CLOSED",
+        ending_tier: "ENDLESS_CLOSED",
+        priority: 100,
+        outcome: "FAILURE",
+        title: "베스페라의 무한 영업이 끝나다",
+        description: "시즌 감사 목표에 미달해 이번 가능 세계의 호텔 운영 기록을 마감했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: 1 },
+          { metric: "endless_closed", operator: "EQ", value: 1 },
+        ],
+      },
+    ],
+    fallback_ending: {
+      id: "ENDLESS_RUN_INTERRUPTED",
+      ending_tier: "ENDLESS_INCOMPLETE",
+      priority: 0,
+      outcome: "INCOMPLETE",
+      title: "무한 영업 기록이 중단되다",
+      description: "폐업 또는 자발적 마감 조건에 도달하지 않은 실행 기록입니다.",
+    },
+  };
+  const indexes = createIndexes(data);
+  validateEndlessData(data);
   return { ...data, indexes };
 }
 

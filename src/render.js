@@ -2,6 +2,7 @@ import { getGuestRules } from "./data.js";
 import { attributeLabel, revisitBonusFor } from "./rules.js";
 import { rankOddsFor } from "./progression.js";
 import { canPurchaseUpgrade } from "./upgrades.js";
+import { endlessAuditProgress } from "./endless.js";
 import { PHASES } from "./state.js";
 
 function escapeHtml(value) {
@@ -20,19 +21,27 @@ function signed(value) {
 function phaseLabel(controller) {
   const { phase } = controller.state;
   const night = controller.currentNightNumber;
+  const length = controller.isEndlessMode ? controller.endlessSeasonLength : controller.totalNights;
+  const season = controller.state.endlessSeasonIndex + 1;
   return {
     [PHASES.TITLE]: "영업 준비",
     [PHASES.NEW_GAME]: "새 캠페인 설정",
     [PHASES.TUTORIAL]: "배치 연습",
     [PHASES.STORY]: "시나리오",
     [PHASES.RELIC_OFFER]: "전시품 선택",
-    [PHASES.DAY_OPENING]: `영업 개시 ${night} / ${controller.totalNights}`,
-    [PHASES.RESERVATION]: `예약 ${night} / ${controller.totalNights}`,
-    [PHASES.PLACEMENT]: `영업 ${night} / ${controller.totalNights}`,
-    [PHASES.RESULT]: `정산 ${night} / ${controller.totalNights}`,
-    [PHASES.RESULT_REVIEW]: `마감 확인 ${night} / ${controller.totalNights}`,
+    [PHASES.ENDLESS_BRIEFING]: `시즌 ${season} 브리핑`,
+    [PHASES.ENDLESS_AUDIT]: `시즌 ${season} 감사`,
+    [PHASES.DAY_OPENING]: `영업 개시 ${night} / ${length}`,
+    [PHASES.RESERVATION]: `예약 ${night} / ${length}`,
+    [PHASES.PLACEMENT]: `영업 ${night} / ${length}`,
+    [PHASES.RESULT]: `정산 ${night} / ${length}`,
+    [PHASES.RESULT_REVIEW]: `마감 확인 ${night} / ${length}`,
     [PHASES.UPGRADE]: "영업 준비",
-    [PHASES.FINAL]: controller.isScenarioMode ? "캠페인 종료" : "초청 영업 완료",
+    [PHASES.FINAL]: controller.isScenarioMode
+      ? "캠페인 종료"
+      : controller.isEndlessMode
+        ? "무한 영업 종료"
+        : "초청 영업 완료",
   }[phase];
 }
 
@@ -53,8 +62,16 @@ function renderHeader(controller) {
   const { state } = controller;
   const inRun = ![PHASES.TITLE, PHASES.NEW_GAME, PHASES.TUTORIAL].includes(state.phase);
   const progressNight = state.phase === PHASES.UPGRADE
-    ? Math.min(controller.currentNightNumber + 1, controller.totalNights)
+    ? Math.min(controller.currentNightNumber + 1, controller.endlessSeasonLength)
     : controller.currentNightNumber;
+  const modeLabel = controller.isScenarioMode
+    ? "회색 상자 캠페인"
+    : controller.isEndlessMode
+      ? `무한 영업 · 시즌 ${state.endlessSeasonIndex + 1}`
+      : "개장 전 초청 영업";
+  const progressLabel = controller.isEndlessMode
+    ? ` · ${progressNight}/${controller.endlessSeasonLength}`
+    : ` · ${progressNight}/${controller.totalNights}`;
   return `
     <header class="topbar">
       <div class="brand-lockup">
@@ -63,18 +80,20 @@ function renderHeader(controller) {
       </div>
       <div class="phase-stack">
         <div class="phase-pill">${escapeHtml(phaseLabel(controller))}</div>
-        <span class="showcase-mini">${controller.isScenarioMode ? "회색 상자 캠페인" : "개장 전 초청 영업"}${inRun ? ` · ${progressNight}/${controller.totalNights}` : ""}</span>
+        <span class="showcase-mini">${escapeHtml(modeLabel)}${inRun ? escapeHtml(progressLabel) : ""}</span>
       </div>
       <div class="resources" aria-label="현재 자원">
         <button class="handbook-trigger" data-action="open-handbook" aria-label="운영 수첩 열기" title="운영 수첩"><span class="handbook-icon" aria-hidden="true">▤</span><span class="handbook-label">운영 수첩</span></button>
         <span><small>골드</small><b>${state.gold}G</b></span>
         <span><small>평판</small><b>${signed(state.hotelReputation)}</b></span>
+        ${controller.isEndlessMode ? `<span><small>런 명성</small><b>${state.endlessRunFame}</b></span>` : ""}
       </div>
     </header>`;
 }
 
 function renderTitle(controller) {
   if (controller.isScenarioMode) return renderCampaignTitle(controller);
+  if (controller.isEndlessMode) return renderEndlessTitle(controller);
   const notice = controller.data.prototype_mode?.notice
     ?? "정식 개장 전 다섯 밤 동안 호텔의 운영을 점검하는 초청 행사입니다.";
   return `
@@ -106,6 +125,19 @@ function renderCampaignTitle(controller) {
   const notice = controller.data.prototype_mode?.notice ?? "캠페인 개발 모드";
   const objective = controller.data.campaign?.objective;
   return `<section class="title-screen campaign-title-screen"><div class="title-copy invitation-letter"><span class="invitation-crest" aria-hidden="true">◆</span><p class="invitation-hotel">HOTEL VESPERA · CAMPAIGN GREYBOX</p><p class="invitation-recipient">베스페라의 상속인 귀하</p><h1>호텔의 장부를 이어받을<br /><em>새 지배인을 기다립니다.</em></h1><p class="lede">새 게임부터 영업, 장면, 성공·실패 엔딩과 기록까지 연결하는 개발용 캠페인입니다.</p><div class="showcase-notice"><b>${escapeHtml(objective?.title ?? "임시 운영 목표")}</b><span>${escapeHtml(objective?.description ?? notice)}</span></div><div class="invitation-actions">${controller.hasCheckpoint() ? `<button class="button primary large" data-action="resume">캠페인 이어하기</button>` : ""}<button class="button primary large" data-action="start">새 캠페인 시작</button></div></div><div class="title-rules invitation-enclosure"><div class="enclosure-heading"><p class="eyebrow">FUNCTIONAL SPINE</p><h2>회색 상자 검증 범위</h2></div><article><span>01</span><div><strong>새 게임과 프로필 분리</strong><p>표현 설정과 공용 수첩을 현재 캠페인 자원과 분리합니다.</p></div></article><article><span>02</span><div><strong>장면과 영업 진행</strong><p>프롤로그·비서 장면·영업·챕터 장면을 데이터 순서로 연결합니다.</p></div></article><article><span>03</span><div><strong>성공과 실패 기록</strong><p>임시 상속 조건으로 두 엔딩과 재시작·불러오기를 검증합니다.</p></div></article></div></section>`;
+}
+
+function renderEndlessTitle(controller) {
+  const config = controller.data.endless;
+  const best = controller.profile.endless ?? {};
+  return `<section class="title-screen endless-title-screen" data-screen="endless-title"><div class="title-copy invitation-letter"><span class="invitation-crest" aria-hidden="true">∞</span><p class="invitation-hotel">HOTEL VESPERA · ENDLESS GREYBOX</p><p class="invitation-recipient">운영 기록을 이어갈 지배인 귀하</p><h1>끝을 정하지 않은 영업을<br /><em>새 가능 세계에서 시작합니다.</em></h1><p class="lede">시즌 시작 전에 공개되는 감사 목표를 넘기고, 시드마다 달라지는 손님·공사·전시품 조합으로 호텔을 오래 유지하세요.</p><div class="showcase-notice"><b>PROVISIONAL · ${config.season_length} OPERATIONS PER SEASON</b><span>${escapeHtml(controller.data.prototype_mode?.notice)}</span></div><div class="invitation-actions">${controller.hasCheckpoint() ? `<button class="button primary large" data-action="resume">저장된 무한 영업 이어하기</button>` : ""}<button class="button primary large" data-action="start">새 무한 영업 시작</button></div></div><div class="title-rules invitation-enclosure"><div class="enclosure-heading"><p class="eyebrow">SURVIVAL OPERATIONS</p><h2>공개 목표와 누적 기록</h2></div><article><span>01</span><div><strong>시즌 목표 선공개</strong><p>영업 횟수·감사 공식·목표를 첫 선택 전에 확인합니다.</p></div></article><article><span>02</span><div><strong>런 내부 빌드 누적</strong><p>골드·시설·객실 상태·전시품은 현재 가능 세계 안에서만 이어집니다.</p></div></article><article><span>03</span><div><strong>폐업과 최고 기록</strong><p>목표 미달 시 런을 마감하고 생존 영업과 통과 시즌을 남깁니다.</p></div></article><div class="endless-best"><small>프로필 최고 기록</small><b>${Number(best.best_survived_nights ?? 0)}영업 · ${Number(best.best_cleared_seasons ?? 0)}시즌 통과</b></div></div></section>`;
+}
+
+function renderEndlessBriefing(controller) {
+  const { state, data } = controller;
+  const audit = data.endless.audit;
+  const progress = endlessAuditProgress(data, state);
+  return `<section class="screen-shell endless-briefing-screen" data-screen="endless-briefing"><div class="result-hero"><p class="eyebrow">ENDLESS SEASON ${state.endlessSeasonIndex + 1} · PRE-OPERATION BRIEFING</p><span class="result-glyph">∞</span><h1>이번 시즌의 감사 조건을 먼저 확인합니다.</h1><p>이 목표는 시즌 도중 바뀌지 않으며 마지막 영업 정산을 승인할 때 한 번만 판정됩니다.</p></div><div class="audit-contract-grid"><article><small>시즌 길이</small><strong>${data.endless.season_length}회 영업</strong><span>현재 회색 상자 표본</span></article><article><small>감사 목표</small><strong>${signed(state.endlessAuditTarget)}</strong><span>개발용 감사 점수 이상</span></article><article><small>위험 단계</small><strong>TIER ${state.endlessRiskTier}</strong><span>통과 시즌에 따라 상승</span></article><article><small>런 명성</small><strong>${state.endlessRunFame}</strong><span>현재 런 누적</span></article></div><article class="audit-policy-card"><div><p class="eyebrow">PROVISIONAL AUDIT POLICY</p><h2>${escapeHtml(audit.metric_id)}</h2></div><p>${escapeHtml(audit.description)}</p><span class="status-chip ${progress.reachable ? "clear" : "warning"}">${progress.reachable ? "개발 표본상 도달 가능" : "현재 표본상 도달 불가"}</span></article><p class="provisional-note">시즌 길이·공식·목표 곡선은 기능 검증용 임시값입니다. 정식 밸런스 결정 전까지 콘텐츠 규칙으로 고정하지 않습니다.</p><div class="center-action"><button class="button primary large" data-action="start-endless-season">조건 확인 · 시즌 영업 시작</button></div></section>`;
 }
 
 function selectedButton(selected) {
@@ -266,6 +298,9 @@ function renderPlacement(controller) {
   const isTutorial = state.phase === PHASES.TUTORIAL;
   const remainingSeconds = Math.ceil((state.serviceTimerMs ?? 0) / 1000);
   const timerClass = remainingSeconds <= 10 ? "critical" : remainingSeconds <= 30 ? "urgent" : "";
+  const operationEyebrow = controller.isEndlessMode
+    ? `ENDLESS SEASON ${state.endlessSeasonIndex + 1} · OPERATION ${controller.currentNightNumber} OF ${controller.endlessSeasonLength}`
+    : `INVITATIONAL NIGHT ${controller.currentNightNumber} OF ${controller.totalNights}`;
   const placementStatus = isTutorial
     ? `<div class="tutorial-status" data-video-target="tutorial-clock"><small>연습 모드</small><b>시간 제한 없음</b><span>두 손님을 유효하게 배치하세요</span></div>`
     : `<div class="service-timer ${timerClass}" aria-live="polite" data-video-target="service-timer"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · ${controller.ownedRelicWithEffect("FIRST_RELOCATION_TIME_REDUCTION") && state.relocationCount === 0 ? "첫 변경 -3초" : "변경 -5초"}</span></div>`;
@@ -276,7 +311,7 @@ function renderPlacement(controller) {
   return `
     <section class="screen-shell placement-screen">
       <div class="screen-heading">
-        <div><p class="eyebrow">${isTutorial ? "ROOM ASSIGNMENT · PRACTICE" : `INVITATIONAL NIGHT ${controller.currentNightNumber} OF ${controller.totalNights}`}</p><h1>${isTutorial ? "객실 배정을 연습하세요" : `${controller.currentScenario.name} · 손님을 배치하세요`}</h1></div>
+        <div><p class="eyebrow">${isTutorial ? "ROOM ASSIGNMENT · PRACTICE" : operationEyebrow}</p><h1>${isTutorial ? "객실 배정을 연습하세요" : `${controller.currentScenario.name} · 손님을 배치하세요`}</h1></div>
         ${placementStatus}
       </div>
       <div class="effect-strip" data-video-target="species-effects">${renderGroupEffects(evaluation)}</div>
@@ -353,21 +388,26 @@ function renderResultActions(controller, isLast) {
   }
   const continueLabel = isLast ? "초청 영업 종합 결과" : "객실 정비와 공사 준비";
   if (controller.isEndlessMode) {
-    return `<div class="center-action split-actions"><button class="button secondary large" data-action="retry-stage">이번 영업 다시</button><button class="button primary large" data-action="continue-result">다음 영업 준비</button></div>`;
+    return `<div class="center-action split-actions"><button class="button secondary large" data-action="retry-stage">이번 영업 다시</button><button class="button primary large" data-action="continue-result">${isLast ? "시즌 감사 확인" : "객실 정비와 다음 영업"}</button></div>`;
   }
   return `<div class="center-action"><button class="button primary large" data-action="continue-result">${continueLabel}</button></div>`;
 }
 
 function renderResult(controller) {
   const result = controller.currentResult;
-  const isLast = controller.currentNightNumber >= controller.totalNights;
-  const nextOdds = isLast ? null : rankOddsFor(controller.data, controller.currentNightNumber + 1, controller.state.hotelReputation);
+  const runLength = controller.isEndlessMode ? controller.endlessSeasonLength : controller.totalNights;
+  const isLast = controller.currentNightNumber >= runLength;
+  const nextOdds = isLast ? null : rankOddsFor(controller.data, controller.nextProgressionStage, controller.state.hotelReputation);
   const eyebrow = controller.isScenarioMode
     ? `CAMPAIGN DAY ${controller.currentNightNumber} COMPLETE`
-    : `PRE-OPENING NIGHT ${controller.currentNightNumber} COMPLETE`;
+    : controller.isEndlessMode
+      ? `ENDLESS SEASON ${controller.state.endlessSeasonIndex + 1} · OPERATION ${controller.currentNightNumber} COMPLETE`
+      : `PRE-OPENING NIGHT ${controller.currentNightNumber} COMPLETE`;
   const summary = controller.isScenarioMode
     ? (isLast ? "상속 유지 조건을 판정할 마지막 장부입니다." : "마감 서명 뒤 캠페인 장부와 다음 영업으로 진행합니다.")
-    : (isLast ? "개장 전 다섯 밤의 운영 기록을 확인합니다." : "수입과 평판이 다음 손님과 시설 제안의 범위를 바꿉니다.");
+    : controller.isEndlessMode
+      ? (isLast ? "이 정산을 받아들이면 사전 공개된 시즌 감사를 판정합니다." : "정산을 받아들이면 현재 결과가 확정되고 다음 영업을 준비합니다.")
+      : (isLast ? "개장 전 다섯 밤의 운영 기록을 확인합니다." : "수입과 평판이 다음 손님과 시설 제안의 범위를 바꿉니다.");
   return `
     <section class="screen-shell result-screen">
       <div class="result-hero"><p class="eyebrow">${escapeHtml(eyebrow)}</p><span class="result-glyph">✦</span><h1>${controller.currentNightNumber}번째 영업을 마쳤습니다.</h1><p>${escapeHtml(summary)}</p></div>
@@ -398,8 +438,14 @@ function renderDisplayRelicOffer(controller) {
   const relics = (pending?.relicIds ?? [])
     .map((id) => controller.data.indexes.displayRelics?.[id])
     .filter(Boolean);
+  const heading = controller.isEndlessMode
+    ? `시즌 ${controller.state.endlessSeasonIndex + 1} 영업에 앞서 전시품 후보를 확인합니다.`
+    : "첫 영업에 앞서 전시품 하나를 개방합니다.";
+  const duration = controller.isEndlessMode
+    ? "선택한 전시품은 현재 무한 영업 런이 끝날 때까지 누적됩니다."
+    : "선택한 전시품은 이번 캠페인이 끝날 때까지 로비에서 운영을 보조합니다.";
   return `<section class="screen-shell relic-offer-screen">
-    <div class="scene-heading"><p class="eyebrow">INHERITED DISPLAY · ONE OF THREE</p><h1>첫 영업에 앞서 전시품 하나를 개방합니다.</h1><p>선택한 전시품은 이번 캠페인이 끝날 때까지 로비에서 운영을 보조합니다.</p></div>
+    <div class="scene-heading"><p class="eyebrow">INHERITED DISPLAY · ONE OF THREE</p><h1>${escapeHtml(heading)}</h1><p>${escapeHtml(duration)}</p></div>
     <div class="relic-offer-grid" data-video-target="display-relic-offer">${relics.map((relic) => `<article class="relic-offer-card"><span class="relic-icon">${escapeHtml(relic.icon)}</span><small>공용 전시품 · 임시 명세</small><h2>${escapeHtml(relic.name)}</h2><p>${escapeHtml(relic.description)}</p><div><b>발동 조건</b><span>${escapeHtml(relic.trigger_description)}</span></div><button class="button primary" data-action="select-display-relic" data-relic-id="${escapeHtml(relic.id)}">이 전시품을 개방한다</button></article>`).join("")}</div>
     <div class="relic-offer-footer"><p class="relic-offer-note">전시품은 필수 숙박 조건을 무시하거나 객실 배치를 자동 해결하지 않습니다.</p><button class="button secondary" data-action="skip-display-relic">전시품 없이 시작한다</button></div>
   </section>`;
@@ -464,7 +510,8 @@ function renderRenovationCard(controller, upgrade) {
 
 function renderUpgrade(controller) {
   const { data, state } = controller;
-  const nextStage = controller.currentNightNumber + 1;
+  const nextStage = controller.nextProgressionStage;
+  const nextOperation = controller.currentNightNumber + 1;
   const odds = rankOddsFor(data, nextStage, state.hotelReputation);
   const upgrades = state.currentUpgradeOfferIds.map((id) => data.indexes.upgrades[id]).filter(Boolean);
   const expansions = upgrades.filter((upgrade) => upgrade.kind === "EXPANSION");
@@ -472,9 +519,12 @@ function renderUpgrade(controller) {
   const builtExpansionCount = state.ownedUpgradeIds.filter((id) => data.indexes.upgrades[id]?.kind === "EXPANSION").length;
   const installedFacilityCount = state.ownedUpgradeIds.filter((id) => data.indexes.upgrades[id]?.kind === "FACILITY").length;
   const hasContracts = state.renovationPurchaseIds.length > 0;
+  const nextServiceLabel = controller.isEndlessMode
+    ? `SEASON ${state.endlessSeasonIndex + 1} · NEXT OPERATION ${nextOperation}/${controller.endlessSeasonLength} · RUN STAGE ${nextStage}`
+    : `NEXT SERVICE ${nextStage}/${controller.totalNights}`;
   return `
     <section class="screen-shell shop-screen">
-      <div class="screen-heading"><div><p class="eyebrow">HOTEL RENOVATION · NEXT SERVICE ${nextStage}/5</p><h1>다음 영업을 위한 공사를 준비하세요.</h1></div><p>보유 골드 <b>${state.gold}G</b> · 증축 ${builtExpansionCount} · 시설 ${installedFacilityCount}</p></div>
+      <div class="screen-heading"><div><p class="eyebrow">HOTEL RENOVATION · ${escapeHtml(nextServiceLabel)}</p><h1>다음 영업을 위한 공사를 준비하세요.</h1></div><p>보유 골드 <b>${state.gold}G</b> · 증축 ${builtExpansionCount} · 시설 ${installedFacilityCount}</p></div>
       ${renderOddsStrip(data, odds, "upgrade-rank-odds")}
       <section class="maintenance-panel"><div><p class="eyebrow">HOUSEKEEPING</p><h2>객실 정비</h2><p>연박 중인 객실은 이동하거나 정비할 수 없습니다.</p></div>${renderMaintenance(controller)}</section>
       <div class="renovation-layout" data-video-target="upgrade-offers">
@@ -525,11 +575,18 @@ function renderReservation(controller) {
     && !emptySelection;
   const guaranteedRank = controller.currentScenario.guaranteed_rank;
   const guaranteedRankInfo = guaranteedRank ? rankOf(data, guaranteedRank) : null;
+  const operationEyebrow = controller.isEndlessMode
+    ? `ENDLESS SEASON ${state.endlessSeasonIndex + 1} · OPERATION ${controller.currentNightNumber} OF ${controller.endlessSeasonLength} · GUEST APPLICATIONS`
+    : `PRE-OPENING NIGHT ${controller.currentNightNumber} OF ${controller.totalNights} · GUEST APPLICATIONS`;
+  const guaranteeLabel = controller.isEndlessMode ? "등급 신청 보장" : "등급 체험 초청";
+  const guaranteeDescription = controller.isEndlessMode
+    ? "현재 위험 단계의 손님 풀을 검증하기 위한 개발용 최소 등급 보장입니다. 일반 신청 확률과 별도로 도착합니다."
+    : "해당 등급의 응대 규정을 점검하기 위한 별도 초청 1명입니다. 아래 일반 신청 확률과는 따로 도착합니다.";
   return `
     <section class="screen-shell reservation-screen">
-      <div class="screen-heading"><div><p class="eyebrow">PRE-OPENING NIGHT ${controller.currentNightNumber} OF ${controller.totalNights} · GUEST APPLICATIONS</p><h1>${controller.currentScenario.name} · 누구를 맞이하시겠습니까?</h1></div><div class="reservation-fixed-summary"><span><small>사전 확정</small><b>${escapeHtml(fixedNames)}</b></span><span><small>연박 고정 객실</small><b>${escapeHtml(stayoverPreview)}</b></span><button data-action="open-reservation-board">현재 객실도 보기</button></div></div>
+      <div class="screen-heading"><div><p class="eyebrow">${escapeHtml(operationEyebrow)}</p><h1>${controller.currentScenario.name} · 누구를 맞이하시겠습니까?</h1></div><div class="reservation-fixed-summary"><span><small>사전 확정</small><b>${escapeHtml(fixedNames)}</b></span><span><small>연박 고정 객실</small><b>${escapeHtml(stayoverPreview)}</b></span><button data-action="open-reservation-board">현재 객실도 보기</button></div></div>
       ${state.specialInviteGuestIds.length ? `<div class="showcase-invite-banner"><b>♛ SSR 왕실 특별 초청</b><span>최종 등급의 까다로운 요청과 높은 보상이 함께 도착했습니다.</span></div>` : ""}
-      ${guaranteedRankInfo && !state.specialInviteGuestIds.length ? `<div class="showcase-guarantee-banner"><b>${escapeHtml(guaranteedRankInfo.symbol)} ${escapeHtml(guaranteedRank)} 등급 체험 초청</b><span>해당 등급의 응대 규정을 점검하기 위한 별도 초청 1명입니다. 아래 일반 신청 확률과는 따로 도착합니다.</span></div>` : ""}
+      ${guaranteedRankInfo && !state.specialInviteGuestIds.length ? `<div class="showcase-guarantee-banner"><b>${escapeHtml(guaranteedRankInfo.symbol)} ${escapeHtml(guaranteedRank)} ${escapeHtml(guaranteeLabel)}</b><span>${escapeHtml(guaranteeDescription)}</span></div>` : ""}
       ${renderOddsStrip(data, state.currentRankOdds, "reservation-rank-odds")}
       <div class="reservation-grid">${state.currentGuestOfferIds.map((id) => renderReservationCard(controller, id)).join("")}</div>
       <footer class="action-bar reservation-capacity-bar" data-video-target="reservation-capacity"><div class="score-cluster"><span class="status-chip ${summary.overCapacity || summary.overPhysicalCapacity ? "warning" : "clear"}">응대 ${summary.accepted.length} / ${summary.serviceLimit}</span><span><small>호텔 객실</small><b>${summary.builtRoomCount}실</b></span><span><small>사용 가능</small><b>${summary.physicalPlacementLimit}실</b></span><span><small>배정 여유</small><b>${summary.placementMargin}실</b></span><span><small>미결정</small><b>${summary.pending.length}</b></span></div><div class="reservation-confirm"><small>인원 여유는 필수 숙박 조건의 조합까지 보장하지 않습니다.</small><button class="button primary" data-action="confirm-reservation" ${ready ? "" : "disabled"}>명단 확정 · 2분 체크인</button></div></footer>
@@ -598,15 +655,22 @@ function renderSpeciesRulesPage(controller) {
 function renderRankRulesPage(controller) {
   return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">GUEST CLASS</p><h2>N·R·SR·SSR 투숙 기대</h2><p>등급이 높을수록 선호·불호가 많고 한 번의 후기가 평판에 더 크게 반영됩니다.</p></div><div class="manual-entry-grid" data-video-target="rank-handbook">${controller.data.ranks.map((rank) => {
     const locked = !controller.state.seenRankIds.includes(rank.id);
-    return `<article class="manual-entry rarity-${rank.id.toLowerCase()} ${locked ? "locked" : ""}" style="--rank-color:${escapeHtml(rank.color)}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(rank.symbol)}</span><div><small>${locked ? `미열람 규칙 · 초청 영업 ${rank.unlock_stage}회차 이후` : `평판 영향 ${escapeHtml(rank.reputation_influence_label)}`}</small><h3>${locked ? "아직 만나지 않은 등급" : `${rank.id} · ${escapeHtml(rank.name)}`}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>평판과 영업 회차 조건을 만족해 첫 예약이 도착하면 투숙 기대를 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 숙박 조건</b>${renderRuleRows(rank.hard_constraints, "필수")}</div><div class="manual-section preference"><b>등급 공통 선호</b>${renderRuleRows(rank.soft_preferences, "선호", true)}</div><div class="manual-section dislike"><b>등급 공통 불호</b>${renderDislikeRows(rank.soft_dislikes)}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}</article>`;
+    const unlockCopy = controller.isEndlessMode
+      ? `미열람 규칙 · 누적 영업 ${rank.unlock_stage}회차 이후`
+      : `미열람 규칙 · 초청 영업 ${rank.unlock_stage}회차 이후`;
+    return `<article class="manual-entry rarity-${rank.id.toLowerCase()} ${locked ? "locked" : ""}" style="--rank-color:${escapeHtml(rank.color)}"><div class="manual-entry-title"><span>${locked ? "?" : escapeHtml(rank.symbol)}</span><div><small>${locked ? escapeHtml(unlockCopy) : `평판 영향 ${escapeHtml(rank.reputation_influence_label)}`}</small><h3>${locked ? "아직 만나지 않은 등급" : `${rank.id} · ${escapeHtml(rank.name)}`}</h3></div></div>${locked ? `<div class="locked-copy"><b>미열람 규칙</b><p>평판과 영업 회차 조건을 만족해 첫 예약이 도착하면 투숙 기대를 읽을 수 있습니다.</p></div>` : `<div class="manual-section required"><b>필수 숙박 조건</b>${renderRuleRows(rank.hard_constraints, "필수")}</div><div class="manual-section preference"><b>등급 공통 선호</b>${renderRuleRows(rank.soft_preferences, "선호", true)}</div><div class="manual-section dislike"><b>등급 공통 불호</b>${renderDislikeRows(rank.soft_dislikes)}</div><p class="manual-description">${escapeHtml(rank.description)}</p>`}</article>`;
   }).join("")}</div></div>`;
 }
 
 function renderDiscoveriesPage(controller) {
   const owned = controller.state.ownedUpgradeIds.map((id) => controller.data.indexes.upgrades[id]?.name ?? id);
   const hiddenFindings = controller.data.species.flatMap((species) => Object.entries(species.hidden_preferences_by_rank ?? {}).flatMap(([rankId, rules]) => rules.map((rule, index) => ({ species, rankId, rule, id: rule.id ?? `${species.id}:${rankId}:hidden:${index}` })))).filter((item) => controller.state.discoveredHiddenPreferenceIds.includes(item.id));
-  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">DISCOVERY LEDGER</p><h2>발견과 해금 기록</h2><p>개장 전 초청 영업에서 확인한 호텔의 운영 기록입니다.</p></div><div class="unlock-rules">
-    <article><span class="unlock-state open">개장 전 진행</span><h3>5회 초청 영업</h3><p>정식 개장 전 다섯 밤 동안 손님 응대와 호텔 시설을 점검합니다.</p></article>
+  const modeDescription = controller.isEndlessMode ? "현재 무한 영업 런과 공용 프로필에서 확인한 운영 기록입니다." : "개장 전 초청 영업에서 확인한 호텔의 운영 기록입니다.";
+  const progressCard = controller.isEndlessMode
+    ? `<article><span class="unlock-state open">시즌 ${controller.state.endlessSeasonIndex + 1}</span><h3>${controller.state.nightResults.length}회 생존 영업</h3><p>통과 시즌 ${controller.state.endlessAuditPassedCount} · 런 명성 ${controller.state.endlessRunFame}</p></article>`
+    : `<article><span class="unlock-state open">개장 전 진행</span><h3>5회 초청 영업</h3><p>정식 개장 전 다섯 밤 동안 손님 응대와 호텔 시설을 점검합니다.</p></article>`;
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">DISCOVERY LEDGER</p><h2>발견과 해금 기록</h2><p>${escapeHtml(modeDescription)}</p></div><div class="unlock-rules">
+    ${progressCard}
     <article><span class="unlock-state open">${controller.state.seenRankIds.length}/4</span><h3>발견한 등급</h3><p>${escapeHtml(controller.state.seenRankIds.join(" · "))}</p></article>
     <article><span class="unlock-state ${owned.length ? "open" : "locked"}">${owned.length ? `${owned.length}개 보유` : "미설치"}</span><h3>시설과 증축</h3><p>${escapeHtml(owned.join(", ") || "정산 뒤 공사업체의 증축·인테리어 제안에서 계약합니다.")}</p></article>
     <article><span class="unlock-state ${hiddenFindings.length ? "open" : "locked"}">${hiddenFindings.length ? `${hiddenFindings.length}개 열람` : "결산 전"}</span><h3>종족·등급 숨은 선호</h3><p>${hiddenFindings.length ? escapeHtml(hiddenFindings.map((item) => `${item.species.name} ${item.rankId}: ${item.rule.label}`).join(" · ")) : "R 이상 손님의 첫 투숙 결산에서 같은 종족·등급의 숨은 선호를 열람합니다."}</p></article>
@@ -632,13 +696,14 @@ function renderDisplayRelicsPage(controller) {
   ]);
   const ownedIds = new Set(controller.state.ownedDisplayRelicIds);
   const relics = controller.data.display_relics ?? [];
-  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">LOBBY DISPLAY CATALOG</p><h2>전시품 도감</h2><p>한 번의 캠페인 동안 로비에 누적되어 조건부 패시브 효과를 제공하는 수집품입니다.</p></div><div class="relic-catalog">${relics.map((relic) => {
+  const runLabel = controller.isEndlessMode ? "현재 런" : "이번 캠페인";
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">LOBBY DISPLAY CATALOG</p><h2>전시품 도감</h2><p>한 번의 런 동안 로비에 누적되어 조건부 패시브 효과를 제공하는 수집품입니다.</p></div><div class="relic-catalog">${relics.map((relic) => {
     const seen = seenIds.has(relic.id);
     const acquired = acquiredIds.has(relic.id);
     const triggered = triggeredIds.has(relic.id);
     const owned = ownedIds.has(relic.id);
     const stateLabel = triggered ? "발동 확인" : acquired ? "획득 기록" : seen ? "열람" : "미발견";
-    return `<article class="relic-catalog-card ${seen ? "seen" : "hidden"} ${owned ? "owned" : ""}"><span class="relic-icon">${seen ? escapeHtml(relic.icon) : "?"}</span><div><small>${stateLabel}${owned ? " · 이번 캠페인 보유" : ""}</small><h3>${seen ? escapeHtml(relic.name) : "이름을 알 수 없는 전시품"}</h3><p>${seen ? escapeHtml(relic.description) : "전시품 제안에서 처음 마주치면 기록됩니다."}</p>${seen ? `<b>${escapeHtml(relic.trigger_description)}</b>` : ""}</div></article>`;
+    return `<article class="relic-catalog-card ${seen ? "seen" : "hidden"} ${owned ? "owned" : ""}"><span class="relic-icon">${seen ? escapeHtml(relic.icon) : "?"}</span><div><small>${stateLabel}${owned ? ` · ${escapeHtml(runLabel)} 보유` : ""}</small><h3>${seen ? escapeHtml(relic.name) : "이름을 알 수 없는 전시품"}</h3><p>${seen ? escapeHtml(relic.description) : "전시품 제안에서 처음 마주치면 기록됩니다."}</p>${seen ? `<b>${escapeHtml(relic.trigger_description)}</b>` : ""}</div></article>`;
   }).join("") || `<p class="maintenance-clear">이 모드에는 등록된 전시품이 없습니다.</p>`}</div></div>`;
 }
 
@@ -649,7 +714,36 @@ function renderHandbook(controller) {
   return `<div class="handbook-overlay" role="dialog" aria-modal="true" aria-label="베스페라 호텔 운영 수첩"><section class="handbook-panel"><header class="handbook-heading"><div><p class="eyebrow">HOTEL VESPERA · OPERATIONS HANDBOOK</p><h1>운영 수첩</h1></div><button class="handbook-close" data-action="close-handbook" aria-label="운영 수첩 닫기">×</button></header><nav class="handbook-tabs" aria-label="수첩 분류">${handbookTabs(controller)}</nav><div class="handbook-body">${page}</div></section></div>`;
 }
 
+function renderEndlessAudit(controller) {
+  const report = controller.state.endlessAuditReport;
+  if (!report) return `<section class="screen-shell endless-audit-screen" data-screen="endless-audit"><h1>감사 보고서를 찾을 수 없습니다.</h1></section>`;
+  const passed = report.passed === true;
+  const evidenceRows = report.evidence.map((entry) => {
+    const scenarioName = controller.data.indexes.scenarios?.[entry.scenarioId]?.name
+      ?? controller.data.scenarios.find((scenario) => scenario.id === entry.scenarioId)?.name
+      ?? entry.scenarioId;
+    const adjustment = Number(entry.reputationDelta) - Number(entry.emergencyPenalty ?? 0);
+    return `<article><span>${entry.operationNumber}</span><div><b>${escapeHtml(scenarioName)}</b><small>수용 ${entry.acceptedGuests} · 거절 ${entry.rejectedGuests} · 취소 ${entry.canceledGuests}${entry.emergency ? " · 긴급 처리" : ""}</small></div><strong>${signed(adjustment)}</strong></article>`;
+  }).join("");
+  return `<section class="screen-shell endless-audit-screen" data-screen="endless-audit" data-audit-score="${escapeHtml(report.score)}" data-audit-target="${escapeHtml(report.target)}" data-audit-passed="${passed}"><div class="result-hero ${passed ? "" : "failure"}"><p class="eyebrow">ENDLESS SEASON ${report.seasonNumber} · AUDIT COMPLETE · TIER ${report.riskTier}</p><span class="result-glyph">${passed ? "◇" : "◆"}</span><h1>${passed ? "감사 목표를 넘겨 영업을 이어갑니다." : "감사 목표에 미달해 호텔을 폐업합니다."}</h1><p>${passed ? "이번 시즌 기록이 확정되었고 다음 위험 단계와 전시품 제안을 준비합니다." : "사전에 공개된 조건에 따라 이 가능 세계의 생존 기록을 마감합니다."}</p></div><div class="audit-contract-grid"><article><small>감사 점수</small><strong>${signed(report.score)}</strong><span>평판 ${signed(report.reputationDelta)} · 긴급 감점 -${report.emergencyPenalty}</span></article><article><small>공개 목표</small><strong>${signed(report.target)}</strong><span>${report.operations}/${controller.endlessSeasonLength}회 판정</span></article><article><small>목표 대비</small><strong>${signed(report.margin)}</strong><span>${passed ? "통과" : "미달"}</span></article><article><small>런 명성</small><strong>${controller.state.endlessRunFame}</strong><span>통과 시즌 ${controller.state.endlessAuditPassedCount}</span></article></div><section class="audit-evidence"><div><p class="eyebrow">AUDIT EVIDENCE</p><h2>영업별 감사 근거</h2></div><div>${evidenceRows}</div></section><p class="provisional-note">${escapeHtml(controller.data.endless.audit.description)} 현재 수치와 공식은 개발용 PROVISIONAL 표본입니다.</p><div class="center-action">${passed ? `<button class="button primary large" data-action="advance-endless-season">다음 시즌 브리핑</button>` : `<button class="button primary large danger" data-action="close-endless-run">폐업 기록 확정</button>`}</div></section>`;
+}
+
+function renderEndlessFinal(controller) {
+  const { state } = controller;
+  const record = state.runRecord;
+  const metrics = record?.metrics ?? {};
+  const relicNames = (record?.owned_display_relic_ids ?? []).map(
+    (id) => controller.data.indexes.displayRelics?.[id]?.name ?? id,
+  );
+  const storedAuditHistory = record?.endless_audit_history ?? [];
+  const visibleAuditHistory = storedAuditHistory.slice(-5);
+  const omittedAuditCount = Number(record?.endless_audit_history_omitted_count ?? 0)
+    + Math.max(0, storedAuditHistory.length - visibleAuditHistory.length);
+  return `<section class="screen-shell final-screen endless-final-screen" data-screen="endless-closure"><div class="result-hero failure"><p class="eyebrow">ENDLESS RUN CLOSED · ${escapeHtml(record?.ending_tier ?? "ENDLESS_CLOSED")}</p><span class="result-glyph">◆</span><h1>${escapeHtml(record?.title ?? "무한 영업 기록을 마감했습니다.")}</h1><p>${escapeHtml(record?.description ?? "사전 공개된 감사 목표에 따라 런을 종료했습니다.")}</p></div><article class="run-record-card"><div><small>RUN RECORD · ${escapeHtml(record?.ending_id ?? "UNRESOLVED")}</small><h2>생존 ${Number(metrics.endless_survived_nights ?? state.endlessCompletedOperations)}영업 · ${Number(metrics.endless_seasons_cleared ?? 0)}시즌 통과</h2></div><span class="status-chip warning">폐업</span><p>원인 <b>${escapeHtml(record?.endless_closure_reason ?? "UNKNOWN")}</b> · 기록 ID <b>${escapeHtml(record?.record_id ?? "-")}</b></p>${relicNames.length ? `<p><b>이번 런의 전시품</b> — ${escapeHtml(relicNames.join(" · "))}</p>` : ""}</article><div class="final-summary"><article><small>생존 영업</small><strong>${Number(metrics.endless_survived_nights ?? 0)}</strong></article><article><small>통과 시즌</small><strong>${Number(metrics.endless_seasons_cleared ?? 0)}</strong></article><article><small>마지막 감사</small><strong>${signed(Number(metrics.endless_last_audit_score ?? 0))} / ${signed(Number(metrics.endless_last_audit_target ?? 0))}</strong></article><article><small>런 명성·위험</small><strong>${Number(metrics.endless_run_fame ?? 0)} · T${Number(metrics.endless_risk_tier ?? 1)}</strong></article><article><small>실행 시드</small><strong>${state.runSeed}</strong></article></div><section class="audit-evidence compact"><div><p class="eyebrow">AUDIT HISTORY</p><h2>최근 확정 감사</h2>${omittedAuditCount ? `<small>이전 ${omittedAuditCount}개 요약 생략</small>` : ""}</div><div>${visibleAuditHistory.map((report) => `<article><span>${report.seasonNumber}</span><div><b>시즌 ${report.seasonNumber} · TIER ${report.riskTier}</b><small>${report.operations}회 영업 · 목표 ${signed(report.target)}</small></div><strong>${signed(report.score)} · ${report.passed ? "통과" : "미달"}</strong></article>`).join("")}</div></section><div class="center-action"><button class="button primary large" data-action="restart">다른 시드로 새 무한 영업</button></div></section>`;
+}
+
 function renderFinal(controller) {
+  if (controller.isEndlessMode) return renderEndlessFinal(controller);
   const { nightResults, ownedUpgradeIds } = controller.state;
   const totalIncome = nightResults.reduce((sum, result) => sum + result.income, 0);
   const totalRep = nightResults.reduce((sum, result) => sum + result.reputationDelta, 0);
@@ -685,6 +779,8 @@ export function renderApp(app, controller) {
   let content = "";
   if (phase === PHASES.TITLE) content = renderTitle(controller);
   else if (phase === PHASES.NEW_GAME) content = renderNewGame(controller);
+  else if (phase === PHASES.ENDLESS_BRIEFING) content = renderEndlessBriefing(controller);
+  else if (phase === PHASES.ENDLESS_AUDIT) content = renderEndlessAudit(controller);
   else if ([PHASES.TUTORIAL, PHASES.PLACEMENT].includes(phase)) content = renderPlacement(controller);
   else if (phase === PHASES.STORY) content = renderStory(controller);
   else if (phase === PHASES.RELIC_OFFER) content = renderDisplayRelicOffer(controller);

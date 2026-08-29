@@ -8,6 +8,27 @@ function sum(results, selector) {
 
 export function summarizeRun(data, state) {
   const nightResults = state.nightResults.filter(Boolean);
+  const isEndless = data.prototype_mode?.type === "ENDLESS";
+  const lifetime = state.endlessLifetimeMetrics ?? {};
+  const coreMetrics = isEndless
+    ? {
+      completed_nights: Number(state.endlessCompletedOperations ?? 0),
+      total_income: Number(lifetime.totalIncome ?? 0),
+      reputation_delta: Number(lifetime.reputationDelta ?? 0),
+      accepted_guests: Number(lifetime.acceptedGuests ?? 0),
+      rejected_guests: Number(lifetime.rejectedGuests ?? 0),
+      canceled_guests: Number(lifetime.canceledGuests ?? 0),
+      emergency_nights: Number(lifetime.emergencyNights ?? 0),
+    }
+    : {
+      completed_nights: nightResults.length,
+      total_income: sum(nightResults, (result) => result.income ?? 0),
+      reputation_delta: sum(nightResults, (result) => result.reputationDelta ?? 0),
+      accepted_guests: sum(nightResults, (result) => result.acceptedGuestIds?.length ?? 0),
+      rejected_guests: sum(nightResults, (result) => result.rejectedGuestIds?.length ?? 0),
+      canceled_guests: sum(nightResults, (result) => result.canceledGuestIds?.length ?? 0),
+      emergency_nights: nightResults.filter((result) => result.emergencyReport?.timedOut).length,
+    };
   const formalSpecies = data.campaign?.formal_species ?? [];
   const affinityById = state.speciesAffinityById ?? {};
   const affinityThreshold = data.campaign?.ending_thresholds?.species_affinity ?? 5;
@@ -48,6 +69,21 @@ export function summarizeRun(data, state) {
     dream_demon_other_species_allies: dreamDemonOtherSpeciesAllies,
     dream_demon_other_species_network: dreamDemonOtherSpeciesAllies >= dreamDemonRequiredSpeciesCount ? 1 : 0,
   };
+  const endlessMetrics = {
+    endless_closed: state.endlessClosed ? 1 : 0,
+    endless_seasons_cleared: Number(state.endlessAuditPassedCount ?? 0),
+    endless_survived_nights: Number(state.endlessCompletedOperations ?? 0),
+    endless_last_audit_score: Number(state.endlessAuditReport?.score ?? 0),
+    endless_last_audit_target: Number(state.endlessAuditReport?.target ?? 0),
+    endless_last_audit_margin: Number(state.endlessAuditReport?.margin ?? 0),
+    endless_best_audit_score: Number(
+      state.endlessBestAuditScore ?? state.endlessAuditReport?.score ?? 0,
+    ),
+    endless_run_fame: Number(state.endlessRunFame ?? 0),
+    endless_risk_tier: Number(state.endlessRiskTier ?? 0),
+    endless_omitted_result_history: Number(state.endlessResultHistoryOmittedCount ?? 0),
+    endless_omitted_audit_history: Number(state.endlessAuditHistoryOmittedCount ?? 0),
+  };
   for (const species of formalSpecies) {
     campaignMetrics[`species_affinity_${species.metric_id}`] = Number(affinityById[species.id] ?? 0);
     campaignMetrics[`species_route_${species.metric_id}`] = triggered.has(species.id) ? 1 : 0;
@@ -55,19 +91,14 @@ export function summarizeRun(data, state) {
     campaignMetrics[`relationship_ready_${species.metric_id}`] = relationshipProgress[species.relationship_role_id]?.ending_ready ? 1 : 0;
   }
   return {
-    completed_nights: nightResults.length,
-    total_income: sum(nightResults, (result) => result.income ?? 0),
-    reputation_delta: sum(nightResults, (result) => result.reputationDelta ?? 0),
+    ...coreMetrics,
     final_gold: state.gold,
     final_reputation: state.hotelReputation,
-    accepted_guests: sum(nightResults, (result) => result.acceptedGuestIds?.length ?? 0),
-    rejected_guests: sum(nightResults, (result) => result.rejectedGuestIds?.length ?? 0),
-    canceled_guests: sum(nightResults, (result) => result.canceledGuestIds?.length ?? 0),
     purchased_upgrades: state.ownedUpgradeIds.length,
-    emergency_nights: nightResults.filter((result) => result.emergencyReport?.timedOut).length,
     foresight_retries: state.foresightRetryCount ?? 0,
     expected_nights: data.prototype_mode?.total_nights ?? data.scenarios.length,
     ...campaignMetrics,
+    ...endlessMetrics,
   };
 }
 
@@ -157,7 +188,14 @@ export function createRunRecord(data, state) {
     relationship_presentation_ids: state.relationshipPresentationIds ?? {},
     secretary_presentation_id: state.secretaryPresentationId ?? null,
     owned_display_relic_ids: [...(state.ownedDisplayRelicIds ?? [])],
+    owned_upgrade_ids: [...(state.ownedUpgradeIds ?? [])],
     display_relic_trigger_counts: { ...(state.displayRelicTriggerCounts ?? {}) },
+    endless_audit_history: (state.endlessAuditHistory ?? []).map((report) => ({
+      ...report,
+      evidence: (report.evidence ?? []).map((entry) => ({ ...entry })),
+    })),
+    endless_audit_history_omitted_count: Number(state.endlessAuditHistoryOmittedCount ?? 0),
+    endless_closure_reason: state.endlessClosureReason ?? null,
     metrics: ending.metrics,
   };
 }
@@ -179,7 +217,11 @@ export function readRunRecords(storage = globalThis.localStorage) {
         relationship_epilogues: [],
         relationship_presentation_ids: {},
         owned_display_relic_ids: [],
+        owned_upgrade_ids: [],
         display_relic_trigger_counts: {},
+        endless_audit_history: [],
+        endless_audit_history_omitted_count: 0,
+        endless_closure_reason: null,
         ...record,
         schema_version: RUN_RECORD_SCHEMA_VERSION,
       }));
