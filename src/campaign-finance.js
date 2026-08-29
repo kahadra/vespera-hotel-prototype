@@ -5,6 +5,7 @@ export const CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE = 56;
 export const CAMPAIGN_FINANCE_DEBT_GATE_ID = "BASE_DEBT_CLEARED_AT_STAGE_56";
 export const CAMPAIGN_FINANCE_CHECKPOINT_STAGES = Object.freeze([7, 14, 28, 42, 56]);
 export const CAMPAIGN_FINANCE_SUPPORTED_STAGE_LIMITS = Object.freeze([56, 70]);
+export const CAMPAIGN_FINANCE_OPERATION_KINDS = Object.freeze(["NORMAL", "RECOVERY"]);
 export const CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE =
   "RESULT_COMMIT_THEN_OPTIONAL_REPAYMENT_THEN_CHECKPOINT";
 export const CAMPAIGN_FINANCE_RECOVERY_POLICY_STATUS = "TBD";
@@ -31,13 +32,28 @@ const STATE_KEYS = Object.freeze([
   "ledger",
 ]);
 
+const CONFIG_KEYS = Object.freeze([
+  "id",
+  "version",
+  "contract_status",
+  "total_stages",
+  "debt_deadline_stage",
+  "debt_gate_id",
+  "starting_cash",
+  "principal",
+  "chapter_cumulative_targets",
+]);
+
 const PENDING_RESULT_KEYS = Object.freeze([
   "type",
   "stageNumber",
+  "campaignOperationId",
+  "campaignResultIdentity",
   "openingCash",
   "income",
   "upkeep",
   "reactivation",
+  "roomService",
   "cashAfterOperations",
   "openingDebt",
   "cumulativeRepaymentBefore",
@@ -46,11 +62,14 @@ const PENDING_RESULT_KEYS = Object.freeze([
 const LEDGER_ENTRY_KEYS = Object.freeze([
   "type",
   "stageNumber",
+  "campaignOperationId",
+  "campaignResultIdentity",
   "settlementSequence",
   "openingCash",
   "income",
   "upkeep",
   "reactivation",
+  "roomService",
   "cashAfterOperations",
   "manualRepayment",
   "closingCash",
@@ -90,6 +109,11 @@ function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function sameFlatRecord(left, right) {
+  if (!exactKeys(left, Object.keys(right))) return false;
+  return Object.keys(right).every((key) => left[key] === right[key]);
+}
+
 function cloneJson(value) {
   return value === null ? null : JSON.parse(JSON.stringify(value));
 }
@@ -123,7 +147,7 @@ function chapterTargets(config) {
 }
 
 export function validateCampaignFinanceConfig(config) {
-  assert(isPlainObject(config), "config must be an object");
+  assert(exactKeys(config, CONFIG_KEYS), "config has an invalid shape");
   assert(nonEmptyString(config.id), "config.id must be a non-empty string");
   assert(positiveSafeInteger(config.version),
     "config.version must be a positive safe integer");
@@ -155,6 +179,26 @@ export function validateCampaignFinanceConfig(config) {
   assert(targets[String(CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE)] === config.principal,
     "the day 56 cumulative target must equal the full principal");
   return true;
+}
+
+function validateCampaignResultIdentity(identity, stageNumber, owner) {
+  assert(exactKeys(identity, ["stageNumber", "operationKind", "templateIndex"]),
+    `${owner} must contain exactly stageNumber, operationKind, and templateIndex`);
+  assert(identity.stageNumber === stageNumber,
+    `${owner}.stageNumber must match the finance stage`);
+  assert(CAMPAIGN_FINANCE_OPERATION_KINDS.includes(identity.operationKind),
+    `${owner}.operationKind is unknown`);
+  assert(nonNegativeSafeInteger(identity.templateIndex),
+    `${owner}.templateIndex must be a non-negative safe integer`);
+}
+
+function validateCampaignOperationIdentity(operationId, resultIdentity, stageNumber, owner) {
+  assert(nonEmptyString(operationId), `${owner}.campaignOperationId must be non-empty`);
+  validateCampaignResultIdentity(
+    resultIdentity,
+    stageNumber,
+    `${owner}.campaignResultIdentity`,
+  );
 }
 
 function recoveryRequirement(stageNumber, shortfallAmount) {
@@ -232,6 +276,7 @@ function expectedCashConservation(entry) {
     entry.closingCash,
     entry.upkeep,
     entry.reactivation,
+    entry.roomService,
     entry.manualRepayment,
   );
   return {
@@ -254,11 +299,20 @@ function expectedDebtConservation(config, entry) {
   };
 }
 
-function validateLedgerEntry(config, entry, stageNumber, prior) {
+function validateLedgerEntry(config, entry, stageNumber, prior, seenOperationIds) {
   const owner = `ledger[${stageNumber - 1}]`;
   assert(exactKeys(entry, LEDGER_ENTRY_KEYS), `${owner} has an invalid shape`);
   assert(entry.type === "CAMPAIGN_FINANCE_LEDGER_ENTRY", `${owner}.type is unknown`);
   assert(entry.stageNumber === stageNumber, `${owner}.stageNumber must be sequential`);
+  validateCampaignOperationIdentity(
+    entry.campaignOperationId,
+    entry.campaignResultIdentity,
+    stageNumber,
+    owner,
+  );
+  assert(!seenOperationIds.has(entry.campaignOperationId),
+    `${owner}.campaignOperationId must be unique within the ledger`);
+  seenOperationIds.add(entry.campaignOperationId);
   assert(entry.settlementSequence === CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE,
     `${owner}.settlementSequence is unsupported`);
   for (const field of [
@@ -266,6 +320,7 @@ function validateLedgerEntry(config, entry, stageNumber, prior) {
     "income",
     "upkeep",
     "reactivation",
+    "roomService",
     "cashAfterOperations",
     "manualRepayment",
     "closingCash",
@@ -280,7 +335,12 @@ function validateLedgerEntry(config, entry, stageNumber, prior) {
     `${owner}.openingDebt does not follow the ledger`);
 
   const available = safeSum(`${owner}.availableCash`, entry.openingCash, entry.income);
-  const operatingOutflow = safeSum(`${owner}.operatingOutflow`, entry.upkeep, entry.reactivation);
+  const operatingOutflow = safeSum(
+    `${owner}.operatingOutflow`,
+    entry.upkeep,
+    entry.reactivation,
+    entry.roomService,
+  );
   assert(operatingOutflow <= available, `${owner} would produce negative operating cash`);
   assert(entry.cashAfterOperations === available - operatingOutflow,
     `${owner}.cashAfterOperations is inconsistent`);
@@ -327,16 +387,25 @@ function validateLedgerEntry(config, entry, stageNumber, prior) {
   };
 }
 
-function validatePendingDayResult(config, pending, stageNumber, prior) {
+function validatePendingDayResult(config, pending, stageNumber, prior, seenOperationIds) {
   const owner = "pendingDayResult";
   assert(exactKeys(pending, PENDING_RESULT_KEYS), `${owner} has an invalid shape`);
   assert(pending.type === "CAMPAIGN_DAY_RESULT_COMMIT", `${owner}.type is unknown`);
   assert(pending.stageNumber === stageNumber, `${owner}.stageNumber is inconsistent`);
+  validateCampaignOperationIdentity(
+    pending.campaignOperationId,
+    pending.campaignResultIdentity,
+    stageNumber,
+    owner,
+  );
+  assert(!seenOperationIds.has(pending.campaignOperationId),
+    `${owner}.campaignOperationId already exists in the settled ledger`);
   for (const field of [
     "openingCash",
     "income",
     "upkeep",
     "reactivation",
+    "roomService",
     "cashAfterOperations",
     "openingDebt",
     "cumulativeRepaymentBefore",
@@ -353,6 +422,7 @@ function validatePendingDayResult(config, pending, stageNumber, prior) {
     `${owner}.operatingOutflow`,
     pending.upkeep,
     pending.reactivation,
+    pending.roomService,
   );
   assert(operatingOutflow <= available, `${owner} would produce negative operating cash`);
   assert(pending.cashAfterOperations === available - operatingOutflow,
@@ -405,8 +475,15 @@ export function validateCampaignFinanceState(config, state) {
     remainingDebt: config.principal,
     cumulativeRepayment: 0,
   };
+  const seenOperationIds = new Set();
   state.ledger.forEach((entry, index) => {
-    reconstructed = validateLedgerEntry(config, entry, index + 1, reconstructed);
+    reconstructed = validateLedgerEntry(
+      config,
+      entry,
+      index + 1,
+      reconstructed,
+      seenOperationIds,
+    );
   });
   if (state.pendingDayResult !== null) {
     assert(state.completedStageCount < config.total_stages,
@@ -416,6 +493,7 @@ export function validateCampaignFinanceState(config, state) {
       state.pendingDayResult,
       state.completedStageCount + 1,
       reconstructed,
+      seenOperationIds,
     );
     assert(state.cash === state.pendingDayResult.cashAfterOperations,
       "state.cash must include the committed operating result");
@@ -458,6 +536,8 @@ export function validateCampaignFinanceState(config, state) {
 
 export function createCampaignFinanceState(config) {
   validateCampaignFinanceConfig(config);
+  assert(config.total_stages === CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE,
+    "new finance must begin with the 56-stage base config");
   const state = {
     type: "CAMPAIGN_FINANCE_STATE",
     schemaVersion: CAMPAIGN_FINANCE_SCHEMA_VERSION,
@@ -487,13 +567,31 @@ export function commitCampaignDayResult(config, state, result) {
   validateCampaignFinanceState(config, state);
   assert(state.status === "ACTIVE" && state.phase === "AWAITING_RESULT",
     "a day result can be committed only while awaiting the next result");
-  assert(exactKeys(result, ["stageNumber", "income", "upkeep", "reactivation"]),
+  assert(exactKeys(result, [
+    "stageNumber",
+    "campaignOperationId",
+    "campaignResultIdentity",
+    "income",
+    "upkeep",
+    "reactivation",
+    "roomService",
+  ]),
     "result has an invalid shape");
   assert(result.stageNumber === state.nextStageNumber,
     "result.stageNumber does not match the next finance stage");
+  validateCampaignOperationIdentity(
+    result.campaignOperationId,
+    result.campaignResultIdentity,
+    result.stageNumber,
+    "result",
+  );
+  const campaignOperationId = result.campaignOperationId.trim();
+  assert(!state.ledger.some((entry) => entry.campaignOperationId === campaignOperationId),
+    "result.campaignOperationId already exists in the settled ledger");
   assertAmount(result.income, "result.income");
   assertAmount(result.upkeep, "result.upkeep");
   assertAmount(result.reactivation, "result.reactivation");
+  assertAmount(result.roomService, "result.roomService");
   if (result.stageNumber > CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE) {
     assert(state.debtClearedAtDeadline === true && state.remainingDebt === 0,
       "day 57 and later cannot carry unresolved debt as grace");
@@ -503,16 +601,20 @@ export function commitCampaignDayResult(config, state, result) {
     "result operating outflow",
     result.upkeep,
     result.reactivation,
+    result.roomService,
   );
   assert(operatingOutflow <= available,
-    "upkeep and reactivation cannot produce negative cash");
+    "upkeep, reactivation, and room service cannot produce negative cash");
   const pendingDayResult = {
     type: "CAMPAIGN_DAY_RESULT_COMMIT",
     stageNumber: result.stageNumber,
+    campaignOperationId,
+    campaignResultIdentity: { ...result.campaignResultIdentity },
     openingCash: state.cash,
     income: result.income,
     upkeep: result.upkeep,
     reactivation: result.reactivation,
+    roomService: result.roomService,
     cashAfterOperations: available - operatingOutflow,
     openingDebt: state.remainingDebt,
     cumulativeRepaymentBefore: state.cumulativeRepayment,
@@ -564,11 +666,14 @@ export function settleCampaignDay(config, state, settlement) {
   const entry = {
     type: "CAMPAIGN_FINANCE_LEDGER_ENTRY",
     stageNumber: pending.stageNumber,
+    campaignOperationId: pending.campaignOperationId,
+    campaignResultIdentity: { ...pending.campaignResultIdentity },
     settlementSequence: CAMPAIGN_FINANCE_SETTLEMENT_SEQUENCE,
     openingCash: pending.openingCash,
     income: pending.income,
     upkeep: pending.upkeep,
     reactivation: pending.reactivation,
+    roomService: pending.roomService,
     cashAfterOperations: pending.cashAfterOperations,
     manualRepayment,
     closingCash,
@@ -608,6 +713,71 @@ export function settleCampaignDay(config, state, settlement) {
     ledger: [...cloneJson(state.ledger), entry],
   };
   validateCampaignFinanceState(config, next);
+  return next;
+}
+
+function validateTrueExtensionConfigPair(baseConfig, extendedConfig) {
+  validateCampaignFinanceConfig(baseConfig);
+  validateCampaignFinanceConfig(extendedConfig);
+  assert(baseConfig.total_stages === CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE,
+    "baseConfig must end at day 56");
+  assert(extendedConfig.total_stages === 70,
+    "extendedConfig must extend the campaign to day 70");
+  assert(baseConfig.id !== extendedConfig.id,
+    "extendedConfig.id must distinguish the extended finance authority");
+  assert(baseConfig.version === extendedConfig.version,
+    "extendedConfig.version cannot differ from the base contract");
+  for (const key of [
+    "contract_status",
+    "debt_deadline_stage",
+    "debt_gate_id",
+    "starting_cash",
+    "principal",
+  ]) {
+    assert(baseConfig[key] === extendedConfig[key],
+      `extendedConfig.${key} cannot differ from baseConfig`);
+  }
+  for (const stageNumber of CAMPAIGN_FINANCE_CHECKPOINT_STAGES) {
+    assert(
+      baseConfig.chapter_cumulative_targets[String(stageNumber)]
+        === extendedConfig.chapter_cumulative_targets[String(stageNumber)],
+      "extendedConfig.chapter_cumulative_targets must preserve the base targets",
+    );
+  }
+}
+
+export function unlockCampaignFinanceTrueExtension(
+  baseConfig,
+  extendedConfig,
+  state,
+  debtGateEvidence,
+) {
+  validateTrueExtensionConfigPair(baseConfig, extendedConfig);
+  validateCampaignFinanceState(baseConfig, state);
+  assert(state.completedStageCount === CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE,
+    "true finance extension cannot unlock before day 56 settlement");
+  assert(state.status === "COMPLETE" && state.phase === "CLOSED",
+    "true finance extension requires the completed base finance state");
+  assert(state.debtClearedAtDeadline === true && state.remainingDebt === 0,
+    "true finance extension requires debt cleared at day 56");
+  const expectedEvidence = campaignDebtGateEvidence(baseConfig, state);
+  assert(sameFlatRecord(debtGateEvidence, expectedEvidence),
+    "debtGateEvidence does not match the base finance ledger");
+  assert(debtGateEvidence.passed === true,
+    "debtGateEvidence must explicitly pass");
+
+  const next = {
+    ...state,
+    configId: extendedConfig.id,
+    configVersion: extendedConfig.version,
+    totalStages: extendedConfig.total_stages,
+    nextStageNumber: CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE + 1,
+    phase: "AWAITING_RESULT",
+    status: "ACTIVE",
+    pendingDayResult: null,
+    ledger: cloneJson(state.ledger),
+  };
+  validateCampaignFinanceState(extendedConfig, next);
   return next;
 }
 
