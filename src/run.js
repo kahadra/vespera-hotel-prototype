@@ -1,4 +1,6 @@
-export const RUN_RECORD_SCHEMA_VERSION = 3;
+import { campaignOperationId } from "./campaign-progress.js";
+
+export const RUN_RECORD_SCHEMA_VERSION = 4;
 export const RUN_RECORD_STORAGE_KEY = "vespera.hotel.run-records.v1";
 export const RUN_RECORD_LIMIT = 20;
 
@@ -6,9 +8,41 @@ function sum(results, selector) {
   return results.reduce((total, result) => total + selector(result), 0);
 }
 
+function isFormalCampaign(data) {
+  return data?.prototype_mode?.type === "FORMAL_CAMPAIGN";
+}
+
+function formalOperationDescriptor(config, record) {
+  return {
+    type: "CAMPAIGN_OPERATION",
+    stageNumber: record.resultIdentity.stageNumber,
+    operationKind: record.resultIdentity.operationKind,
+    templateIndex: record.resultIdentity.templateIndex,
+    recoveryBoundaryStageNumber: record.recoveryBoundaryStageNumber,
+    templatePolicyId: config.scenario_template_policy_id,
+    templateProductionReady: config.scenario_templates_production_ready,
+  };
+}
+
+function formalRunFields(data, state) {
+  if (!isFormalCampaign(data)) return {};
+  const config = data.campaign.formal_progress;
+  const progress = state.campaignProgress;
+  const lastRecord = progress.operationRecords.at(-1);
+  return {
+    progression_authority: config.id,
+    campaign_stage_limit: progress.stageLimit,
+    true_extension_unlocked: progress.trueExtensionUnlocked,
+    last_operation_id: lastRecord
+      ? campaignOperationId(config, state.runSeed, formalOperationDescriptor(config, lastRecord))
+      : null,
+  };
+}
+
 export function summarizeRun(data, state) {
   const nightResults = state.nightResults.filter(Boolean);
   const isEndless = data.prototype_mode?.type === "ENDLESS";
+  const isFormal = isFormalCampaign(data);
   const lifetime = state.endlessLifetimeMetrics ?? {};
   const coreMetrics = isEndless
     ? {
@@ -29,6 +63,7 @@ export function summarizeRun(data, state) {
       canceled_guests: sum(nightResults, (result) => result.canceledGuestIds?.length ?? 0),
       emergency_nights: nightResults.filter((result) => result.emergencyReport?.timedOut).length,
     };
+  if (isFormal) coreMetrics.completed_nights = state.campaignProgress.completedStageCount;
   const formalSpecies = data.campaign?.formal_species ?? [];
   const affinityById = state.speciesAffinityById ?? {};
   const affinityThreshold = data.campaign?.ending_thresholds?.species_affinity ?? 5;
@@ -69,6 +104,12 @@ export function summarizeRun(data, state) {
     dream_demon_other_species_allies: dreamDemonOtherSpeciesAllies,
     dream_demon_other_species_network: dreamDemonOtherSpeciesAllies >= dreamDemonRequiredSpeciesCount ? 1 : 0,
   };
+  if (isFormal) {
+    campaignMetrics.campaign_completed_stages = state.campaignProgress.completedStageCount;
+    campaignMetrics.recovery_operations = state.campaignProgress.operationRecords.filter(
+      (record) => record.resultIdentity.operationKind === "RECOVERY",
+    ).length;
+  }
   const endlessMetrics = {
     endless_closed: state.endlessClosed ? 1 : 0,
     endless_seasons_cleared: Number(state.endlessAuditPassedCount ?? 0),
@@ -96,7 +137,9 @@ export function summarizeRun(data, state) {
     final_reputation: state.hotelReputation,
     purchased_upgrades: state.ownedUpgradeIds.length,
     foresight_retries: state.foresightRetryCount ?? 0,
-    expected_nights: data.prototype_mode?.total_nights ?? data.scenarios.length,
+    expected_nights: isFormal
+      ? state.campaignProgress.stageLimit
+      : data.prototype_mode?.total_nights ?? data.scenarios.length,
     ...campaignMetrics,
     ...endlessMetrics,
   };
@@ -196,6 +239,7 @@ export function createRunRecord(data, state) {
     })),
     endless_audit_history_omitted_count: Number(state.endlessAuditHistoryOmittedCount ?? 0),
     endless_closure_reason: state.endlessClosureReason ?? null,
+    ...formalRunFields(data, state),
     metrics: ending.metrics,
   };
 }
@@ -206,7 +250,7 @@ export function readRunRecords(storage = globalThis.localStorage) {
     const parsed = JSON.parse(storage.getItem(RUN_RECORD_STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((record) => [1, 2, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
+      .filter((record) => [1, 2, 3, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
       .map((record) => ({
         profile_id: "default",
         description: "",

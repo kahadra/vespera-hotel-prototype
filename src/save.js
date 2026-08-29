@@ -1,6 +1,13 @@
 import { endlessAuditTarget, endlessRiskTier } from "./endless.js";
+import {
+  campaignOperationDescriptor,
+  campaignOperationId,
+  campaignResultIdentity,
+  validateCampaignProgressConfig,
+  validateCampaignProgressState,
+} from "./campaign-progress.js";
 
-export const RUN_SAVE_SCHEMA_VERSION = 4;
+export const RUN_SAVE_SCHEMA_VERSION = 5;
 export const PROFILE_SCHEMA_VERSION = 1;
 export const ACTIVE_RUN_STORAGE_KEY = "vespera.hotel.active-run.v1";
 export const ACTIVE_RUN_STORAGE_PREFIX = "vespera.hotel.active-run.v2";
@@ -20,6 +27,24 @@ const SAVABLE_PHASES = new Set([
   "UPGRADE",
 ]);
 
+const FORMAL_PRE_OPERATION_PHASES = new Set([
+  "DAY_OPENING",
+  "RESERVATION",
+  "PLACEMENT",
+]);
+
+const FORMAL_POST_OPERATION_PHASES = new Set([
+  "RESULT",
+  "RESULT_REVIEW",
+  "UPGRADE",
+]);
+
+const FORMAL_CHECKPOINT_PHASES = new Set([
+  "DAY_OPENING",
+  "RESERVATION",
+  "PLACEMENT",
+]);
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -32,6 +57,116 @@ function finiteOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function isDenseArray(value) {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
+}
+
+function isFormalCampaign(data) {
+  return data?.prototype_mode?.type === "FORMAL_CAMPAIGN";
+}
+
+function formalCampaignProgressConfig(data) {
+  if (!isFormalCampaign(data)) return null;
+  const config = data?.campaign?.formal_progress;
+  try {
+    validateCampaignProgressConfig(config);
+  } catch {
+    return null;
+  }
+  if (config.scenario_template_count !== data?.scenarios?.length) return null;
+  return config;
+}
+
+function descriptorFromOperationRecord(config, record) {
+  return {
+    type: "CAMPAIGN_OPERATION",
+    stageNumber: record.resultIdentity.stageNumber,
+    operationKind: record.resultIdentity.operationKind,
+    templateIndex: record.resultIdentity.templateIndex,
+    recoveryBoundaryStageNumber: record.recoveryBoundaryStageNumber,
+    templatePolicyId: config.scenario_template_policy_id,
+    templateProductionReady: config.scenario_templates_production_ready,
+  };
+}
+
+function validFormalResult(config, runSeed, result, operationRecord) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return false;
+  const descriptor = descriptorFromOperationRecord(config, operationRecord);
+  let expectedOperationId;
+  let expectedResultIdentity;
+  try {
+    expectedOperationId = campaignOperationId(config, runSeed, descriptor);
+    expectedResultIdentity = campaignResultIdentity(config, descriptor);
+  } catch {
+    return false;
+  }
+  return result.campaignOperationId === expectedOperationId
+    && sameJson(result.campaignResultIdentity, expectedResultIdentity)
+    && sameJson(result.campaignResultIdentity, operationRecord.resultIdentity)
+    && result.campaignRecoveryBoundaryStageNumber === operationRecord.recoveryBoundaryStageNumber
+    && operationRecord.resultIdentity.templateIndex >= 0
+    && operationRecord.resultIdentity.templateIndex < config.scenario_template_count;
+}
+
+function formalPhasePosition(state) {
+  if (FORMAL_PRE_OPERATION_PHASES.has(state.phase)) return "PRE";
+  if (FORMAL_POST_OPERATION_PHASES.has(state.phase)) return "POST";
+  if (state.phase === "STORY") {
+    return state.campaignProgress.completedStageCount === 0 ? "PRELUDE" : "POST";
+  }
+  if (["TUTORIAL", "RELIC_OFFER"].includes(state.phase)) return "PRELUDE";
+  return null;
+}
+
+function validFormalCampaignState(data, state) {
+  const config = formalCampaignProgressConfig(data);
+  if (!config || !Number.isInteger(state.runSeed) || state.runSeed < 0 || state.runSeed > 0xFFFFFFFF) {
+    return false;
+  }
+  try {
+    validateCampaignProgressState(config, state.campaignProgress);
+  } catch {
+    return false;
+  }
+  const progress = state.campaignProgress;
+  if (!isDenseArray(state.nightResults)) return false;
+  if (state.nightResults.length !== progress.completedStageCount) return false;
+  if (!progress.operationRecords.every(
+    (record, index) => validFormalResult(config, state.runSeed, state.nightResults[index], record),
+  )) return false;
+
+  const position = formalPhasePosition(state);
+  if (!position) return false;
+  if (position === "PRELUDE") {
+    if (progress.completedStageCount !== 0 || progress.status !== "ACTIVE") return false;
+    if (state.phase === "RELIC_OFFER" && state.pendingDisplayRelicOffer === null) return false;
+  }
+
+  let authorityDescriptor;
+  try {
+    authorityDescriptor = position === "POST"
+      ? descriptorFromOperationRecord(config, progress.operationRecords.at(-1))
+      : campaignOperationDescriptor(config, progress);
+    campaignOperationId(config, state.runSeed, authorityDescriptor);
+  } catch {
+    return false;
+  }
+  if (position === "POST" && progress.completedStageCount === 0) return false;
+  if (position === "PRE" && progress.status !== "ACTIVE") return false;
+  if (state.phase === "UPGRADE" && progress.status !== "ACTIVE") return false;
+  return state.currentNightIndex === authorityDescriptor.templateIndex
+    && state.currentNightIndex >= 0
+    && state.currentNightIndex < data.scenarios.length;
 }
 
 export function activeRunStorageKey(data) {
@@ -216,6 +351,7 @@ function validState(data, state) {
       || (Array.isArray(state.pendingDisplayRelicOffer?.relicIds)
         && state.pendingDisplayRelicOffer.relicIds.length > 0
         && state.pendingDisplayRelicOffer.relicIds.every((id) => Boolean(data.indexes.displayRelics?.[id]))))
+    && (!isFormalCampaign(data) || validFormalCampaignState(data, state))
     && validEndlessState(data, state)
     && Object.keys(state.placements ?? {}).every(
       (guestId) => Boolean(data.indexes.guests[guestId]) && Boolean(data.indexes.rooms[state.placements[guestId]]),
@@ -233,11 +369,78 @@ function createSnapshot(state) {
 
 function validStageCheckpoint(data, checkpoint) {
   return checkpoint === null
-    || (validState(data, checkpoint) && ["DAY_OPENING", "RESERVATION", "PLACEMENT"].includes(checkpoint.phase));
+    || (validState(data, checkpoint) && FORMAL_CHECKPOINT_PHASES.has(checkpoint.phase));
+}
+
+function formalOperationIdentity(config, runSeed, progress) {
+  try {
+    const descriptor = campaignOperationDescriptor(config, progress);
+    return {
+      id: campaignOperationId(config, runSeed, descriptor),
+      resultIdentity: campaignResultIdentity(config, descriptor),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formalRecordIdentity(config, runSeed, record) {
+  try {
+    const descriptor = descriptorFromOperationRecord(config, record);
+    return {
+      id: campaignOperationId(config, runSeed, descriptor),
+      resultIdentity: campaignResultIdentity(config, descriptor),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function validFormalStageCheckpoint(data, state, checkpoint) {
+  const config = formalCampaignProgressConfig(data);
+  if (!config) return false;
+  const position = formalPhasePosition(state);
+  const isPrelude = position === "PRELUDE";
+  if (isPrelude) return checkpoint === null;
+  if (!checkpoint || !validStageCheckpoint(data, checkpoint)) return false;
+  if (checkpoint.profileId !== state.profileId || checkpoint.runSeed !== state.runSeed) return false;
+  if (formalPhasePosition(checkpoint) !== "PRE") return false;
+
+  const liveResults = state.nightResults;
+  const checkpointResults = checkpoint.nightResults;
+  const expectedCheckpointLength = position === "PRE"
+    ? liveResults.length
+    : liveResults.length - 1;
+  if (expectedCheckpointLength < 0 || checkpointResults.length !== expectedCheckpointLength) return false;
+  if (!sameJson(checkpointResults, liveResults.slice(0, expectedCheckpointLength))) return false;
+  if (checkpoint.campaignProgress.completedStageCount !== expectedCheckpointLength) return false;
+  if (!sameJson(
+    checkpoint.campaignProgress.operationRecords,
+    state.campaignProgress.operationRecords.slice(0, expectedCheckpointLength),
+  )) return false;
+
+  const checkpointIdentity = formalOperationIdentity(
+    config,
+    checkpoint.runSeed,
+    checkpoint.campaignProgress,
+  );
+  const liveIdentity = position === "PRE"
+    ? formalOperationIdentity(config, state.runSeed, state.campaignProgress)
+    : formalRecordIdentity(config, state.runSeed, state.campaignProgress.operationRecords.at(-1));
+  if (!checkpointIdentity || !liveIdentity) return false;
+  if (checkpointIdentity.id !== liveIdentity.id
+    || !sameJson(checkpointIdentity.resultIdentity, liveIdentity.resultIdentity)) return false;
+  if (checkpoint.currentNightIndex !== state.currentNightIndex) return false;
+
+  return position !== "PRE" || sameJson(checkpoint.campaignProgress, state.campaignProgress);
 }
 
 function normalizeRunSave(data, save) {
-  if (![3, RUN_SAVE_SCHEMA_VERSION].includes(save?.schema_version)) return null;
+  if (isFormalCampaign(data)) {
+    if (save?.schema_version !== RUN_SAVE_SCHEMA_VERSION) return null;
+    return clone(save);
+  }
+  if (![3, 4, RUN_SAVE_SCHEMA_VERSION].includes(save?.schema_version)) return null;
   const normalized = clone(save);
   normalized.schema_version = RUN_SAVE_SCHEMA_VERSION;
   normalized.profile_id = typeof save.profile_id === "string" ? save.profile_id : "default";
@@ -248,26 +451,35 @@ function normalizeRunSave(data, save) {
 }
 
 function validRunSave(data, save) {
-  return save
+  const generallyValid = save
     && save.schema_version === RUN_SAVE_SCHEMA_VERSION
     && save.data_schema_version === data.schema_version
     && save.mode_id === data.prototype_mode.type
     && typeof save.profile_id === "string"
     && validState(data, save.state)
     && validStageCheckpoint(data, save.stage_checkpoint ?? null);
+  if (!generallyValid || !isFormalCampaign(data)) return Boolean(generallyValid);
+  const config = formalCampaignProgressConfig(data);
+  return Boolean(config)
+    && save.stage_authority_id === config.id
+    && save.state.profileId === save.profile_id
+    && validFormalStageCheckpoint(data, save.state, save.stage_checkpoint ?? null);
 }
 
 export function createRunSave(data, state, stageCheckpoint = null) {
   if (!SAVABLE_PHASES.has(state.phase)) return null;
-  return {
+  const config = formalCampaignProgressConfig(data);
+  const save = {
     schema_version: RUN_SAVE_SCHEMA_VERSION,
     data_schema_version: data.schema_version,
     mode_id: data.prototype_mode.type,
+    ...(isFormalCampaign(data) ? { stage_authority_id: config?.id ?? null } : {}),
     profile_id: state.profileId ?? "default",
     saved_at: new Date().toISOString(),
     state: createSnapshot(state),
     stage_checkpoint: createSnapshot(stageCheckpoint),
   };
+  return isFormalCampaign(data) && !validRunSave(data, save) ? null : save;
 }
 
 export function readActiveRunSave(data, storage = globalThis.localStorage) {

@@ -631,7 +631,7 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
             "writeActiveRunSave",
             "clearActiveRunSave",
             "stage_checkpoint",
-            "RUN_SAVE_SCHEMA_VERSION = 4",
+            "RUN_SAVE_SCHEMA_VERSION = 5",
             "PROFILE_SCHEMA_VERSION = 1",
             "PROFILE_STORAGE_KEY",
             "activeRunStorageKey(data)",

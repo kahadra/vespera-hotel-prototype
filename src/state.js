@@ -22,6 +22,15 @@ import {
 import { getGuestRules } from "./data.js";
 import { createRunRecord, readRunRecords, storeRunRecord } from "./run.js";
 import {
+  campaignOperationDescriptor,
+  campaignOperationId,
+  campaignResultIdentity,
+  completeCampaignOperation,
+  createCampaignProgress,
+  queueCampaignRecovery,
+  unlockTrueCampaignExtension,
+} from "./campaign-progress.js";
+import {
   clearActiveRunSave,
   readActiveRunSave,
   readProfile,
@@ -48,6 +57,14 @@ export const PHASES = Object.freeze({
   UPGRADE: "UPGRADE",
   FINAL: "FINAL",
 });
+
+const FORMAL_POST_OPERATION_PHASES = Object.freeze([
+  PHASES.RESULT,
+  PHASES.RESULT_REVIEW,
+  PHASES.STORY,
+  PHASES.UPGRADE,
+  PHASES.FINAL,
+]);
 
 function initialRoomConditions(data) {
   return Object.fromEntries(
@@ -101,12 +118,21 @@ function speciesAffinities(data) {
   return Object.fromEntries((data.campaign?.formal_species ?? []).map((species) => [species.id, 0]));
 }
 
+function initialCampaignProgress(data) {
+  if (data.prototype_mode?.type !== "FORMAL_CAMPAIGN") return null;
+  if (!data.campaign?.formal_progress) {
+    throw new Error("FORMAL_CAMPAIGN requires data.campaign.formal_progress");
+  }
+  return createCampaignProgress(data.campaign.formal_progress);
+}
+
 function initialState(data, seed, recordArchiveCount = 0, profile = null) {
   const defaults = data.campaign?.new_game_defaults ?? {};
   return {
     phase: PHASES.TITLE,
     profileId: profile?.profile_id ?? "default",
     currentNightIndex: 0,
+    campaignProgress: initialCampaignProgress(data),
     storyNodeId: null,
     playerGenderId: defaults.player_gender_id ?? "MALE",
     relationshipGenderPreset: defaults.relationship_gender_preset ?? "ALL_FEMALE",
@@ -209,6 +235,7 @@ export class GameController {
   }
 
   get totalNights() {
+    if (this.isFormalCampaignMode) return this.state.campaignProgress.stageLimit;
     return this.data.prototype_mode?.total_nights ?? this.data.scenarios.length;
   }
 
@@ -217,6 +244,13 @@ export class GameController {
   }
 
   get currentNightNumber() {
+    if (this.isFormalCampaignMode) {
+      const progress = this.state.campaignProgress;
+      if (FORMAL_POST_OPERATION_PHASES.includes(this.state.phase)) {
+        return Math.max(1, progress.completedStageCount);
+      }
+      return progress.currentStageNumber ?? Math.max(1, progress.completedStageCount);
+    }
     return this.isEndlessMode
       ? this.state.endlessSeasonNightIndex + 1
       : this.state.currentNightIndex + 1;
@@ -227,18 +261,29 @@ export class GameController {
   }
 
   get progressionStage() {
+    if (this.isFormalCampaignMode) return this.currentNightNumber;
     return this.isEndlessMode
       ? Math.max(1, this.state.endlessOverallNightIndex + 1)
       : this.currentNightNumber;
   }
 
   get nextProgressionStage() {
+    if (this.isFormalCampaignMode) {
+      const progress = this.state.campaignProgress;
+      if (FORMAL_POST_OPERATION_PHASES.includes(this.state.phase)) {
+        return progress.currentStageNumber ?? progress.completedStageCount + 1;
+      }
+      const currentStage = progress.currentStageNumber
+        ?? Math.max(1, progress.completedStageCount);
+      return currentStage + 1;
+    }
     return this.isEndlessMode
       ? this.state.endlessCompletedOperations + 1
       : this.currentNightNumber + 1;
   }
 
   get currentResult() {
+    if (this.isFormalCampaignMode) return this.state.nightResults.at(-1) ?? null;
     return this.isEndlessMode
       ? this.state.nightResults.at(-1) ?? null
       : this.state.nightResults[this.state.currentNightIndex] ?? null;
@@ -249,11 +294,26 @@ export class GameController {
   }
 
   get isScenarioMode() {
-    return ["CAMPAIGN", "SCENARIO"].includes(this.data.prototype_mode?.type);
+    return ["CAMPAIGN", "SCENARIO", "FORMAL_CAMPAIGN"].includes(
+      this.data.prototype_mode?.type,
+    );
+  }
+
+  get isFormalCampaignMode() {
+    return this.data.prototype_mode?.type === "FORMAL_CAMPAIGN";
   }
 
   get isEndlessMode() {
     return this.data.prototype_mode?.type === "ENDLESS";
+  }
+
+  get formalCampaignProgressConfig() {
+    return this.data.campaign?.formal_progress;
+  }
+
+  formalCampaignCurrentStageIndex() {
+    const stageNumber = this.state.campaignProgress?.currentStageNumber;
+    return Number.isSafeInteger(stageNumber) ? stageNumber - 1 : null;
   }
 
   hotelContext() {
@@ -561,7 +621,10 @@ export class GameController {
       return this.prepareDisplayRelicOffer(relicSchedule, continuation);
     }
     if (continuation.action === "BEGIN_DAY") {
-      return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
+      const stageIndex = this.isFormalCampaignMode
+        ? this.formalCampaignCurrentStageIndex()
+        : continuation.night_index ?? this.state.currentNightIndex;
+      return stageIndex === null ? false : this.beginOperatingDay(stageIndex);
     }
     if (continuation.action === "OPEN_UPGRADE") return this.prepareNextUpgrade();
     if (continuation.action === "COMPLETE_RUN") {
@@ -620,7 +683,10 @@ export class GameController {
 
   resumeAfterDisplayRelicOffer(continuation) {
     if (continuation.action === "BEGIN_DAY") {
-      return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
+      const stageIndex = this.isFormalCampaignMode
+        ? this.formalCampaignCurrentStageIndex()
+        : continuation.night_index ?? this.state.currentNightIndex;
+      return stageIndex === null ? false : this.beginOperatingDay(stageIndex);
     }
     if (continuation.action === "OPEN_UPGRADE") return this.prepareNextUpgrade();
     if (continuation.action === "BEGIN_ENDLESS_SEASON") {
@@ -695,6 +761,21 @@ export class GameController {
       return true;
     }
     if (!["FEMALE", "MALE"].includes(this.state.secretaryPresentationId)) return false;
+    if (this.isFormalCampaignMode) {
+      const progress = this.state.campaignProgress;
+      if (!Number.isSafeInteger(index) || index < 0 || index !== progress.currentStageNumber - 1) {
+        return false;
+      }
+      const operation = campaignOperationDescriptor(this.formalCampaignProgressConfig, progress);
+      if (operation.templateIndex >= this.data.scenarios.length) return false;
+      this.state.currentNightIndex = operation.templateIndex;
+      this.state.phase = PHASES.DAY_OPENING;
+      this.state.handbookOpen = false;
+      this.state.reservationBoardOpen = false;
+      this.state.serviceTimerMs = null;
+      this.stageCheckpoint = clone(this.state);
+      return true;
+    }
     if (index >= this.data.scenarios.length) {
       this.completeRun();
       return true;
@@ -710,18 +791,32 @@ export class GameController {
 
   startDayBusiness() {
     if (this.state.phase !== PHASES.DAY_OPENING) return false;
+    if (this.isFormalCampaignMode) {
+      return this.beginNight(this.state.currentNightIndex) === true;
+    }
     this.beginNight(this.state.currentNightIndex);
     return true;
   }
 
   beginNight(index) {
-    if (index >= this.data.scenarios.length) {
+    let formalOperation = null;
+    if (this.isFormalCampaignMode) {
+      formalOperation = campaignOperationDescriptor(
+        this.formalCampaignProgressConfig,
+        this.state.campaignProgress,
+      );
+      if (index !== formalOperation.templateIndex) return false;
+    } else if (index >= this.data.scenarios.length) {
       this.completeRun();
       return;
     }
     this.state.currentNightIndex = index;
     const scenario = this.currentScenario;
-    const stage = this.isEndlessMode ? this.state.endlessOverallNightIndex + 1 : index + 1;
+    const stage = this.isFormalCampaignMode
+      ? formalOperation.stageNumber
+      : this.isEndlessMode
+        ? this.state.endlessOverallNightIndex + 1
+        : index + 1;
     const stayoverIds = Object.keys(this.state.stayovers);
     const fixedGuestIds = unique([
       ...stayoverIds,
@@ -775,6 +870,7 @@ export class GameController {
       this.startPlacement();
     }
     if (!this.isScenarioMode) this.stageCheckpoint = clone(this.state);
+    if (this.isFormalCampaignMode) return true;
   }
 
   openHandbook(tab = this.state.handbookTab) {
@@ -939,13 +1035,49 @@ export class GameController {
     this.state.lastRoomWear = wear;
   }
 
+  prepareFormalCampaignCompletion() {
+    if (!this.isFormalCampaignMode) return null;
+    const config = this.formalCampaignProgressConfig;
+    const progress = this.state.campaignProgress;
+    if (this.state.nightResults.length !== progress.completedStageCount) {
+      throw new Error("Formal campaign result history is out of sync with campaign progress");
+    }
+    const operation = campaignOperationDescriptor(config, progress);
+    if (operation.templateIndex !== this.state.currentNightIndex) {
+      throw new Error("Formal campaign operation does not match the active scenario template");
+    }
+    const operationId = campaignOperationId(config, this.state.runSeed, operation);
+    if (this.state.nightResults.some(
+      (entry) => entry?.campaignOperationId === operationId,
+    )) {
+      throw new Error(`Duplicate formal campaign operation result: ${operationId}`);
+    }
+    const nextProgress = completeCampaignOperation(config, progress, operation);
+    return {
+      operation,
+      operationId,
+      resultIdentity: campaignResultIdentity(config, operation),
+      nextProgress,
+    };
+  }
+
   completeNight(result) {
+    const formalCompletion = this.prepareFormalCampaignCompletion();
     const resolvedResult = this.applyDisplayRelicResultEffects(result);
+    if (formalCompletion) {
+      resolvedResult.campaignOperationId = formalCompletion.operationId;
+      resolvedResult.campaignResultIdentity = clone(formalCompletion.resultIdentity);
+      resolvedResult.campaignRecoveryBoundaryStageNumber =
+        formalCompletion.operation.recoveryBoundaryStageNumber;
+    }
     this.state.gold += resolvedResult.income;
     this.state.hotelReputation += resolvedResult.reputationDelta;
     this.updateGuestHistoryAndDiscoveries(resolvedResult);
     this.applyRoomWearAndStays(resolvedResult);
-    if (this.isEndlessMode) {
+    if (formalCompletion) {
+      this.state.nightResults.push(resolvedResult);
+      this.state.campaignProgress = formalCompletion.nextProgress;
+    } else if (this.isEndlessMode) {
       this.state.nightResults.push(resolvedResult);
       this.state.endlessCompletedOperations += 1;
       this.state.endlessOverallNightIndex = this.state.endlessCompletedOperations;
@@ -1120,6 +1252,32 @@ export class GameController {
     return true;
   }
 
+  queueFormalCampaignRecovery(boundaryStageNumber) {
+    if (
+      !this.isFormalCampaignMode
+      || ![PHASES.RESULT, PHASES.RESULT_REVIEW].includes(this.state.phase)
+    ) return false;
+    this.state.campaignProgress = queueCampaignRecovery(
+      this.formalCampaignProgressConfig,
+      this.state.campaignProgress,
+      boundaryStageNumber,
+    );
+    return true;
+  }
+
+  unlockFormalCampaignTrueExtension(gateEvidence) {
+    if (
+      !this.isFormalCampaignMode
+      || ![PHASES.RESULT, PHASES.RESULT_REVIEW].includes(this.state.phase)
+    ) return false;
+    this.state.campaignProgress = unlockTrueCampaignExtension(
+      this.formalCampaignProgressConfig,
+      this.state.campaignProgress,
+      gateEvidence,
+    );
+    return true;
+  }
+
   acceptSecretaryReport() {
     if (this.state.phase !== PHASES.RESULT_REVIEW) return false;
     this.state.phase = PHASES.RESULT;
@@ -1194,6 +1352,14 @@ export class GameController {
     if (this.state.phase !== PHASES.UPGRADE) return false;
     if (this.isEndlessMode) {
       return this.beginEndlessNight(this.state.endlessSeasonNightIndex + 1);
+    }
+    if (this.isFormalCampaignMode) {
+      const nextStageIndex = this.formalCampaignCurrentStageIndex();
+      if (nextStageIndex === null) {
+        this.completeRun();
+        return true;
+      }
+      return this.beginOperatingDay(nextStageIndex);
     }
     this.beginOperatingDay(this.state.currentNightIndex + 1);
     return true;

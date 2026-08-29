@@ -27,6 +27,7 @@ def run(base_url: str, debug_port: int):
                 createCampaignProgress,
                 campaignScenarioTemplateIndex,
                 campaignOperationDescriptor,
+                campaignOperationId,
                 campaignResultIdentity,
                 completeCampaignOperation,
                 queueCampaignRecovery,
@@ -59,6 +60,7 @@ def run(base_url: str, debug_port: int):
 
               const initial = createCampaignProgress(config);
               const firstOperation = campaignOperationDescriptor(config, initial);
+              const firstOperationId = campaignOperationId(config, 4242, firstOperation);
               const firstIdentity = campaignResultIdentity(config, firstOperation);
               const initialSnapshot = JSON.stringify(initial);
               const afterFirst = completeCampaignOperation(config, initial, firstOperation);
@@ -143,6 +145,16 @@ def run(base_url: str, debug_port: int):
 
               invalid.templateStageZero = rejects(() => campaignScenarioTemplateIndex(config, 0));
               invalid.templateStagePastTrue = rejects(() => campaignScenarioTemplateIndex(config, 71));
+              invalid.operationIdNegativeSeed = rejects(() => campaignOperationId(
+                config,
+                -1,
+                firstOperation,
+              ));
+              invalid.operationIdUnsafeSeed = rejects(() => campaignOperationId(
+                config,
+                0x100000000,
+                firstOperation,
+              ));
               invalid.queueBeforeBoundary = rejects(() => queueCampaignRecovery(config, initial, 7));
               const atSeven = advanceTo(createCampaignProgress(config), 7);
               invalid.queueWrongBoundary = rejects(() => queueCampaignRecovery(config, atSeven, 14));
@@ -211,6 +223,11 @@ def run(base_url: str, debug_port: int):
                 candidate.operationRecords = [];
                 validateCampaignProgressState(config, candidate);
               });
+              invalid.sparseResultRecord = rejects(() => {
+                const candidate = clone(afterFirst);
+                candidate.operationRecords = new Array(1);
+                validateCampaignProgressState(config, candidate);
+              });
               invalid.nonSequentialResultIdentity = rejects(() => {
                 const candidate = clone(afterFirst);
                 candidate.operationRecords[0].resultIdentity.stageNumber = 2;
@@ -240,6 +257,7 @@ def run(base_url: str, debug_port: int):
                 configValid: validateCampaignProgressConfig(config),
                 initial,
                 firstOperation,
+                firstOperationId,
                 firstIdentity,
                 inputUnchanged: initialSnapshot === JSON.stringify(initial),
                 afterFirst,
@@ -330,6 +348,7 @@ def run(base_url: str, debug_port: int):
             "templatePolicyId": "GREYBOX_ONLY_STAGE_MODULO",
             "templateProductionReady": False,
         }, contracts["firstOperation"]
+        assert contracts["firstOperationId"] == "FORMAL_CAMPAIGN_PROGRESS@1:4242:1"
         assert contracts["firstIdentity"] == {
             "stageNumber": 1,
             "operationKind": "NORMAL",

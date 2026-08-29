@@ -40,8 +40,20 @@ function nonNegativeSafeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+function unsigned32Integer(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 0xFFFFFFFF;
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isDenseArray(value) {
+  if (!Array.isArray(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(value, index)) return false;
+  }
+  return true;
 }
 
 function exactKeys(value, expectedKeys) {
@@ -160,6 +172,13 @@ export function campaignResultIdentity(config, operation) {
   };
 }
 
+export function campaignOperationId(config, runSeed, operation) {
+  validateCampaignProgressConfig(config);
+  assert(unsigned32Integer(runSeed), "runSeed must be an unsigned 32-bit integer");
+  validateOperationDescriptor(config, operation);
+  return `${config.id}@${config.version}:${runSeed}:${operation.stageNumber}`;
+}
+
 function cloneOperationRecords(records) {
   return records.map((record) => ({
     resultIdentity: { ...record.resultIdentity },
@@ -235,8 +254,8 @@ export function validateCampaignProgressState(config, progress) {
     : null;
   assert(progress.currentStageNumber === expectedCurrentStage,
     "progress.currentStageNumber must be derived from completedStageCount");
-  assert(Array.isArray(progress.operationRecords),
-    "progress.operationRecords must be an array");
+  assert(isDenseArray(progress.operationRecords),
+    "progress.operationRecords must be a dense array");
   assert(progress.operationRecords.length === progress.completedStageCount,
     "progress.operationRecords must contain exactly one record per completed stage");
   progress.operationRecords.forEach((record, index) => {
