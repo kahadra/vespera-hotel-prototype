@@ -99,9 +99,10 @@ python .\tools\test_campaign_spine.py
 python .\tools\validate_campaign_reachability.py
 python .\tools\test_campaign_progress.py
 python .\tools\test_campaign_finance.py
+python .\tools\test_formal_campaign_runtime.py
 ```
 
-현재 `test_campaign_spine.py`는 캠페인 시작 전시품의 같은 시드 후보 재현, 대기 후보 저장·새로고침, 3택 1과 건너뛰기, 배치 시간·객실 정비비·무취소 수입 효과, 재검토 발동 기록 롤백, 프로필 도감·최종 실행 기록과 1280×720 선택 화면까지 검증한다. `validate_campaign_reachability.py`는 모든 종료 규칙의 최소 합성 증인을 실제 판정기에 넣고, 중단 대체 결말과 스토리·개발 분기·전시품 참조의 누락을 감사한다. `test_campaign_progress.py`는 56/70일 진행 권위와 회복 날짜 소비를, `test_campaign_finance.py`는 결과 확정과 선택 상환의 분리, 현금·부채 보존식, 5개 챕터 경계, day 56 부채 gate와 day 57 이후 상환 유예 금지를 검증한다. `test_timed_service.py`와 `smoke_browser.py`는 기본 `SHOWCASE`에 전시품 제안 흐름과 탭이 유입되지 않았는지 함께 회귀한다.
+현재 `test_campaign_spine.py`는 캠페인 시작 전시품의 같은 시드 후보 재현, 대기 후보 저장·새로고침, 3택 1과 건너뛰기, 배치 시간·객실 정비비·무취소 수입 효과, 재검토 발동 기록 롤백, 프로필 도감·최종 실행 기록과 1280×720 선택 화면까지 검증한다. `validate_campaign_reachability.py`는 모든 종료 규칙의 최소 합성 증인을 실제 판정기에 넣고, 중단 대체 결말과 스토리·개발 분기·전시품 참조의 누락을 감사한다. `test_campaign_progress.py`는 회복 전용 일수 없이 이어지는 56/70일 정상 영업 권위를, `test_campaign_finance.py`는 결과 확정과 선택 상환의 분리, 현금·부채 보존식, CH1~4 허들 직접 실패, day 56 부채 gate와 day 57 이후 상환 금지를 검증한다. `test_formal_campaign_runtime.py`는 이 계약을 상태·정산·비용·세이브·재시도·실행 기록에 통합한 정상 56일·트루 70일·두 실패 경로를 실제 Edge에서 회귀한다. `test_timed_service.py`와 `smoke_browser.py`는 기본 `SHOWCASE`에 형식 캠페인 경로가 유입되지 않았는지 함께 확인한다.
 
 ### 통과 조건
 
