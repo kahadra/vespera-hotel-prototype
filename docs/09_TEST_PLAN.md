@@ -98,6 +98,8 @@ python .\tools\test_timed_service.py
 python .\tools\test_campaign_spine.py
 ```
 
+현재 `test_campaign_spine.py`는 캠페인 시작 전시품의 같은 시드 후보 재현, 대기 후보 저장·새로고침, 3택 1과 건너뛰기, 배치 시간·객실 정비비·무취소 수입 효과, 재검토 발동 기록 롤백, 프로필 도감·최종 실행 기록과 1280×720 선택 화면까지 검증한다. `test_timed_service.py`와 `smoke_browser.py`는 기본 `SHOWCASE`에 전시품 제안 흐름과 탭이 유입되지 않았는지 함께 회귀한다.
+
 ### 통과 조건
 
 - 종료 코드 0

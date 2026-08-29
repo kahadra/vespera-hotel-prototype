@@ -25,6 +25,7 @@ function phaseLabel(controller) {
     [PHASES.NEW_GAME]: "새 캠페인 설정",
     [PHASES.TUTORIAL]: "배치 연습",
     [PHASES.STORY]: "시나리오",
+    [PHASES.RELIC_OFFER]: "전시품 선택",
     [PHASES.DAY_OPENING]: `영업 개시 ${night} / ${controller.totalNights}`,
     [PHASES.RESERVATION]: `예약 ${night} / ${controller.totalNights}`,
     [PHASES.PLACEMENT]: `영업 ${night} / ${controller.totalNights}`,
@@ -267,7 +268,7 @@ function renderPlacement(controller) {
   const timerClass = remainingSeconds <= 10 ? "critical" : remainingSeconds <= 30 ? "urgent" : "";
   const placementStatus = isTutorial
     ? `<div class="tutorial-status" data-video-target="tutorial-clock"><small>연습 모드</small><b>시간 제한 없음</b><span>두 손님을 유효하게 배치하세요</span></div>`
-    : `<div class="service-timer ${timerClass}" aria-live="polite" data-video-target="service-timer"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · 회당 -5초</span></div>`;
+    : `<div class="service-timer ${timerClass}" aria-live="polite" data-video-target="service-timer"><small>체크인 마감</small><b>${String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:${String(remainingSeconds % 60).padStart(2, "0")}</b><span>객실 변경 ${state.relocationCount}회 · ${controller.ownedRelicWithEffect("FIRST_RELOCATION_TIME_REDUCTION") && state.relocationCount === 0 ? "첫 변경 -3초" : "변경 -5초"}</span></div>`;
   const floorRows = [...new Set(data.rooms.map((room) => room.floor))].sort((a, b) => b - a).map((floor) => {
     const rooms = data.rooms.filter((room) => room.floor === floor).sort((a, b) => a.wing - b.wing);
     return `<div class="floor-row"><div class="floor-label"><b>F${floor}</b><span>${floor === 1 ? "로비층" : `${floor}층`}</span></div>${renderElevatorLanding(floor)}${rooms.map((sourceRoom) => renderRoom(data, board.rooms[sourceRoom.id], board, occupantByRoom[sourceRoom.id], controller, evaluation)).join("")}</div>`;
@@ -314,7 +315,7 @@ function resultBreakdown(controller, result) {
       <article><small>평판 변화</small><strong>${signed(result.reputationDelta)}</strong><span>후기·거절·취소 합산</span></article>
       <article><small>기본 숙박비</small><strong>${result.baseFees}G</strong><span>수용 손님</span></article>
       <article><small>팁</small><strong>${result.tips}G</strong><span>선호 점수 환산</span></article>
-      <article class="featured"><small>총수입</small><strong>${result.income}G</strong><span>이번 영업</span></article>
+      <article class="featured"><small>총수입</small><strong>${result.income}G</strong><span>${result.relicBonusGold ? `전시품 보너스 +${result.relicBonusGold}G 포함` : "이번 영업"}</span></article>
       <article class="featured"><small>영업 평가</small><strong>${escapeHtml(result.grade)}</strong><span>손님별 후기 종합</span></article>
     </div>
     <div class="result-notes"><p><b>수용:</b> ${escapeHtml(names(result.acceptedGuestIds))}</p><p><b>거절:</b> ${escapeHtml(names(result.rejectedGuestIds))}</p>${result.canceledGuestIds?.length ? `<p class="canceled"><b>수용 후 취소:</b> ${escapeHtml(names(result.canceledGuestIds))}</p>` : ""}</div>`;
@@ -392,12 +393,25 @@ function renderDayOpening(controller) {
   return `<section class="screen-shell secretary-scene day-opening-scene"><div class="scene-heading"><p class="eyebrow">MORNING BRIEFING · DAY ${controller.currentNightNumber}</p><h1>영업 개시 보고</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>${repeated ? "잠시만요. 처음 펼친 장부인데… 지배인님께서는 다음 항목을 이미 알고 계신 표정이군요." : "좋은 아침입니다, 지배인님. 오늘 접수된 예약과 객실 현황을 순서대로 읽어 드리겠습니다."}</p><p>준비가 끝나는 대로 예약 장부를 개방하겠습니다.</p></article></div><div class="center-action"><button class="button primary large" data-action="start-day-business">오늘 영업을 개시한다</button></div></section>`;
 }
 
+function renderDisplayRelicOffer(controller) {
+  const pending = controller.state.pendingDisplayRelicOffer;
+  const relics = (pending?.relicIds ?? [])
+    .map((id) => controller.data.indexes.displayRelics?.[id])
+    .filter(Boolean);
+  return `<section class="screen-shell relic-offer-screen">
+    <div class="scene-heading"><p class="eyebrow">INHERITED DISPLAY · ONE OF THREE</p><h1>첫 영업에 앞서 전시품 하나를 개방합니다.</h1><p>선택한 전시품은 이번 캠페인이 끝날 때까지 로비에서 운영을 보조합니다.</p></div>
+    <div class="relic-offer-grid" data-video-target="display-relic-offer">${relics.map((relic) => `<article class="relic-offer-card"><span class="relic-icon">${escapeHtml(relic.icon)}</span><small>공용 전시품 · 임시 명세</small><h2>${escapeHtml(relic.name)}</h2><p>${escapeHtml(relic.description)}</p><div><b>발동 조건</b><span>${escapeHtml(relic.trigger_description)}</span></div><button class="button primary" data-action="select-display-relic" data-relic-id="${escapeHtml(relic.id)}">이 전시품을 개방한다</button></article>`).join("")}</div>
+    <div class="relic-offer-footer"><p class="relic-offer-note">전시품은 필수 숙박 조건을 무시하거나 객실 배치를 자동 해결하지 않습니다.</p><button class="button secondary" data-action="skip-display-relic">전시품 없이 시작한다</button></div>
+  </section>`;
+}
+
 function renderResultReview(controller) {
   return `<section class="screen-shell secretary-scene result-review-scene"><div class="scene-heading"><p class="eyebrow">CLOSING REPORT · DAY ${controller.currentNightNumber}</p><h1>마감 확인</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>오늘 장부의 수입, 평판과 객실 변동을 모두 정리했습니다.</p><p>이 내용으로 마감 서명을 남길까요, 지배인님?</p></article></div><div class="center-action split-actions"><button class="button secondary large" data-action="restart-day-through-secretary">아침 장부부터 다시 읽어 줘.</button><button class="button primary large" data-action="accept-secretary-report">이대로 서명하지.</button></div></section>`;
 }
 
 function renderMaintenance(controller) {
-  const cost = controller.data.balance?.room_service_cost ?? 8;
+  const cost = controller.roomServiceCost();
+  const baseCost = controller.data.balance?.room_service_cost ?? 8;
   const occupied = new Set(Object.values(controller.state.stayovers).map((entry) => entry.roomId));
   const structurallyBlocked = controller.structuralBoardState().blockedRooms;
   const worn = Object.entries(controller.state.roomConditions).filter(([roomId, condition]) =>
@@ -406,7 +420,7 @@ function renderMaintenance(controller) {
   if (!worn.length) return `<p class="maintenance-clear">모든 객실 상태가 양호합니다.</p>`;
   return `<div class="maintenance-list">${worn.slice(0, 6).map(([roomId, condition]) => {
     const disabled = occupied.has(roomId) || controller.state.gold < cost;
-    return `<button data-action="service-room" data-room-id="${roomId}" ${disabled ? "disabled" : ""}><b>${roomId}</b><span>청결 ${condition.cleanliness} · 내구 ${condition.durability}</span><small>${occupied.has(roomId) ? "연박 중" : `${cost}G 정비`}</small></button>`;
+    return `<button data-action="service-room" data-room-id="${roomId}" ${disabled ? "disabled" : ""}><b>${roomId}</b><span>청결 ${condition.cleanliness} · 내구 ${condition.durability}</span><small>${occupied.has(roomId) ? "연박 중" : `${cost}G 정비${cost < baseCost ? ` · 전시품 -${baseCost - cost}G` : ""}`}</small></button>`;
   }).join("")}</div>`;
 }
 
@@ -552,8 +566,11 @@ function renderReservationBoard(controller) {
   return `<div class="reservation-board-overlay" role="dialog" aria-modal="true" aria-label="현재 객실 배치도"><section class="reservation-board-panel"><header><div><p class="eyebrow">CURRENT ROOM LEDGER</p><h1>현재 객실 배치도</h1><p>연박 손님의 객실은 고정됩니다. 사전 확정 손님은 체크인 단계에서 빈 객실에 배정합니다.</p></div><button class="handbook-close" data-action="close-reservation-board" aria-label="현재 객실 배치도 닫기">×</button></header><div class="occupancy-metrics"><span><small>완공 객실</small><b>${metrics.builtRoomCount}실</b></span><span><small>오늘 응대 한도</small><b>${metrics.serviceLimit}명</b></span><span><small>사용 가능 객실</small><b>${metrics.physicalPlacementLimit}실</b></span><span><small>연박 고정</small><b>${metrics.stayoverRoomIds.length}실</b></span></div><div class="reservation-mini-board" data-video-target="reservation-existing-layout">${rows}</div><div class="occupancy-legend"><span class="stayover">연박 고정</span><span class="unavailable">정비·시설로 사용 불가</span><span class="unbuilt">미증축</span><span class="empty">빈 객실</span></div><p class="occupancy-risk">응대 한도와 객실 수가 남아 있어도 종족·등급의 필수 숙박 조건 조합에 따라 전원 배정에 실패할 수 있습니다.</p></section></div>`;
 }
 
-function handbookTabs(activeTab) {
-  return [["hotel", "호텔 규정"], ["species", "종족"], ["rank", "등급"], ["discoveries", "발견·해금"]].map(([id, label]) => `<button class="handbook-tab ${activeTab === id ? "active" : ""}" data-action="handbook-tab" data-tab="${id}">${label}</button>`).join("");
+function handbookTabs(controller) {
+  const tabs = [["hotel", "호텔 규정"], ["species", "종족"], ["rank", "등급"]];
+  if ((controller.data.display_relics ?? []).length) tabs.push(["relics", "전시품"]);
+  tabs.push(["discoveries", "발견·해금"]);
+  return tabs.map(([id, label]) => `<button class="handbook-tab ${controller.state.handbookTab === id ? "active" : ""}" data-action="handbook-tab" data-tab="${id}">${label}</button>`).join("");
 }
 
 function renderHotelRulesPage() {
@@ -596,11 +613,40 @@ function renderDiscoveriesPage(controller) {
   </div></div>`;
 }
 
+function renderDisplayRelicsPage(controller) {
+  const relicProfile = controller.profile.display_relics ?? {};
+  const seenIds = new Set([
+    ...(relicProfile.seen_ids ?? []),
+    ...(controller.state.pendingDisplayRelicOffer?.relicIds ?? []),
+    ...controller.state.ownedDisplayRelicIds,
+  ]);
+  const acquiredIds = new Set([
+    ...(relicProfile.acquired_ids ?? []),
+    ...controller.state.ownedDisplayRelicIds,
+  ]);
+  const triggeredIds = new Set([
+    ...(relicProfile.triggered_ids ?? []),
+    ...Object.entries(controller.state.displayRelicTriggerCounts)
+      .filter(([, count]) => count > 0)
+      .map(([id]) => id),
+  ]);
+  const ownedIds = new Set(controller.state.ownedDisplayRelicIds);
+  const relics = controller.data.display_relics ?? [];
+  return `<div class="handbook-page"><div class="handbook-page-heading"><p class="eyebrow">LOBBY DISPLAY CATALOG</p><h2>전시품 도감</h2><p>한 번의 캠페인 동안 로비에 누적되어 조건부 패시브 효과를 제공하는 수집품입니다.</p></div><div class="relic-catalog">${relics.map((relic) => {
+    const seen = seenIds.has(relic.id);
+    const acquired = acquiredIds.has(relic.id);
+    const triggered = triggeredIds.has(relic.id);
+    const owned = ownedIds.has(relic.id);
+    const stateLabel = triggered ? "발동 확인" : acquired ? "획득 기록" : seen ? "열람" : "미발견";
+    return `<article class="relic-catalog-card ${seen ? "seen" : "hidden"} ${owned ? "owned" : ""}"><span class="relic-icon">${seen ? escapeHtml(relic.icon) : "?"}</span><div><small>${stateLabel}${owned ? " · 이번 캠페인 보유" : ""}</small><h3>${seen ? escapeHtml(relic.name) : "이름을 알 수 없는 전시품"}</h3><p>${seen ? escapeHtml(relic.description) : "전시품 제안에서 처음 마주치면 기록됩니다."}</p>${seen ? `<b>${escapeHtml(relic.trigger_description)}</b>` : ""}</div></article>`;
+  }).join("") || `<p class="maintenance-clear">이 모드에는 등록된 전시품이 없습니다.</p>`}</div></div>`;
+}
+
 function renderHandbook(controller) {
   if (!controller.state.handbookOpen) return "";
   const tab = controller.state.handbookTab;
-  const page = tab === "species" ? renderSpeciesRulesPage(controller) : tab === "rank" ? renderRankRulesPage(controller) : tab === "discoveries" ? renderDiscoveriesPage(controller) : renderHotelRulesPage();
-  return `<div class="handbook-overlay" role="dialog" aria-modal="true" aria-label="베스페라 호텔 운영 수첩"><section class="handbook-panel"><header class="handbook-heading"><div><p class="eyebrow">HOTEL VESPERA · OPERATIONS HANDBOOK</p><h1>운영 수첩</h1></div><button class="handbook-close" data-action="close-handbook" aria-label="운영 수첩 닫기">×</button></header><nav class="handbook-tabs" aria-label="수첩 분류">${handbookTabs(tab)}</nav><div class="handbook-body">${page}</div></section></div>`;
+  const page = tab === "species" ? renderSpeciesRulesPage(controller) : tab === "rank" ? renderRankRulesPage(controller) : tab === "relics" ? renderDisplayRelicsPage(controller) : tab === "discoveries" ? renderDiscoveriesPage(controller) : renderHotelRulesPage();
+  return `<div class="handbook-overlay" role="dialog" aria-modal="true" aria-label="베스페라 호텔 운영 수첩"><section class="handbook-panel"><header class="handbook-heading"><div><p class="eyebrow">HOTEL VESPERA · OPERATIONS HANDBOOK</p><h1>운영 수첩</h1></div><button class="handbook-close" data-action="close-handbook" aria-label="운영 수첩 닫기">×</button></header><nav class="handbook-tabs" aria-label="수첩 분류">${handbookTabs(controller)}</nav><div class="handbook-body">${page}</div></section></div>`;
 }
 
 function renderFinal(controller) {
@@ -610,6 +656,7 @@ function renderFinal(controller) {
   const expandedRooms = ownedUpgradeIds.filter((id) => (controller.data.indexes.upgrades[id]?.room_unlocks ?? []).length).length;
   const lastResult = nightResults.at(-1);
   const record = controller.state.runRecord;
+  const relicNames = (record?.owned_display_relic_ids ?? []).map((id) => controller.data.indexes.displayRelics?.[id]?.name ?? id);
   const isComplete = record?.outcome === "COMPLETE";
   const campaign = controller.isScenarioMode;
   const heroEyebrow = campaign ? "CAMPAIGN GREYBOX COMPLETE" : "PRE-OPENING INVITATIONAL COMPLETE";
@@ -630,7 +677,7 @@ function renderFinal(controller) {
   const managerOutcome = campaign && record?.manager_outcome
     ? `<p><b>지배인의 이후 · ${escapeHtml(record.manager_outcome.title)}</b> — ${escapeHtml(record.manager_outcome.description)}</p>`
     : "";
-  return `<section class="screen-shell final-screen"><div class="result-hero ${campaign && !isComplete ? "failure" : ""}" data-video-target="showcase-final"><p class="eyebrow">${escapeHtml(heroEyebrow)}${record?.ending_tier ? ` · ${escapeHtml(record.ending_tier)}` : ""}</p><span class="result-glyph">◆</span><h1>${escapeHtml(heroTitle)}</h1><p>${escapeHtml(heroDescription)}</p></div><article class="run-record-card" data-video-target="run-record"><div><small>ENDING · ${escapeHtml(record?.ending_id ?? "UNRESOLVED")}</small><h2>${escapeHtml(record?.title ?? "종료 판정 기록 없음")}</h2></div><span class="status-chip ${isComplete ? "clear" : "warning"}">${isComplete ? (campaign ? "성공" : "완료") : campaign ? "실패" : "미완료"}</span><p>기록 ID <b>${escapeHtml(record?.record_id ?? "-")}</b> · 이 브라우저에 보존된 실행 기록 ${controller.state.recordArchiveCount}개</p>${managerOutcome}</article><div class="final-summary"><article><small>완료 영업</small><strong>${nightResults.length} / ${controller.totalNights}</strong></article><article><small>${incomeLabel}</small><strong>${incomeValue}G</strong></article><article><small>${reputationLabel}</small><strong>${signed(reputationValue)}</strong></article><article><small>시설·증축</small><strong>${ownedUpgradeIds.length}개 · 증축 ${expandedRooms}</strong></article><article><small>실행 시드</small><strong>${controller.state.runSeed}</strong></article></div>${epilogues}${lastResult && !campaign ? resultBreakdown(controller, lastResult) : ""}<div class="center-action"><button class="button primary large" data-action="restart">${escapeHtml(restartLabel)}</button></div></section>`;
+  return `<section class="screen-shell final-screen"><div class="result-hero ${campaign && !isComplete ? "failure" : ""}" data-video-target="showcase-final"><p class="eyebrow">${escapeHtml(heroEyebrow)}${record?.ending_tier ? ` · ${escapeHtml(record.ending_tier)}` : ""}</p><span class="result-glyph">◆</span><h1>${escapeHtml(heroTitle)}</h1><p>${escapeHtml(heroDescription)}</p></div><article class="run-record-card" data-video-target="run-record"><div><small>ENDING · ${escapeHtml(record?.ending_id ?? "UNRESOLVED")}</small><h2>${escapeHtml(record?.title ?? "종료 판정 기록 없음")}</h2></div><span class="status-chip ${isComplete ? "clear" : "warning"}">${isComplete ? (campaign ? "성공" : "완료") : campaign ? "실패" : "미완료"}</span><p>기록 ID <b>${escapeHtml(record?.record_id ?? "-")}</b> · 이 브라우저에 보존된 실행 기록 ${controller.state.recordArchiveCount}개</p>${managerOutcome}${relicNames.length ? `<p><b>이번 실행의 전시품</b> — ${escapeHtml(relicNames.join(" · "))}</p>` : ""}</article><div class="final-summary"><article><small>완료 영업</small><strong>${nightResults.length} / ${controller.totalNights}</strong></article><article><small>${incomeLabel}</small><strong>${incomeValue}G</strong></article><article><small>${reputationLabel}</small><strong>${signed(reputationValue)}</strong></article><article><small>시설·증축</small><strong>${ownedUpgradeIds.length}개 · 증축 ${expandedRooms}</strong></article><article><small>실행 시드</small><strong>${controller.state.runSeed}</strong></article></div>${epilogues}${lastResult && !campaign ? resultBreakdown(controller, lastResult) : ""}<div class="center-action"><button class="button primary large" data-action="restart">${escapeHtml(restartLabel)}</button></div></section>`;
 }
 
 export function renderApp(app, controller) {
@@ -640,6 +687,7 @@ export function renderApp(app, controller) {
   else if (phase === PHASES.NEW_GAME) content = renderNewGame(controller);
   else if ([PHASES.TUTORIAL, PHASES.PLACEMENT].includes(phase)) content = renderPlacement(controller);
   else if (phase === PHASES.STORY) content = renderStory(controller);
+  else if (phase === PHASES.RELIC_OFFER) content = renderDisplayRelicOffer(controller);
   else if (phase === PHASES.DAY_OPENING) content = renderDayOpening(controller);
   else if (phase === PHASES.RESERVATION) content = renderReservation(controller);
   else if (phase === PHASES.RESULT) content = renderResult(controller);

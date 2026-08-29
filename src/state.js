@@ -2,6 +2,11 @@ import { calculateNightResult } from "./scoring.js";
 import { createBoardState, evaluatePlacement } from "./rules.js";
 import { createEmergencyPlan } from "./emergency.js";
 import { createRngState } from "./random.js";
+import {
+  displayRelicById,
+  displayRelicEffectValue,
+  generateDisplayRelicOffer,
+} from "./relics.js";
 import { generateGuestOffer, rankOddsFor } from "./progression.js";
 import {
   canPurchaseUpgrade,
@@ -27,6 +32,7 @@ export const PHASES = Object.freeze({
   NEW_GAME: "NEW_GAME",
   TUTORIAL: "TUTORIAL",
   STORY: "STORY",
+  RELIC_OFFER: "RELIC_OFFER",
   DAY_OPENING: "DAY_OPENING",
   RESERVATION: "RESERVATION",
   PLACEMENT: "PLACEMENT",
@@ -101,6 +107,12 @@ function initialState(data, seed, recordArchiveCount = 0, profile = null) {
     gold: 0,
     hotelReputation: 0,
     ownedUpgradeIds: [],
+    ownedDisplayRelicIds: [],
+    availableDisplayRelicPoolIds: [],
+    displayRelicOfferIndex: 0,
+    pendingDisplayRelicOffer: null,
+    displayRelicTriggerCounts: {},
+    displayRelicNightUsageIds: [],
     selectedGuestId: null,
     currentFixedGuestIds: [],
     currentGuestOfferIds: [],
@@ -248,7 +260,7 @@ export class GameController {
     this.state.encounteredGuestIds = unique(encountered);
   }
 
-  persistProfileKnowledge() {
+  persistProfileKnowledge(options = {}) {
     this.profile = writeProfile({
       ...this.profile,
       handbook: {
@@ -267,6 +279,29 @@ export class GameController {
         encountered_guest_ids: unique([
           ...(this.profile.handbook?.encountered_guest_ids ?? []),
           ...this.state.encounteredGuestIds,
+        ]),
+      },
+      display_relics: {
+        unlocked_pool_ids: unique([
+          ...(this.profile.display_relics?.unlocked_pool_ids ?? []),
+          ...this.state.availableDisplayRelicPoolIds,
+        ]),
+        seen_ids: unique([
+          ...(this.profile.display_relics?.seen_ids ?? []),
+          ...(this.state.pendingDisplayRelicOffer?.relicIds ?? []),
+          ...this.state.ownedDisplayRelicIds,
+        ]),
+        acquired_ids: unique([
+          ...(this.profile.display_relics?.acquired_ids ?? []),
+          ...this.state.ownedDisplayRelicIds,
+        ]),
+        triggered_ids: unique([
+          ...(this.profile.display_relics?.triggered_ids ?? []),
+          ...(options.commitRelicTriggers
+            ? Object.entries(this.state.displayRelicTriggerCounts)
+              .filter(([, count]) => count > 0)
+              .map(([id]) => id)
+            : []),
         ]),
       },
     }, this.recordStorage);
@@ -428,7 +463,75 @@ export class GameController {
   continueStory() {
     if (this.state.phase !== PHASES.STORY || !this.currentStoryNode) return false;
     const continuation = this.currentStoryNode.continuation ?? {};
+    const completedStoryId = this.currentStoryNode.id;
     this.state.storyNodeId = null;
+    const relicSchedule = this.data.campaign?.display_relic_offer_schedule?.find(
+      (entry) => entry.after_story_id === completedStoryId
+        && !this.state.ownedDisplayRelicIds.length
+        && this.state.displayRelicOfferIndex === 0,
+    );
+    if (relicSchedule) {
+      return this.prepareDisplayRelicOffer(relicSchedule, continuation);
+    }
+    if (continuation.action === "BEGIN_DAY") {
+      return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
+    }
+    if (continuation.action === "OPEN_UPGRADE") return this.prepareNextUpgrade();
+    if (continuation.action === "COMPLETE_RUN") {
+      this.completeRun();
+      return true;
+    }
+    return false;
+  }
+
+  prepareDisplayRelicOffer(schedule, continuation) {
+    if (!this.isScenarioMode || this.state.pendingDisplayRelicOffer) return false;
+    const poolIds = unique(schedule.pool_ids ?? ["COMMON"]);
+    const offer = generateDisplayRelicOffer(this.data, {
+      runSeed: this.state.runSeed,
+      offerIndex: this.state.displayRelicOfferIndex,
+      poolIds,
+      ownedIds: this.state.ownedDisplayRelicIds,
+      offerSize: schedule.offer_size ?? 3,
+    });
+    if (!offer.relicIds.length) return this.resumeAfterDisplayRelicOffer(continuation);
+    this.state.availableDisplayRelicPoolIds = unique([
+      ...this.state.availableDisplayRelicPoolIds,
+      ...poolIds,
+    ]);
+    this.state.pendingDisplayRelicOffer = {
+      scheduleId: schedule.id,
+      relicIds: offer.relicIds,
+      offerIndex: offer.offerIndex,
+      continuation: clone(continuation),
+    };
+    this.state.phase = PHASES.RELIC_OFFER;
+    this.state.handbookOpen = false;
+    this.state.reservationBoardOpen = false;
+    return true;
+  }
+
+  selectDisplayRelic(relicId) {
+    const pending = this.state.pendingDisplayRelicOffer;
+    if (this.state.phase !== PHASES.RELIC_OFFER || !pending?.relicIds.includes(relicId)) return false;
+    if (!displayRelicById(this.data, relicId)) return false;
+    const continuation = clone(pending.continuation ?? {});
+    this.state.ownedDisplayRelicIds = unique([...this.state.ownedDisplayRelicIds, relicId]);
+    this.state.displayRelicOfferIndex += 1;
+    this.state.pendingDisplayRelicOffer = null;
+    return this.resumeAfterDisplayRelicOffer(continuation);
+  }
+
+  skipDisplayRelicOffer() {
+    const pending = this.state.pendingDisplayRelicOffer;
+    if (this.state.phase !== PHASES.RELIC_OFFER || !pending) return false;
+    const continuation = clone(pending.continuation ?? {});
+    this.state.displayRelicOfferIndex += 1;
+    this.state.pendingDisplayRelicOffer = null;
+    return this.resumeAfterDisplayRelicOffer(continuation);
+  }
+
+  resumeAfterDisplayRelicOffer(continuation) {
     if (continuation.action === "BEGIN_DAY") {
       return this.beginOperatingDay(continuation.night_index ?? this.state.currentNightIndex);
     }
@@ -511,6 +614,7 @@ export class GameController {
     this.state.selectedGuestId = fixedGuestIds.find((id) => !stayoverIds.includes(id)) ?? null;
     this.state.serviceTimerMs = null;
     this.state.relocationCount = 0;
+    this.state.displayRelicNightUsageIds = [];
     this.state.emergencyReport = null;
     this.state.currentUpgradeOfferIds = [];
     this.state.renovationPurchaseIds = [];
@@ -549,7 +653,7 @@ export class GameController {
   }
 
   selectHandbookTab(tab) {
-    if (["hotel", "species", "rank", "discoveries"].includes(tab)) {
+    if (["hotel", "species", "rank", "relics", "discoveries"].includes(tab)) {
       this.state.handbookTab = tab;
     }
   }
@@ -601,7 +705,14 @@ export class GameController {
   chargeRelocation() {
     if (!this.isTimedPlacement() || this.state.serviceTimerMs === null) return false;
     this.state.relocationCount += 1;
-    this.state.serviceTimerMs = Math.max(0, this.state.serviceTimerMs - RELOCATION_TIME_COST_MS);
+    let timeCost = RELOCATION_TIME_COST_MS;
+    const relic = this.ownedRelicWithEffect("FIRST_RELOCATION_TIME_REDUCTION");
+    if (relic && !this.state.displayRelicNightUsageIds.includes(relic.id)) {
+      timeCost = Math.max(0, timeCost - Number(relic.effect_params?.value ?? 0));
+      this.state.displayRelicNightUsageIds.push(relic.id);
+      this.recordDisplayRelicTrigger(relic.id);
+    }
+    this.state.serviceTimerMs = Math.max(0, this.state.serviceTimerMs - timeCost);
     if (this.state.serviceTimerMs === 0) this.resolveTimedOutNight();
     return true;
   }
@@ -683,14 +794,47 @@ export class GameController {
   }
 
   completeNight(result) {
-    this.state.gold += result.income;
-    this.state.hotelReputation += result.reputationDelta;
-    this.updateGuestHistoryAndDiscoveries(result);
-    this.applyRoomWearAndStays(result);
-    this.state.nightResults[this.state.currentNightIndex] = result;
+    const resolvedResult = this.applyDisplayRelicResultEffects(result);
+    this.state.gold += resolvedResult.income;
+    this.state.hotelReputation += resolvedResult.reputationDelta;
+    this.updateGuestHistoryAndDiscoveries(resolvedResult);
+    this.applyRoomWearAndStays(resolvedResult);
+    this.state.nightResults[this.state.currentNightIndex] = resolvedResult;
     this.state.serviceTimerMs = null;
-    this.state.emergencyReport = result.emergencyReport;
+    this.state.emergencyReport = resolvedResult.emergencyReport;
     this.state.phase = PHASES.RESULT;
+  }
+
+  ownedRelicWithEffect(effectId) {
+    return this.state.ownedDisplayRelicIds
+      .map((id) => displayRelicById(this.data, id))
+      .find((relic) => relic?.effect_id === effectId) ?? null;
+  }
+
+  recordDisplayRelicTrigger(relicId) {
+    this.state.displayRelicTriggerCounts[relicId] = Number(
+      this.state.displayRelicTriggerCounts[relicId] ?? 0,
+    ) + 1;
+  }
+
+  applyDisplayRelicResultEffects(result) {
+    const resolved = clone(result);
+    resolved.relicTriggers = [...(resolved.relicTriggers ?? [])];
+    resolved.relicBonusGold = Number(resolved.relicBonusGold ?? 0);
+    const relic = this.ownedRelicWithEffect("NO_CANCELLATION_GOLD_BONUS");
+    if (
+      relic
+      && resolved.valid
+      && (resolved.acceptedGuestIds?.length ?? 0) > 0
+      && (resolved.canceledGuestIds?.length ?? 0) === 0
+    ) {
+      const bonus = Number(relic.effect_params?.value ?? 0);
+      resolved.income += bonus;
+      resolved.relicBonusGold += bonus;
+      resolved.relicTriggers.push({ relicId: relic.id, value: bonus });
+      this.recordDisplayRelicTrigger(relic.id);
+    }
+    return resolved;
   }
 
   updateGuestHistoryAndDiscoveries(result) {
@@ -888,13 +1032,25 @@ export class GameController {
     if (this.state.phase !== PHASES.UPGRADE) return false;
     if (Object.values(this.state.stayovers).some((entry) => entry.roomId === roomId)) return false;
     if (this.structuralBoardState().blockedRooms.has(roomId)) return false;
-    const cost = this.data.balance?.room_service_cost ?? 8;
+    const cost = this.roomServiceCost();
     const condition = this.state.roomConditions[roomId];
     if (!condition || this.state.gold < cost) return false;
     if (condition.cleanliness === 100 && condition.durability === 100) return false;
     this.state.gold -= cost;
     this.state.roomConditions[roomId] = { cleanliness: 100, durability: 100 };
+    const relic = this.ownedRelicWithEffect("ROOM_SERVICE_COST_REDUCTION");
+    if (relic) this.recordDisplayRelicTrigger(relic.id);
     return true;
+  }
+
+  roomServiceCost() {
+    const baseCost = this.data.balance?.room_service_cost ?? 8;
+    const reduction = displayRelicEffectValue(
+      this.data,
+      this.state.ownedDisplayRelicIds,
+      "ROOM_SERVICE_COST_REDUCTION",
+    );
+    return Math.max(0, baseCost - reduction);
   }
 
   setApplicantDecision(guestId, decision) {
@@ -975,7 +1131,7 @@ export class GameController {
 
   completeRun() {
     if (!this.state.runRecord) {
-      this.persistProfileKnowledge();
+      this.persistProfileKnowledge({ commitRelicTriggers: true });
       this.state.runRecord = createRunRecord(this.data, this.state);
       const records = storeRunRecord(this.state.runRecord, this.recordStorage);
       this.state.recordArchiveCount = records.length;

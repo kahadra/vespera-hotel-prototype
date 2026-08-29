@@ -109,6 +109,50 @@ export function createCampaignGreyboxData(source) {
     role.id,
     progress("COLLABORATOR", true, { event_count: 5 }),
   ]));
+  data.display_relics = [
+    {
+      id: "DISPLAY_RELIC_DAWN_BELL",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "새벽의 종",
+      icon: "♢",
+      description: "하루의 첫 객실 재배치에 드는 시간을 2초 줄입니다.",
+      trigger_description: "영업 중 처음으로 배정을 바꿀 때 발동",
+      effect_id: "FIRST_RELOCATION_TIME_REDUCTION",
+      effect_params: { value: 2000 },
+      stack_group: "RELOCATION_TIME",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_SILVER_MAINTENANCE_KIT",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "은빛 정비함",
+      icon: "▣",
+      description: "막간의 객실 정비 비용을 3G 줄입니다.",
+      trigger_description: "손상된 빈 객실을 실제로 정비할 때 발동",
+      effect_id: "ROOM_SERVICE_COST_REDUCTION",
+      effect_params: { value: 3 },
+      stack_group: "ROOM_SERVICE_COST",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_UNBLEMISHED_LEDGER",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "무흠 장부",
+      icon: "▤",
+      description: "수용한 손님을 한 명도 취소하지 않고 영업을 마치면 3G를 더 받습니다.",
+      trigger_description: "손님을 수용한 유효 영업에서 취소가 없을 때 발동",
+      effect_id: "NO_CANCELLATION_GOLD_BONUS",
+      effect_params: { value: 3 },
+      stack_group: "RESULT_GOLD",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+  ];
   data.prototype_mode = {
     ...data.prototype_mode,
     type: "CAMPAIGN",
@@ -246,6 +290,14 @@ export function createCampaignGreyboxData(source) {
       "2": "CAMPAIGN_CHAPTER_ONE_REVIEW",
       "4": "CAMPAIGN_CHAPTER_TWO_REVIEW",
     },
+    display_relic_offer_schedule: [
+      {
+        id: "CAMPAIGN_START_COMMON_RELIC",
+        after_story_id: "CAMPAIGN_PROLOGUE",
+        pool_ids: ["COMMON"],
+        offer_size: 3,
+      },
+    ],
   };
   data.run_completion = {
     record_namespace: "vespera.campaign.greybox.v2",
@@ -395,6 +447,7 @@ export function createIndexes(data) {
     facilities,
     upgrades,
     scenarios: byId(data.scenarios),
+    displayRelics: byId(data.display_relics ?? []),
   };
 }
 

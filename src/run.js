@@ -156,6 +156,8 @@ export function createRunRecord(data, state) {
     relationship_gender_preset: state.relationshipGenderPreset ?? null,
     relationship_presentation_ids: state.relationshipPresentationIds ?? {},
     secretary_presentation_id: state.secretaryPresentationId ?? null,
+    owned_display_relic_ids: [...(state.ownedDisplayRelicIds ?? [])],
+    display_relic_trigger_counts: { ...(state.displayRelicTriggerCounts ?? {}) },
     metrics: ending.metrics,
   };
 }
@@ -176,6 +178,8 @@ export function readRunRecords(storage = globalThis.localStorage) {
         manager_outcome: null,
         relationship_epilogues: [],
         relationship_presentation_ids: {},
+        owned_display_relic_ids: [],
+        display_relic_trigger_counts: {},
         ...record,
         schema_version: RUN_RECORD_SCHEMA_VERSION,
       }));

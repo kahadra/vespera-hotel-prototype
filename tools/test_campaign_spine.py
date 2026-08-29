@@ -51,7 +51,7 @@ def synthetic_result(day: int, income: int, reputation: int):
         "tips": 0,
         "income": income,
         "grade": "GREYBOX",
-        "acceptedGuestIds": [],
+        "acceptedGuestIds": ["G01_LUNE"],
         "rejectedGuestIds": [],
         "canceledGuestIds": [],
         "placements": {},
@@ -132,7 +132,32 @@ def run(base_url: str, debug_port: int, seed: int):
         assert resumed["relationshipPresentationIds"]["RELATIONSHIP_WITCH"] == "FEMALE", resumed
 
         client.click('[data-action="continue-story"]')
+        relic_offer = state(client)
+        assert relic_offer["phase"] == "RELIC_OFFER", relic_offer
+        assert len(relic_offer["pendingDisplayRelicOffer"]["relicIds"]) == 3, relic_offer
+        first_relic_offer_ids = relic_offer["pendingDisplayRelicOffer"]["relicIds"]
+        assert "DISPLAY_RELIC_UNBLEMISHED_LEDGER" in first_relic_offer_ids, first_relic_offer_ids
+
+        client.command("Page.navigate", {"url": "about:blank"})
+        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": url})
+        wait_for(client, "Boolean(window.__vesperaController)")
+        client.click('[data-action="resume"]')
+        reloaded_relic_offer = state(client)
+        assert reloaded_relic_offer["phase"] == "RELIC_OFFER", reloaded_relic_offer
+        assert reloaded_relic_offer["pendingDisplayRelicOffer"]["relicIds"] == first_relic_offer_ids
+        relic_offer_layout = action_layout(client, '[data-action="select-display-relic"]')
+        assert relic_offer_layout["document_scroll_height"] <= 720, relic_offer_layout
+        assert relic_offer_layout["action_bottom"] <= 720, relic_offer_layout
+        client.click('[data-action="select-display-relic"][data-relic-id="DISPLAY_RELIC_UNBLEMISHED_LEDGER"]')
         assert state(client)["phase"] == "DAY_OPENING"
+        assert state(client)["ownedDisplayRelicIds"] == ["DISPLAY_RELIC_UNBLEMISHED_LEDGER"]
+        client.click('[data-action="open-handbook"]')
+        client.click('[data-action="handbook-tab"][data-tab="relics"]')
+        assert "전시품 도감" in client.body_text()
+        assert "무흠 장부" in client.body_text()
+        assert "이번 캠페인 보유" in client.body_text()
+        client.click('[data-action="close-handbook"]')
 
         for day in range(1, 6):
             client.click('[data-action="start-day-business"]')
@@ -178,6 +203,7 @@ def run(base_url: str, debug_port: int, seed: int):
         )
         assert profile_after_success["schema_version"] == 1, profile_after_success
         assert "VAMPIRE:R:QUIET" in profile_after_success["handbook"]["discovered_hidden_preference_ids"]
+        assert "DISPLAY_RELIC_UNBLEMISHED_LEDGER" in profile_after_success["display_relics"]["triggered_ids"]
         assert client.evaluate("Boolean(localStorage.getItem('vespera.hotel.active-run.v2.campaign'))") is False
 
         contracts = client.evaluate(
@@ -202,6 +228,7 @@ def run(base_url: str, debug_port: int, seed: int):
               failure.start();
               failure.confirmNewGame();
               failure.continueStory();
+              failure.selectDisplayRelic(failure.state.pendingDisplayRelicOffer.relicIds[0]);
               const fake = day => ({
                 valid: true,
                 placementScore: 0,
@@ -306,6 +333,65 @@ def run(base_url: str, debug_port: int, seed: int):
               const legacyDetected = migrated.hasCheckpoint();
               const legacyResumed = migrated.resumeRun();
 
+              const deterministicA = new GameController(campaignData, { seed: 1234, storage: memoryStorage() });
+              deterministicA.start();
+              deterministicA.confirmNewGame();
+              deterministicA.continueStory();
+              const deterministicB = new GameController(campaignData, { seed: 1234, storage: memoryStorage() });
+              deterministicB.start();
+              deterministicB.confirmNewGame();
+              deterministicB.continueStory();
+              const deterministicRelicOffer = JSON.stringify(deterministicA.state.pendingDisplayRelicOffer.relicIds)
+                === JSON.stringify(deterministicB.state.pendingDisplayRelicOffer.relicIds);
+              const skippedRelicOffer = deterministicB.skipDisplayRelicOffer();
+              const skipReachedOpening = deterministicB.state.phase === 'DAY_OPENING'
+                && deterministicB.state.ownedDisplayRelicIds.length === 0;
+
+              const effects = new GameController(campaignData, { seed: 1235, storage: memoryStorage() });
+              effects.start();
+              effects.confirmNewGame();
+              effects.continueStory();
+              effects.selectDisplayRelic('DISPLAY_RELIC_DAWN_BELL');
+              effects.state.phase = 'PLACEMENT';
+              effects.state.serviceTimerMs = 120000;
+              effects.chargeRelocation();
+              const dawnBellTimer = effects.state.serviceTimerMs;
+              const dawnBellTriggers = effects.state.displayRelicTriggerCounts.DISPLAY_RELIC_DAWN_BELL;
+
+              effects.state.ownedDisplayRelicIds = ['DISPLAY_RELIC_SILVER_MAINTENANCE_KIT'];
+              effects.state.phase = 'UPGRADE';
+              effects.state.gold = 20;
+              effects.state.roomConditions['F1-A'] = { cleanliness: 80, durability: 90 };
+              const serviceCost = effects.roomServiceCost();
+              const serviced = effects.serviceRoom('F1-A');
+              const serviceGold = effects.state.gold;
+
+              effects.state.ownedDisplayRelicIds = ['DISPLAY_RELIC_UNBLEMISHED_LEDGER'];
+              effects.state.currentNightIndex = 0;
+              effects.state.nightResults = [];
+              effects.state.gold = 0;
+              effects.completeNight({ ...fake(1), acceptedGuestIds: ['G01_LUNE'] });
+              const ledgerIncome = effects.state.nightResults[0].income;
+              const ledgerBonus = effects.state.nightResults[0].relicBonusGold;
+              const relicSave = saveModule.createRunSave(campaignData, deterministicA.state, null);
+              const relicSavePreserved = JSON.stringify(relicSave?.state?.pendingDisplayRelicOffer?.relicIds)
+                === JSON.stringify(deterministicA.state.pendingDisplayRelicOffer.relicIds);
+
+              const retryStorage = memoryStorage();
+              const retryRelic = new GameController(campaignData, { seed: 1236, storage: retryStorage });
+              retryRelic.start();
+              retryRelic.confirmNewGame();
+              retryRelic.continueStory();
+              retryRelic.selectDisplayRelic('DISPLAY_RELIC_UNBLEMISHED_LEDGER');
+              retryRelic.completeNight({ ...fake(1), acceptedGuestIds: ['G01_LUNE'] });
+              retryRelic.saveCheckpoint();
+              const retryProfileBefore = saveModule.readProfile(retryStorage);
+              const retryTriggerNotCommitted = !retryProfileBefore.display_relics.triggered_ids
+                .includes('DISPLAY_RELIC_UNBLEMISHED_LEDGER');
+              const retryRestored = retryRelic.retryCurrentStage();
+              const retryTriggerRolledBack = !retryRelic.state.displayRelicTriggerCounts
+                .DISPLAY_RELIC_UNBLEMISHED_LEDGER;
+
               return {
                 failurePhase: failure.state.phase,
                 failureOutcome: failure.state.runRecord?.outcome,
@@ -318,6 +404,21 @@ def run(base_url: str, debug_port: int, seed: int):
                 legacyResumed,
                 legacyPhase: migrated.state.phase,
                 legacyProfileId: migrated.state.profileId,
+                deterministicRelicOffer,
+                skippedRelicOffer,
+                skipReachedOpening,
+                relicSavePhase: relicSave?.state?.phase,
+                relicSavePreserved,
+                dawnBellTimer,
+                dawnBellTriggers,
+                serviceCost,
+                serviced,
+                serviceGold,
+                ledgerIncome,
+                ledgerBonus,
+                retryTriggerNotCommitted,
+                retryRestored,
+                retryTriggerRolledBack,
               };
             })()
             """
@@ -344,6 +445,21 @@ def run(base_url: str, debug_port: int, seed: int):
             "legacyResumed": True,
             "legacyPhase": "TUTORIAL",
             "legacyProfileId": "default",
+            "deterministicRelicOffer": True,
+            "skippedRelicOffer": True,
+            "skipReachedOpening": True,
+            "relicSavePhase": "RELIC_OFFER",
+            "relicSavePreserved": True,
+            "dawnBellTimer": 117000,
+            "dawnBellTriggers": 1,
+            "serviceCost": 5,
+            "serviced": True,
+            "serviceGold": 15,
+            "ledgerIncome": 3,
+            "ledgerBonus": 3,
+            "retryTriggerNotCommitted": True,
+            "retryRestored": True,
+            "retryTriggerRolledBack": True,
         }, contracts
 
         return {
@@ -365,10 +481,16 @@ def run(base_url: str, debug_port: int, seed: int):
             "profile_schema": profile_after_success["schema_version"],
             "run_record_schema": final["runRecord"]["schema_version"],
             "mode_save_isolation": mode_isolation_before_reload,
+            "display_relic": {
+                "offer_ids": first_relic_offer_ids,
+                "owned_id": final["runRecord"]["owned_display_relic_ids"][0],
+                "trigger_count": final["runRecord"]["display_relic_trigger_counts"]["DISPLAY_RELIC_UNBLEMISHED_LEDGER"],
+            },
             "legacy_showcase_save_migrated": contracts["legacyResumed"],
             "layout_1280x720": {
                 "new_game": new_game_layout,
                 "story": story_layout,
+                "relic_offer": relic_offer_layout,
                 "final": final_layout,
             },
         }

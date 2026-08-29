@@ -18,6 +18,8 @@ export function setupInput(app, controller, rerender) {
     else if (action === "set-greybox-ending-route") controller.setGreyboxEndingRoute(target.dataset.routeId);
     else if (action === "confirm-new-game") controller.confirmNewGame();
     else if (action === "continue-story") controller.continueStory();
+    else if (action === "select-display-relic") controller.selectDisplayRelic(target.dataset.relicId);
+    else if (action === "skip-display-relic") controller.skipDisplayRelicOffer();
     else if (action === "skip-tutorial") controller.skipTutorial();
     else if (action === "start-day-business") controller.startDayBusiness();
     else if (action === "finish-night") controller.finishNight();

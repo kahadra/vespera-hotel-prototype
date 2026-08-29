@@ -45,7 +45,7 @@
 | 6 | `docs/25_SPECIES_AND_SYNERGY_SYSTEM.md` | 종족·계통·문화·신앙·직업 풀, 집단 인원·다종·지정 조합·시나리오 변화 시너지 (초안 작성됨) |
 | 7 | `docs/26_CAMPAIGN_AND_MODE_STRUCTURE.md` | 가변 캠페인, 영업·사건 시간 단위, 관계·엔딩 분기, 무한 영업과 모드 상태 경계 (초안 작성됨) |
 | 8 | `docs/27_OPERATIONS_HANDBOOK.md` | 공유 운영 수첩, 발견 단계, 종족·시설·아이템·시너지·손님 교차 기록 (초안 작성됨) |
-| 9 | `docs/28_EXHIBITION_RELIC_SYSTEM.md` | 평판·관계별 전시품 후보군, 무작위 선택, 런 누적 패시브와 도감 (초안 작성됨) |
+| 9 | `docs/28_EXHIBITION_RELIC_SYSTEM.md` | 평판·관계별 전시품 후보군, 무작위 선택, 런 누적 패시브와 도감 (공용 3종 회색 상자 구현) |
 
 ## D. 콘텐츠 설정집
 

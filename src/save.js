@@ -7,6 +7,7 @@ export const PROFILE_STORAGE_KEY = "vespera.hotel.profile.v1";
 const SAVABLE_PHASES = new Set([
   "TUTORIAL",
   "STORY",
+  "RELIC_OFFER",
   "DAY_OPENING",
   "RESERVATION",
   "PLACEMENT",
@@ -108,6 +109,12 @@ function validState(data, state) {
     && Array.isArray(state.nightResults)
     && Array.isArray(state.ownedUpgradeIds)
     && state.ownedUpgradeIds.every((id) => Boolean(data.indexes.upgrades[id]))
+    && Array.isArray(state.ownedDisplayRelicIds ?? [])
+    && (state.ownedDisplayRelicIds ?? []).every((id) => Boolean(data.indexes.displayRelics?.[id]))
+    && (state.phase !== "RELIC_OFFER"
+      || (Array.isArray(state.pendingDisplayRelicOffer?.relicIds)
+        && state.pendingDisplayRelicOffer.relicIds.length > 0
+        && state.pendingDisplayRelicOffer.relicIds.every((id) => Boolean(data.indexes.displayRelics?.[id]))))
     && Object.keys(state.placements ?? {}).every(
       (guestId) => Boolean(data.indexes.guests[guestId]) && Boolean(data.indexes.rooms[state.placements[guestId]]),
     );
