@@ -114,11 +114,11 @@
 
 ### 다음 제작 우선순위
 
-1. 대표 경로 자동 회귀와 콘텐츠 누락·엔딩 도달 가능성 검산 강화
-2. 최종 운영 목표와 무한 영업 감사 경제 시뮬레이션
+1. 최종 운영 목표와 무한 영업 감사 경제 시뮬레이션
+2. 무한 영업 1시즌의 감사·폐업·기록 흐름 연결
 3. 코어 플레이테스트의 평가 난도와 초청 정책 결정, 신규 플레이어 검증
 4. 종족·시너지·관계 장면과 전용 전시품을 교체 가능한 외부 콘텐츠 규격으로 검증
-5. 무한 영업 1시즌의 감사·폐업·기록 흐름 연결
+5. 대표 경로 자동 회귀와 콘텐츠 누락·엔딩 도달 가능성 검산을 새 데이터마다 유지
 6. 기능적 뼈대 통과 뒤 아트·UX·오디오와 도트 캐릭터 자산 확장
 
 ## 플레이와 실행
@@ -142,6 +142,7 @@ python -m http.server 8765
 python .\tools\validate_prototype_puzzles.py
 python .\tools\test_timed_service.py
 python .\tools\test_campaign_spine.py
+python .\tools\validate_campaign_reachability.py
 python .\tools\smoke_browser.py --facility SECRET_PASSAGE
 ```
 
