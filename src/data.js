@@ -1,4 +1,8 @@
 import { validateEndlessData } from "./endless.js";
+import {
+  validateCampaignCalendar,
+  validateCampaignCalendarPrefix,
+} from "./campaign-calendar.js";
 
 const DATA_URL = "./data/prototype_v1.json";
 
@@ -47,6 +51,38 @@ function commonDisplayRelics() {
       status: "PROVISIONAL",
     },
   ];
+}
+
+function formalCampaignCalendar(includeTrueExtension = false) {
+  const seasons = [
+    { id: "SPRING", label: "봄", weight: 1, effects: {} },
+    { id: "SUMMER", label: "여름", weight: 1, effects: {} },
+    { id: "AUTUMN", label: "가을", weight: 1, effects: {} },
+    { id: "WINTER", label: "겨울", weight: 1, effects: {} },
+  ];
+  if (includeTrueExtension) {
+    seasons.push({
+      id: "TRUE_EXTENSION_SEASON",
+      label: "추가 계절",
+      weight: 1,
+      effects: {},
+    });
+  }
+  return {
+    calendar_id: includeTrueExtension ? "CAMPAIGN_TRUE_EXTENSION" : "CAMPAIGN_BASE_YEAR",
+    calendar_version: 1,
+    total_stages: includeTrueExtension ? 70 : 56,
+    week_length: 7,
+    weekend_days: [6, 7],
+    weekend_effects: {
+      applicant_bonus: 1,
+      rank_multipliers: {},
+      species_multipliers: {},
+    },
+    seasons,
+    holidays: [],
+    events: [],
+  };
 }
 
 export async function loadGameData(options = {}) {
@@ -194,6 +230,16 @@ export function createCampaignGreyboxData(source) {
       dream_demon_other_species_count: 2,
       provisional: true,
     },
+    calendar: {
+      status: "PROVISIONAL",
+      base_year: formalCampaignCalendar(false),
+      true_extension: formalCampaignCalendar(true),
+      notes: [
+        "1스테이지는 하루이자 영업 1회입니다.",
+        "주말 신청 손님 +1은 경제·수요 시뮬레이션 전의 개발 기준값입니다.",
+        "공휴일·특별 행사일 데이터는 일정 생성기 연결 뒤 추가합니다.",
+      ],
+    },
     ending_preview_routes: [
       {
         id: "BAD",
@@ -306,6 +352,17 @@ export function createCampaignGreyboxData(source) {
       },
     ],
   };
+  const calendarValidationOptions = {
+    rankIds: data.campaign.formal_rank_ids,
+    speciesIds: formalSpecies.map((species) => species.id),
+  };
+  validateCampaignCalendar(data.campaign.calendar.base_year, calendarValidationOptions);
+  validateCampaignCalendar(data.campaign.calendar.true_extension, calendarValidationOptions);
+  validateCampaignCalendarPrefix(
+    data.campaign.calendar.base_year,
+    data.campaign.calendar.true_extension,
+    calendarValidationOptions,
+  );
   data.run_completion = {
     record_namespace: "vespera.campaign.greybox.v2",
     ending_rules: [
