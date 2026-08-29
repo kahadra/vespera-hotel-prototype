@@ -3,6 +3,10 @@ import {
   validateCampaignCalendar,
   validateCampaignCalendarPrefix,
 } from "./campaign-calendar.js";
+import {
+  validateCampaignChapterPrefix,
+  validateCampaignChapterSchedule,
+} from "./campaign-chapters.js";
 
 const DATA_URL = "./data/prototype_v1.json";
 
@@ -82,6 +86,104 @@ function formalCampaignCalendar(includeTrueExtension = false) {
     seasons,
     holidays: [],
     events: [],
+  };
+}
+
+function formalCampaignChapterSchedule(includeTrueExtension = false) {
+  const chapters = [
+    {
+      id: "CHAPTER_1_FOUNDATION_WEEK",
+      number: 1,
+      label: "인수 첫 주",
+      start_stage: 1,
+      end_stage: 7,
+      season_id: "SPRING",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_1",
+        recovery_eligible: true,
+      },
+    },
+    {
+      id: "CHAPTER_2_SPRING_SETTLEMENT",
+      number: 2,
+      label: "봄의 결산",
+      start_stage: 8,
+      end_stage: 14,
+      season_id: "SPRING",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_2",
+        recovery_eligible: true,
+      },
+    },
+    {
+      id: "CHAPTER_3_SUMMER_ACCORD",
+      number: 3,
+      label: "여름의 협약",
+      start_stage: 15,
+      end_stage: 28,
+      season_id: "SUMMER",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_3",
+        recovery_eligible: true,
+      },
+    },
+    {
+      id: "CHAPTER_4_AUTUMN_RECKONING",
+      number: 4,
+      label: "가을의 심사",
+      start_stage: 29,
+      end_stage: 42,
+      season_id: "AUTUMN",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_4",
+        recovery_eligible: true,
+      },
+    },
+    {
+      id: "CHAPTER_5_WINTER_CLEARANCE",
+      number: 5,
+      label: "겨울의 상속 결산",
+      start_stage: 43,
+      end_stage: 56,
+      season_id: "WINTER",
+      hidden: false,
+      debt_settlement: {
+        kind: "FINAL_CLEARANCE",
+        target_id: "DEBT_TARGET_FINAL_CLEARANCE",
+        recovery_eligible: false,
+      },
+    },
+  ];
+  if (includeTrueExtension) {
+    chapters.push({
+      id: "CHAPTER_6_TRUE_EXTENSION",
+      number: 6,
+      label: "추가 계절",
+      start_stage: 57,
+      end_stage: 70,
+      season_id: "TRUE_EXTENSION_SEASON",
+      hidden: true,
+      entry_gate_id: "BASE_DEBT_CLEARED_AT_STAGE_56",
+      debt_settlement: {
+        kind: "NONE",
+        recovery_eligible: false,
+      },
+    });
+  }
+  return {
+    id: includeTrueExtension ? "CAMPAIGN_TRUE_CHAPTERS" : "CAMPAIGN_BASE_CHAPTERS",
+    calendar_id: includeTrueExtension ? "CAMPAIGN_TRUE_EXTENSION" : "CAMPAIGN_BASE_YEAR",
+    version: 1,
+    total_stages: includeTrueExtension ? 70 : 56,
+    chapters,
   };
 }
 
@@ -240,6 +342,17 @@ export function createCampaignGreyboxData(source) {
         "공휴일·특별 행사일 데이터는 일정 생성기 연결 뒤 추가합니다.",
       ],
     },
+    chapters: {
+      status: "PROVISIONAL",
+      manual_extra_payment_phase: "RESULT_REVIEW",
+      base_year: formalCampaignChapterSchedule(false),
+      true_extension: formalCampaignChapterSchedule(true),
+      notes: [
+        "본편 5개 챕터를 유지하기 위해 봄 14일을 7일씩 두 챕터로 나눕니다.",
+        "챕터 종료의 누적 최소 상환액과 시작 운전자금은 경제 시뮬레이션 뒤 확정합니다.",
+        "추가 상환은 매일 정산 회고에서 허용하고 트루 추가 계절은 상환 유예로 사용하지 않습니다.",
+      ],
+    },
     ending_preview_routes: [
       {
         id: "BAD",
@@ -362,6 +475,24 @@ export function createCampaignGreyboxData(source) {
     data.campaign.calendar.base_year,
     data.campaign.calendar.true_extension,
     calendarValidationOptions,
+  );
+  const chapterValidationOptions = { calendarValidationOptions };
+  validateCampaignChapterSchedule(
+    data.campaign.chapters.base_year,
+    data.campaign.calendar.base_year,
+    chapterValidationOptions,
+  );
+  validateCampaignChapterSchedule(
+    data.campaign.chapters.true_extension,
+    data.campaign.calendar.true_extension,
+    chapterValidationOptions,
+  );
+  validateCampaignChapterPrefix(
+    data.campaign.chapters.base_year,
+    data.campaign.chapters.true_extension,
+    data.campaign.calendar.base_year,
+    data.campaign.calendar.true_extension,
+    chapterValidationOptions,
   );
   data.run_completion = {
     record_namespace: "vespera.campaign.greybox.v2",
