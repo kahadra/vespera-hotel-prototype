@@ -1,0 +1,803 @@
+{
+  "schemaVersion": 1,
+  "contractStatus": "PROVISIONAL",
+  "balanceVerdict": "NOT_EVALUATED",
+  "defaults": {
+    "baseConfig": {
+      "id": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE",
+      "version": 1,
+      "contract_status": "PROVISIONAL",
+      "total_stages": 56,
+      "debt_deadline_stage": 56,
+      "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+      "starting_cash": 10,
+      "principal": 200,
+      "chapter_cumulative_targets": {
+        "7": 28,
+        "14": 50,
+        "28": 100,
+        "42": 150,
+        "56": 200
+      }
+    },
+    "extendedConfig": {
+      "id": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_TRUE",
+      "version": 1,
+      "contract_status": "PROVISIONAL",
+      "total_stages": 70,
+      "debt_deadline_stage": 56,
+      "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+      "starting_cash": 10,
+      "principal": 200,
+      "chapter_cumulative_targets": {
+        "7": 28,
+        "14": 50,
+        "28": 100,
+        "42": 150,
+        "56": 200
+      }
+    },
+    "runtimePolicy": {
+      "id": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_POLICY",
+      "version": 1,
+      "status": "PROVISIONAL",
+      "balance_verdict": "NOT_EVALUATED",
+      "base_daily_upkeep": 2,
+      "upkeep_per_owned_upgrade": 1
+    },
+    "unlockTrueExtension": false
+  },
+  "cases": [
+    {
+      "id": "BASE_56_SUCCESS",
+      "operations": {
+        "throughStage": 56,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 50 },
+          "42": { "manualRepayment": 50 },
+          "56": { "manualRepayment": 50 }
+        }
+      },
+      "expected": {
+        "outcome": "COMPLETE",
+        "errorCode": null,
+        "status": "COMPLETE",
+        "phase": "CLOSED",
+        "completedStageCount": 56,
+        "nextStageNumber": null,
+        "cash": 34,
+        "remainingDebt": 0,
+        "cumulativeRepayment": 200,
+        "debtClearedAtDeadline": true,
+        "ledgerLength": 56,
+        "liveCash": 34,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "DEBT_CLEARED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_7_HURDLE_MISS_BY_1",
+      "operations": {
+        "throughStage": 7,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 27 }
+        }
+      },
+      "expected": {
+        "outcome": "CHAPTER_HURDLE_MISSED",
+        "errorCode": null,
+        "status": "CHAPTER_HURDLE_MISSED",
+        "phase": "CLOSED",
+        "completedStageCount": 7,
+        "nextStageNumber": null,
+        "cash": 11,
+        "remainingDebt": 173,
+        "cumulativeRepayment": 27,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 7,
+        "liveCash": 11,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "CHAPTER_HURDLE_MISSED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_14_HURDLE_MISS_BY_1",
+      "operations": {
+        "throughStage": 14,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 21 }
+        }
+      },
+      "expected": {
+        "outcome": "CHAPTER_HURDLE_MISSED",
+        "errorCode": null,
+        "status": "CHAPTER_HURDLE_MISSED",
+        "phase": "CLOSED",
+        "completedStageCount": 14,
+        "nextStageNumber": null,
+        "cash": 17,
+        "remainingDebt": 151,
+        "cumulativeRepayment": 49,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 14,
+        "liveCash": 17,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "CHAPTER_HURDLE_MISSED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_28_HURDLE_MISS_BY_1",
+      "operations": {
+        "throughStage": 28,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 49 }
+        }
+      },
+      "expected": {
+        "outcome": "CHAPTER_HURDLE_MISSED",
+        "errorCode": null,
+        "status": "CHAPTER_HURDLE_MISSED",
+        "phase": "CLOSED",
+        "completedStageCount": 28,
+        "nextStageNumber": null,
+        "cash": 23,
+        "remainingDebt": 101,
+        "cumulativeRepayment": 99,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 28,
+        "liveCash": 23,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "CHAPTER_HURDLE_MISSED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_42_HURDLE_MISS_BY_1",
+      "operations": {
+        "throughStage": 42,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 50 },
+          "42": { "manualRepayment": 49 }
+        }
+      },
+      "expected": {
+        "outcome": "CHAPTER_HURDLE_MISSED",
+        "errorCode": null,
+        "status": "CHAPTER_HURDLE_MISSED",
+        "phase": "CLOSED",
+        "completedStageCount": 42,
+        "nextStageNumber": null,
+        "cash": 29,
+        "remainingDebt": 51,
+        "cumulativeRepayment": 149,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 42,
+        "liveCash": 29,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "CHAPTER_HURDLE_MISSED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_56_DEBT_MISS_BY_1",
+      "operations": {
+        "throughStage": 56,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 50 },
+          "42": { "manualRepayment": 50 },
+          "56": { "manualRepayment": 49 }
+        }
+      },
+      "expected": {
+        "outcome": "DEBT_DEADLINE_MISSED",
+        "errorCode": null,
+        "status": "DEBT_DEADLINE_MISSED",
+        "phase": "CLOSED",
+        "completedStageCount": 56,
+        "nextStageNumber": null,
+        "cash": 35,
+        "remainingDebt": 1,
+        "cumulativeRepayment": 199,
+        "debtClearedAtDeadline": false,
+        "ledgerLength": 56,
+        "liveCash": 35,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": "DEBT_DEADLINE_MISSED",
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "DAY_2_OPERATING_SHORTFALL_AFTER_PREPARATION",
+      "runtimePolicy": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_SHORTFALL_POLICY",
+        "version": 1,
+        "status": "PROVISIONAL",
+        "balance_verdict": "NOT_EVALUATED",
+        "base_daily_upkeep": 17,
+        "upkeep_per_owned_upgrade": 1
+      },
+      "operations": [
+        {
+          "income": 20,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        {
+          "income": 9,
+          "ownedUpgradeCount": 1,
+          "reactivation": 5,
+          "roomService": 8,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "OPERATING_CASH_SHORTFALL",
+        "errorCode": null,
+        "status": "OPERATING_CASH_SHORTFALL",
+        "phase": "CLOSED",
+        "completedStageCount": 1,
+        "nextStageNumber": null,
+        "cash": 13,
+        "remainingDebt": 200,
+        "cumulativeRepayment": 0,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 1,
+        "liveCash": 0,
+        "ownedUpgradeCount": 1,
+        "pendingExpenses": { "reactivation": 5, "roomService": 8 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": 9,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE",
+        "metrics": {
+          "completedStageCount": 1,
+          "cash": 13,
+          "remainingDebt": 200,
+          "cumulativeRepayment": 0,
+          "income": 20,
+          "upkeep": 17,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "adapterMetrics": {
+          "scope": "LIVE_CASH_AND_PENDING_PREPARATION",
+          "liveCash": 0,
+          "financeCash": 13,
+          "pendingExpenses": { "reactivation": 5, "roomService": 8 },
+          "pendingExpenseTotal": 13,
+          "pendingExpensesAlreadyPaid": true,
+          "failedPreparationExpenses": {
+            "reactivation": 5,
+            "roomService": 8,
+            "total": 13
+          }
+        }
+      }
+    },
+    {
+      "id": "TRUE_70_SUCCESS",
+      "unlockTrueExtension": true,
+      "operations": {
+        "throughStage": 70,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 50 },
+          "42": { "manualRepayment": 50 },
+          "56": { "manualRepayment": 50 }
+        }
+      },
+      "expected": {
+        "outcome": "COMPLETE",
+        "errorCode": null,
+        "status": "COMPLETE",
+        "phase": "CLOSED",
+        "completedStageCount": 70,
+        "nextStageNumber": null,
+        "cash": 90,
+        "remainingDebt": 0,
+        "cumulativeRepayment": 200,
+        "debtClearedAtDeadline": true,
+        "ledgerLength": 70,
+        "liveCash": 90,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_TRUE"
+      }
+    },
+    {
+      "id": "DAY_57_NONZERO_REPAYMENT_REJECTED",
+      "unlockTrueExtension": true,
+      "operations": {
+        "throughStage": 57,
+        "defaults": {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "overrides": {
+          "7": { "manualRepayment": 28 },
+          "14": { "manualRepayment": 22 },
+          "28": { "manualRepayment": 50 },
+          "42": { "manualRepayment": 50 },
+          "56": { "manualRepayment": 50 },
+          "57": { "manualRepayment": 1 }
+        }
+      },
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "INVALID_MANUAL_REPAYMENT_POST_DEADLINE"
+      }
+    },
+    {
+      "id": "DAY_1_REPAYMENT_EXCEEDS_CASH_REJECTED",
+      "operations": [
+        {
+          "income": 6,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 15
+        }
+      ],
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "MANUAL_REPAYMENT_EXCEEDS_CASH"
+      }
+    },
+    {
+      "id": "DAY_1_REPAYMENT_EXCEEDS_DEBT_REJECTED",
+      "operations": [
+        {
+          "income": 300,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 201
+        }
+      ],
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "MANUAL_REPAYMENT_EXCEEDS_DEBT"
+      }
+    },
+    {
+      "id": "DAY_2_PREPARATION_EXPENSE_SUCCESS",
+      "operations": [
+        {
+          "income": 20,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        {
+          "income": 6,
+          "ownedUpgradeCount": 1,
+          "reactivation": 5,
+          "roomService": 8,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "ACTIVE_PREFIX",
+        "errorCode": null,
+        "status": "ACTIVE",
+        "phase": "AWAITING_RESULT",
+        "completedStageCount": 2,
+        "nextStageNumber": 3,
+        "cash": 18,
+        "remainingDebt": 200,
+        "cumulativeRepayment": 0,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 2,
+        "liveCash": 18,
+        "ownedUpgradeCount": 1,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE"
+      }
+    },
+    {
+      "id": "SAFE_INTEGER_MAX_BOUNDARY_ACCEPTED",
+      "baseConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_SAFE_BOUNDARY_BASE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 56,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 0,
+        "principal": 200,
+        "chapter_cumulative_targets": {
+          "7": 28,
+          "14": 50,
+          "28": 100,
+          "42": 150,
+          "56": 200
+        }
+      },
+      "extendedConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_SAFE_BOUNDARY_TRUE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 70,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 0,
+        "principal": 200,
+        "chapter_cumulative_targets": {
+          "7": 28,
+          "14": 50,
+          "28": 100,
+          "42": 150,
+          "56": 200
+        }
+      },
+      "runtimePolicy": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_ZERO_UPKEEP_POLICY",
+        "version": 1,
+        "status": "PROVISIONAL",
+        "balance_verdict": "NOT_EVALUATED",
+        "base_daily_upkeep": 0,
+        "upkeep_per_owned_upgrade": 0
+      },
+      "operations": [
+        {
+          "income": 9007199254740991,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "ACTIVE_PREFIX",
+        "errorCode": null,
+        "status": "ACTIVE",
+        "phase": "AWAITING_RESULT",
+        "completedStageCount": 1,
+        "nextStageNumber": 2,
+        "cash": 9007199254740991,
+        "remainingDebt": 200,
+        "cumulativeRepayment": 0,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 1,
+        "liveCash": 9007199254740991,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_SAFE_BOUNDARY_BASE",
+        "metrics": {
+          "completedStageCount": 1,
+          "cash": 9007199254740991,
+          "remainingDebt": 200,
+          "cumulativeRepayment": 0,
+          "income": 9007199254740991,
+          "upkeep": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        }
+      }
+    },
+    {
+      "id": "DAY_1_AVAILABLE_CASH_OVERFLOW_REJECTED",
+      "baseConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_OVERFLOW_BASE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 56,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 1,
+        "principal": 200,
+        "chapter_cumulative_targets": {
+          "7": 28,
+          "14": 50,
+          "28": 100,
+          "42": 150,
+          "56": 200
+        }
+      },
+      "extendedConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_OVERFLOW_TRUE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 70,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 1,
+        "principal": 200,
+        "chapter_cumulative_targets": {
+          "7": 28,
+          "14": 50,
+          "28": 100,
+          "42": 150,
+          "56": 200
+        }
+      },
+      "runtimePolicy": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_ZERO_UPKEEP_POLICY",
+        "version": 1,
+        "status": "PROVISIONAL",
+        "balance_verdict": "NOT_EVALUATED",
+        "base_daily_upkeep": 0,
+        "upkeep_per_owned_upgrade": 0
+      },
+      "operations": [
+        {
+          "income": 9007199254740991,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "SAFE_INTEGER_OVERFLOW"
+      }
+    },
+    {
+      "id": "DAY_1_EXACT_CASH_OUTFLOW",
+      "operations": [
+        {
+          "income": 0,
+          "ownedUpgradeCount": 0,
+          "reactivation": 5,
+          "roomService": 3,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "ACTIVE_PREFIX",
+        "errorCode": null,
+        "status": "ACTIVE",
+        "phase": "AWAITING_RESULT",
+        "completedStageCount": 1,
+        "nextStageNumber": 2,
+        "cash": 0,
+        "remainingDebt": 200,
+        "cumulativeRepayment": 0,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 1,
+        "liveCash": 0,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": null,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE",
+        "metrics": {
+          "completedStageCount": 1,
+          "cash": 0,
+          "remainingDebt": 200,
+          "cumulativeRepayment": 0,
+          "income": 0,
+          "upkeep": 2,
+          "reactivation": 5,
+          "roomService": 3,
+          "manualRepayment": 0
+        }
+      }
+    },
+    {
+      "id": "DAY_1_ZERO_INCOME_OPERATING_SHORTFALL",
+      "runtimePolicy": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_DAY_ONE_SHORTFALL_POLICY",
+        "version": 1,
+        "status": "PROVISIONAL",
+        "balance_verdict": "NOT_EVALUATED",
+        "base_daily_upkeep": 11,
+        "upkeep_per_owned_upgrade": 0
+      },
+      "operations": [
+        {
+          "income": 0,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "OPERATING_CASH_SHORTFALL",
+        "errorCode": null,
+        "status": "OPERATING_CASH_SHORTFALL",
+        "phase": "CLOSED",
+        "completedStageCount": 0,
+        "nextStageNumber": null,
+        "cash": 10,
+        "remainingDebt": 200,
+        "cumulativeRepayment": 0,
+        "debtClearedAtDeadline": null,
+        "ledgerLength": 0,
+        "liveCash": 10,
+        "ownedUpgradeCount": 0,
+        "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+        "checkpointOutcome": null,
+        "operatingShortfallAmount": 1,
+        "financeConfigId": "FORMAL_CAMPAIGN_FINANCE_CONFORMANCE_BASE",
+        "metrics": {
+          "completedStageCount": 0,
+          "cash": 10,
+          "remainingDebt": 200,
+          "cumulativeRepayment": 0,
+          "income": 0,
+          "upkeep": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 0
+        },
+        "adapterMetrics": {
+          "scope": "LIVE_CASH_AND_PENDING_PREPARATION",
+          "liveCash": 10,
+          "financeCash": 10,
+          "pendingExpenses": { "reactivation": 0, "roomService": 0 },
+          "pendingExpenseTotal": 0,
+          "pendingExpensesAlreadyPaid": false,
+          "failedPreparationExpenses": {
+            "reactivation": 0,
+            "roomService": 0,
+            "total": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "DAY_1_CASH_AND_DEBT_EXCESS_PRIORITY",
+      "baseConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_PRIORITY_BASE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 56,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 10,
+        "principal": 2,
+        "chapter_cumulative_targets": {
+          "7": 0,
+          "14": 0,
+          "28": 0,
+          "42": 0,
+          "56": 2
+        }
+      },
+      "extendedConfig": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_PRIORITY_TRUE",
+        "version": 1,
+        "contract_status": "PROVISIONAL",
+        "total_stages": 70,
+        "debt_deadline_stage": 56,
+        "debt_gate_id": "BASE_DEBT_CLEARED_AT_STAGE_56",
+        "starting_cash": 10,
+        "principal": 2,
+        "chapter_cumulative_targets": {
+          "7": 0,
+          "14": 0,
+          "28": 0,
+          "42": 0,
+          "56": 2
+        }
+      },
+      "runtimePolicy": {
+        "id": "FORMAL_CAMPAIGN_FINANCE_PRIORITY_POLICY",
+        "version": 1,
+        "status": "PROVISIONAL",
+        "balance_verdict": "NOT_EVALUATED",
+        "base_daily_upkeep": 5,
+        "upkeep_per_owned_upgrade": 0
+      },
+      "operations": [
+        {
+          "income": 0,
+          "ownedUpgradeCount": 0,
+          "reactivation": 0,
+          "roomService": 0,
+          "manualRepayment": 6
+        }
+      ],
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "MANUAL_REPAYMENT_EXCEEDS_CASH"
+      }
+    },
+    {
+      "id": "DAY_1_PREPARATION_PRECEDES_OPERATING_SHORTFALL",
+      "operations": [
+        {
+          "income": 0,
+          "ownedUpgradeCount": 0,
+          "reactivation": 11,
+          "roomService": 0,
+          "manualRepayment": 0
+        }
+      ],
+      "expected": {
+        "outcome": "REJECTED",
+        "errorCode": "PREPARATION_COST_EXCEEDS_LIVE_CASH"
+      }
+    }
+  ]
+}

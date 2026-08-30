@@ -10,9 +10,42 @@ from statistics import mean
 from typing import Any, Iterable
 
 
+if __package__:
+    from .campaign_finance_runtime import (
+        BALANCE_VERDICT as RUNTIME_BALANCE_VERDICT,
+        CONTRACT_STATUS as RUNTIME_CONTRACT_STATUS,
+        DEBT_DEADLINE_STAGE as RUNTIME_DEBT_DEADLINE_STAGE,
+        DEBT_GATE_ID as RUNTIME_DEBT_GATE_ID,
+        FinanceSimulationError,
+        MAX_SAFE_INTEGER as RUNTIME_MAX_SAFE_INTEGER,
+        SETTLEMENT_SEQUENCE as RUNTIME_SETTLEMENT_SEQUENCE,
+        commit_day_result,
+        create_finance_state,
+        debt_gate_evidence,
+        settle_day,
+        unlock_true_extension,
+    )
+else:
+    from campaign_finance_runtime import (
+        BALANCE_VERDICT as RUNTIME_BALANCE_VERDICT,
+        CONTRACT_STATUS as RUNTIME_CONTRACT_STATUS,
+        DEBT_DEADLINE_STAGE as RUNTIME_DEBT_DEADLINE_STAGE,
+        DEBT_GATE_ID as RUNTIME_DEBT_GATE_ID,
+        FinanceSimulationError,
+        MAX_SAFE_INTEGER as RUNTIME_MAX_SAFE_INTEGER,
+        SETTLEMENT_SEQUENCE as RUNTIME_SETTLEMENT_SEQUENCE,
+        commit_day_result,
+        create_finance_state,
+        debt_gate_evidence,
+        settle_day,
+        unlock_true_extension,
+    )
+
+
 BASE_YEAR_DAYS = 56
 CHAPTER_DAYS = (7, 14, 28, 42, 56)
-MAX_SAFE_INTEGER = (1 << 53) - 1
+REPORT_SCHEMA_VERSION = 2
+MAX_SAFE_INTEGER = RUNTIME_MAX_SAFE_INTEGER
 POLICY_CHAPTER_MANUAL = "CHAPTER_MINIMUM_PLUS_MANUAL"
 POLICY_FINAL_LUMP = "FINAL_DAY_LUMP_SUM"
 POLICY_DAILY_AUTO = "DAILY_AUTOMATIC"
@@ -34,11 +67,21 @@ AUDIT_LIMIT_KO = (
     "감사 JSON의 두 actualResults 배열은 실제로 도달한 5영업 경로의 하루 수입 규모 참고치다. "
     "이를 반복한 민감도 가정은 56일 전체 수입 분포, 하한, 평균 또는 상환 가능성을 증명하지 않는다."
 )
-PARTIAL_SETTLEMENT_LIMIT = (
-    "CHAPTER_MINIMUM_PLUS_MANUAL pays as much of a chapter gap as available cash allows, "
-    "then records the hurdle as missed if a gap remains. This is an analyzer-only partial-settlement "
-    "assumption, not a decision that the game will debit partial amounts instead of applying the "
-    "player's explicit repayment atomically and failing a missed chapter hurdle."
+RUNTIME_SETTLEMENT_CONTRACT = (
+    "Every comparison policy is an analysis agent that selects one explicit manualRepayment within "
+    "the available cash and remaining debt. The runtime applies commit -> explicit repayment -> "
+    "checkpoint atomically; it never performs an implicit mandatory debit or silently truncates a "
+    "player request. Reactivation and room-service inputs represent preparation costs already paid "
+    "from live cash before result commit, so an unaffordable preparation bundle rejects the analysis "
+    "path before operation. Operating and checkpoint failures terminate the simulated route immediately."
+)
+RUNTIME_CONFORMANCE_SCOPE = (
+    "CAMPAIGN_FINANCE_KERNEL_ONLY_WITH_PREPAID_RESOLVED_DAILY_INPUTS"
+)
+RUNTIME_CONFORMANCE_EXCLUDES = (
+    "guest generation, placement/scoring, upgrade offers and eligibility, room-state eligibility, "
+    "and full GameController rollback are outside this analyzer; reactivation and room-service "
+    "amounts are resolved inputs that must already have been payable from live cash"
 )
 
 
@@ -61,6 +104,7 @@ class EconomyConfig:
     daily_gross: tuple[int, ...]
     daily_upkeep: tuple[int, ...]
     reactivation_spends: tuple[Spend, ...]
+    room_service_spends: tuple[Spend, ...]
     chapter_targets: dict[int, int]
     manual_extra_repayments: tuple[Spend, ...]
 
@@ -263,9 +307,9 @@ def normalize_config(raw: dict[str, Any]) -> EconomyConfig:
         _nonnegative_int(value, f"daily_gross_sequence[{index}]")
         for index, value in enumerate(gross_raw, start=1)
     )
-    if len(daily_gross) < BASE_YEAR_DAYS:
+    if len(daily_gross) not in (BASE_YEAR_DAYS, 70):
         raise EconomyInputError(
-            f"daily_gross_sequence must contain at least {BASE_YEAR_DAYS} days"
+            f"daily_gross_sequence must contain exactly {BASE_YEAR_DAYS} or 70 days"
         )
     total_days = len(daily_gross)
     daily_upkeep = _expand_upkeep(
@@ -283,6 +327,12 @@ def normalize_config(raw: dict[str, Any]) -> EconomyConfig:
         total_days,
         "REACTIVATION",
     )
+    room_service_spends = _normalize_spends(
+        raw.get("room_service_spends"),
+        "room_service_spends",
+        total_days,
+        "ROOM_SERVICE",
+    )
     chapter_targets = _normalize_targets(
         raw.get("chapter_cumulative_targets"), principal
     )
@@ -298,6 +348,7 @@ def normalize_config(raw: dict[str, Any]) -> EconomyConfig:
         + sum(daily_gross)
         + sum(daily_upkeep)
         + sum(spend.amount for spend in reactivation_spends)
+        + sum(spend.amount for spend in room_service_spends)
         + sum(spend.amount for spend in manual_extra)
     )
     if aggregate_bound > MAX_SAFE_INTEGER:
@@ -311,6 +362,7 @@ def normalize_config(raw: dict[str, Any]) -> EconomyConfig:
         daily_gross=daily_gross,
         daily_upkeep=daily_upkeep,
         reactivation_spends=reactivation_spends,
+        room_service_spends=room_service_spends,
         chapter_targets=chapter_targets,
         manual_extra_repayments=manual_extra,
     )
@@ -323,14 +375,105 @@ def _group_spends(spends: tuple[Spend, ...]) -> dict[int, list[Spend]]:
     return grouped
 
 
-def _affordable_payment(requested: int, cash: int, remaining_principal: int) -> int:
-    return min(requested, max(cash, 0), remaining_principal)
-
-
 def _daily_auto_cumulative_target(principal: int, day: int) -> int:
     if day >= BASE_YEAR_DAYS:
         return principal
     return (principal * day + BASE_YEAR_DAYS - 1) // BASE_YEAR_DAYS
+
+
+def _runtime_configs(config: EconomyConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+    shared = {
+        "version": 1,
+        "contract_status": RUNTIME_CONTRACT_STATUS,
+        "debt_deadline_stage": RUNTIME_DEBT_DEADLINE_STAGE,
+        "debt_gate_id": RUNTIME_DEBT_GATE_ID,
+        "starting_cash": config.starting_cash,
+        "principal": config.principal,
+        "chapter_cumulative_targets": {
+            str(day): config.chapter_targets[day] for day in CHAPTER_DAYS
+        },
+    }
+    base = {
+        **shared,
+        "id": f"{config.scenario_id}__RUNTIME_BASE",
+        "total_stages": BASE_YEAR_DAYS,
+    }
+    extended = {
+        **shared,
+        "id": f"{config.scenario_id}__RUNTIME_TRUE_EXTENSION",
+        "total_stages": 70,
+    }
+    return base, extended
+
+
+def _policy_repayment_selection(
+    config: EconomyConfig,
+    policy_id: str,
+    day: int,
+    cumulative_repayment: int,
+    available_cash: int,
+    remaining_principal: int,
+    scheduled_manual_requested: int,
+) -> dict[str, Any]:
+    ignored_manual_requested = 0
+    checkpoint_gap = 0
+    if day > BASE_YEAR_DAYS:
+        strategy_target_requested = 0
+        ignored_manual_requested = scheduled_manual_requested
+        reason = "POST_DEADLINE_REPAYMENT_DISABLED"
+    elif policy_id == POLICY_CHAPTER_MANUAL:
+        if day in config.chapter_targets:
+            checkpoint_gap = max(
+                0, config.chapter_targets[day] - cumulative_repayment
+            )
+        strategy_target_requested = checkpoint_gap + scheduled_manual_requested
+        reason = "CHECKPOINT_GAP_PLUS_SCHEDULED_EXTRA"
+    elif policy_id == POLICY_FINAL_LUMP:
+        strategy_target_requested = (
+            remaining_principal if day == BASE_YEAR_DAYS else 0
+        )
+        ignored_manual_requested = scheduled_manual_requested
+        reason = "FINAL_DAY_POLICY_AGENT"
+    elif policy_id == POLICY_DAILY_AUTO:
+        desired_cumulative = _daily_auto_cumulative_target(config.principal, day)
+        strategy_target_requested = max(
+            0, desired_cumulative - cumulative_repayment
+        )
+        ignored_manual_requested = scheduled_manual_requested
+        reason = "DAILY_LINEAR_POLICY_AGENT"
+    else:  # guarded by simulate_policy
+        raise EconomyInputError(f"unknown repayment policy {policy_id!r}")
+
+    selected_manual_repayment = min(
+        strategy_target_requested,
+        available_cash,
+        remaining_principal,
+    )
+    return {
+        "reason": reason,
+        "strategy_target_requested": strategy_target_requested,
+        "selected_manual_repayment": selected_manual_repayment,
+        "selection_was_bounded": (
+            selected_manual_repayment != strategy_target_requested
+        ),
+        "checkpoint_gap_requested": checkpoint_gap,
+        "scheduled_manual_requested": scheduled_manual_requested,
+        "ignored_manual_requested_by_policy": ignored_manual_requested,
+    }
+
+
+def _legacy_checkpoint(checkpoint: dict[str, Any] | None) -> dict[str, Any] | None:
+    if checkpoint is None:
+        return None
+    reached = checkpoint["outcome"] in {"MET", "DEBT_CLEARED"}
+    return {
+        "day": checkpoint["stageNumber"],
+        "cumulative_target": checkpoint["targetAmount"],
+        "cumulative_repayment": checkpoint["cumulativeRepayment"],
+        "gap": checkpoint["shortfallAmount"],
+        "status": "REACHED" if reached else "MISSED",
+        "runtime_outcome": checkpoint["outcome"],
+    }
 
 
 def simulate_policy(
@@ -342,110 +485,228 @@ def simulate_policy(
     if policy_id not in POLICY_IDS:
         raise EconomyInputError(f"unknown repayment policy {policy_id!r}")
     reactivation_by_day = _group_spends(config.reactivation_spends)
+    room_service_by_day = _group_spends(config.room_service_spends)
     manual_by_day = _group_spends(config.manual_extra_repayments)
-
-    cash = config.starting_cash
-    cumulative_repayment = 0
+    base_config, extended_config = _runtime_configs(config)
+    active_config = base_config
+    state = create_finance_state(base_config)
     ledger: list[dict[str, Any]] = []
     checkpoints: list[dict[str, Any]] = []
     base_deadline_snapshot: dict[str, Any] | None = None
-
-    total_gross = 0
-    total_upkeep = 0
-    total_reactivation = 0
-    total_repayment = 0
-    minimum_cash = cash
+    extension_unlocked = False
+    analysis_rejection: dict[str, Any] | None = None
+    failed_day_preparation = {
+        "day": None,
+        "reactivation": 0,
+        "room_service": 0,
+        "total": 0,
+    }
+    terminal_live_cash = state["cash"]
+    minimum_cash = state["cash"]
+    minimum_finance_cash = state["cash"]
 
     for day, gross in enumerate(config.daily_gross, start=1):
-        opening_cash = cash
+        if state["status"] != "ACTIVE":
+            break
+        opening_cash = state["cash"]
         upkeep = config.daily_upkeep[day - 1]
         reactivation_entries = reactivation_by_day.get(day, [])
         reactivation = sum(entry.amount for entry in reactivation_entries)
+        room_service_entries = room_service_by_day.get(day, [])
+        room_service = sum(entry.amount for entry in room_service_entries)
+        preparation_total = reactivation + room_service
         manual_entries = manual_by_day.get(day, [])
         manual_requested_source = sum(entry.amount for entry in manual_entries)
-
-        cash = opening_cash + gross - upkeep - reactivation
-        cash_before_repayment = cash
-        remaining_before = config.principal - cumulative_repayment
-
-        mandatory_requested = 0
-        mandatory_paid = 0
-        manual_requested = 0
-        manual_paid = 0
-        automatic_requested = 0
-        automatic_paid = 0
-        ignored_manual_requested = 0
-
-        if policy_id == POLICY_CHAPTER_MANUAL:
-            if day in config.chapter_targets:
-                mandatory_requested = max(
-                    0, config.chapter_targets[day] - cumulative_repayment
-                )
-                mandatory_paid = _affordable_payment(
-                    mandatory_requested, cash, remaining_before
-                )
-                cash -= mandatory_paid
-                cumulative_repayment += mandatory_paid
-                remaining_before -= mandatory_paid
-            manual_requested = manual_requested_source
-            manual_paid = _affordable_payment(
-                manual_requested, cash, remaining_before
-            )
-            cash -= manual_paid
-            cumulative_repayment += manual_paid
-        elif policy_id == POLICY_FINAL_LUMP:
-            ignored_manual_requested = manual_requested_source
-            if day == BASE_YEAR_DAYS:
-                automatic_requested = config.principal - cumulative_repayment
-                automatic_paid = _affordable_payment(
-                    automatic_requested, cash, remaining_before
-                )
-                cash -= automatic_paid
-                cumulative_repayment += automatic_paid
-        elif policy_id == POLICY_DAILY_AUTO:
-            ignored_manual_requested = manual_requested_source
-            if day <= BASE_YEAR_DAYS:
-                desired_cumulative = _daily_auto_cumulative_target(
-                    config.principal, day
-                )
-                automatic_requested = max(
-                    0, desired_cumulative - cumulative_repayment
-                )
-                automatic_paid = _affordable_payment(
-                    automatic_requested, cash, remaining_before
-                )
-                cash -= automatic_paid
-                cumulative_repayment += automatic_paid
-
-        repayment_requested = (
-            mandatory_requested + manual_requested + automatic_requested
-        )
-        repayment_paid = mandatory_paid + manual_paid + automatic_paid
-        remaining_principal = config.principal - cumulative_repayment
-        conservation_left = opening_cash + gross
-        conservation_right = cash + upkeep + reactivation + repayment_paid
-        conservation_delta = conservation_left - conservation_right
-        if conservation_delta != 0:
-            raise AssertionError(
-                f"cash conservation failed on day {day}: {conservation_delta}"
-            )
-
-        checkpoint: dict[str, Any] | None = None
-        if day in config.chapter_targets:
-            target = config.chapter_targets[day]
-            checkpoint = {
+        if preparation_total > opening_cash:
+            analysis_rejection = {
+                "type": "UNEXECUTABLE_PREPARATION_PLAN",
                 "day": day,
-                "cumulative_target": target,
-                "cumulative_repayment": cumulative_repayment,
-                "gap": max(0, target - cumulative_repayment),
-                "status": "REACHED" if cumulative_repayment >= target else "MISSED",
+                "opening_finance_cash": opening_cash,
+                "requested_reactivation": reactivation,
+                "requested_room_service": room_service,
+                "requested_preparation_total": preparation_total,
+                "shortfall_amount": preparation_total - opening_cash,
+                "reason": (
+                    "reactivation and room-service preparation must be paid from live cash "
+                    "before the day result is committed"
+                ),
             }
+            ledger.append(
+                {
+                    "day": day,
+                    "period": "BASE_YEAR" if day <= BASE_YEAR_DAYS else "TRUE_EXTENSION",
+                    "row_type": "ANALYSIS_PREPARATION_REJECTION",
+                    "operation_attempted": False,
+                    "opening_cash": opening_cash,
+                    "opening_finance_cash": opening_cash,
+                    "live_cash_after_preparation": opening_cash,
+                    "gross": gross,
+                    "upkeep": upkeep,
+                    "reactivation": {
+                        "amount": reactivation,
+                        "items": [
+                            {"label": entry.label, "amount": entry.amount}
+                            for entry in reactivation_entries
+                        ],
+                    },
+                    "room_service": {
+                        "amount": room_service,
+                        "items": [
+                            {"label": entry.label, "amount": entry.amount}
+                            for entry in room_service_entries
+                        ],
+                    },
+                    "preparation": {
+                        "requested": preparation_total,
+                        "paid": 0,
+                        "payable": False,
+                    },
+                    "cash_before_repayment": None,
+                    "repayment": {
+                        "requested": 0,
+                        "paid": 0,
+                        "selected_manual_repayment": 0,
+                        "strategy_target_requested": 0,
+                        "selection_was_bounded": False,
+                        "mandatory_requested": 0,
+                        "mandatory_paid": 0,
+                        "manual_requested": 0,
+                        "manual_paid": 0,
+                        "automatic_requested": 0,
+                        "automatic_paid": 0,
+                        "ignored_manual_requested_by_policy": manual_requested_source,
+                    },
+                    "cumulative_repayment": state["cumulativeRepayment"],
+                    "remaining_principal": state["remainingDebt"],
+                    "closing_cash": opening_cash,
+                    "closing_finance_cash": opening_cash,
+                    "closing_live_cash": opening_cash,
+                    "liquidity_shortfall": False,
+                    "conservation_delta": 0,
+                    "chapter_hurdle": None,
+                    "runtime_checkpoint": None,
+                    "runtime_status": state["status"],
+                    "operating_failure": None,
+                    "analysis_rejection": analysis_rejection,
+                }
+            )
+            break
+
+        live_cash_after_preparation = opening_cash - preparation_total
+        terminal_live_cash = live_cash_after_preparation
+        minimum_cash = min(minimum_cash, live_cash_after_preparation)
+        operation = {
+            "stageNumber": day,
+            "campaignOperationId": f"ECONOMY:{config.scenario_id}:{day}",
+            "campaignResultIdentity": {
+                "stageNumber": day,
+                "operationKind": "NORMAL",
+                "templateIndex": (day - 1) % 5,
+            },
+            "income": gross,
+            "upkeep": upkeep,
+            "reactivation": reactivation,
+            "roomService": room_service,
+        }
+        committed = commit_day_result(active_config, state, operation)
+        if committed["status"] == "OPERATING_CASH_SHORTFALL":
+            failure = committed["operatingFailure"]
+            failed_day_preparation = {
+                "day": day,
+                "reactivation": reactivation,
+                "room_service": room_service,
+                "total": preparation_total,
+            }
+            ledger.append(
+                {
+                    "day": day,
+                    "period": "BASE_YEAR" if day <= BASE_YEAR_DAYS else "TRUE_EXTENSION",
+                    "row_type": "RUNTIME_OPERATING_FAILURE",
+                    "operation_attempted": True,
+                    "opening_cash": opening_cash,
+                    "opening_finance_cash": opening_cash,
+                    "live_cash_after_preparation": live_cash_after_preparation,
+                    "gross": gross,
+                    "upkeep": upkeep,
+                    "reactivation": {
+                        "amount": reactivation,
+                        "items": [
+                            {"label": entry.label, "amount": entry.amount}
+                            for entry in reactivation_entries
+                        ],
+                    },
+                    "room_service": {
+                        "amount": room_service,
+                        "items": [
+                            {"label": entry.label, "amount": entry.amount}
+                            for entry in room_service_entries
+                        ],
+                    },
+                    "preparation": {
+                        "requested": preparation_total,
+                        "paid": preparation_total,
+                        "payable": True,
+                    },
+                    "cash_before_repayment": None,
+                    "repayment": {
+                        "requested": 0,
+                        "paid": 0,
+                        "selected_manual_repayment": 0,
+                        "strategy_target_requested": 0,
+                        "selection_was_bounded": False,
+                        "mandatory_requested": 0,
+                        "mandatory_paid": 0,
+                        "manual_requested": 0,
+                        "manual_paid": 0,
+                        "automatic_requested": 0,
+                        "automatic_paid": 0,
+                        "ignored_manual_requested_by_policy": manual_requested_source,
+                    },
+                    "cumulative_repayment": committed["cumulativeRepayment"],
+                    "remaining_principal": committed["remainingDebt"],
+                    "closing_cash": terminal_live_cash,
+                    "closing_finance_cash": committed["cash"],
+                    "closing_live_cash": terminal_live_cash,
+                    "liquidity_shortfall": True,
+                    "conservation_delta": None,
+                    "chapter_hurdle": None,
+                    "runtime_checkpoint": None,
+                    "runtime_status": committed["status"],
+                    "operating_failure": failure,
+                    "analysis_rejection": None,
+                }
+            )
+            state = committed
+            minimum_finance_cash = min(minimum_finance_cash, state["cash"])
+            break
+
+        selection = _policy_repayment_selection(
+            config,
+            policy_id,
+            day,
+            committed["cumulativeRepayment"],
+            committed["cash"],
+            committed["remainingDebt"],
+            manual_requested_source,
+        )
+        settled = settle_day(
+            active_config,
+            committed,
+            {"manualRepayment": selection["selected_manual_repayment"]},
+        )
+        runtime_entry = settled["ledger"][-1]
+        checkpoint = _legacy_checkpoint(runtime_entry["checkpoint"])
+        if checkpoint is not None:
             checkpoints.append(checkpoint)
 
         row = {
             "day": day,
             "period": "BASE_YEAR" if day <= BASE_YEAR_DAYS else "TRUE_EXTENSION",
+            "row_type": "RUNTIME_SETTLED_DAY",
+            "operation_attempted": True,
             "opening_cash": opening_cash,
+            "opening_finance_cash": opening_cash,
+            "live_cash_after_preparation": live_cash_after_preparation,
             "gross": gross,
             "upkeep": upkeep,
             "reactivation": {
@@ -455,114 +716,240 @@ def simulate_policy(
                     for entry in reactivation_entries
                 ],
             },
-            "cash_before_repayment": cash_before_repayment,
-            "repayment": {
-                "requested": repayment_requested,
-                "paid": repayment_paid,
-                "mandatory_requested": mandatory_requested,
-                "mandatory_paid": mandatory_paid,
-                "manual_requested": manual_requested,
-                "manual_paid": manual_paid,
-                "automatic_requested": automatic_requested,
-                "automatic_paid": automatic_paid,
-                "ignored_manual_requested_by_policy": ignored_manual_requested,
+            "room_service": {
+                "amount": room_service,
+                "items": [
+                    {"label": entry.label, "amount": entry.amount}
+                    for entry in room_service_entries
+                ],
             },
-            "cumulative_repayment": cumulative_repayment,
-            "remaining_principal": remaining_principal,
-            "closing_cash": cash,
-            "liquidity_shortfall": cash < 0,
-            "conservation_delta": conservation_delta,
+            "preparation": {
+                "requested": preparation_total,
+                "paid": preparation_total,
+                "payable": True,
+            },
+            "cash_before_repayment": committed["cash"],
+            "repayment": {
+                "requested": selection["selected_manual_repayment"],
+                "paid": runtime_entry["manualRepayment"],
+                "selected_manual_repayment": selection["selected_manual_repayment"],
+                "strategy_target_requested": selection["strategy_target_requested"],
+                "selection_was_bounded": selection["selection_was_bounded"],
+                "selection_reason": selection["reason"],
+                "checkpoint_gap_requested": selection["checkpoint_gap_requested"],
+                "scheduled_manual_requested": selection["scheduled_manual_requested"],
+                "mandatory_requested": 0,
+                "mandatory_paid": 0,
+                "manual_requested": selection["selected_manual_repayment"],
+                "manual_paid": runtime_entry["manualRepayment"],
+                "automatic_requested": 0,
+                "automatic_paid": 0,
+                "ignored_manual_requested_by_policy": selection[
+                    "ignored_manual_requested_by_policy"
+                ],
+            },
+            "cumulative_repayment": settled["cumulativeRepayment"],
+            "remaining_principal": settled["remainingDebt"],
+            "closing_cash": settled["cash"],
+            "closing_finance_cash": settled["cash"],
+            "closing_live_cash": settled["cash"],
+            "liquidity_shortfall": False,
+            "conservation_delta": runtime_entry["cashConservation"]["delta"],
             "chapter_hurdle": checkpoint,
+            "runtime_checkpoint": runtime_entry["checkpoint"],
+            "runtime_status": settled["status"],
+            "operating_failure": None,
+            "analysis_rejection": None,
         }
         ledger.append(row)
         if day == BASE_YEAR_DAYS:
             base_deadline_snapshot = {
                 "day": BASE_YEAR_DAYS,
-                "cash": cash,
-                "cumulative_repayment": cumulative_repayment,
-                "remaining_principal": remaining_principal,
-                "qualified": cumulative_repayment >= config.principal,
+                "observed": True,
+                "cash": settled["cash"],
+                "finance_cash": settled["cash"],
+                "cumulative_repayment": settled["cumulativeRepayment"],
+                "remaining_principal": settled["remainingDebt"],
+                "qualified": settled["remainingDebt"] == 0,
                 "status": (
                     "QUALIFIED_BY_DAY_56"
-                    if cumulative_repayment >= config.principal
+                    if settled["remainingDebt"] == 0
                     else "NOT_QUALIFIED_BY_DAY_56"
                 ),
             }
+            if config.total_days > BASE_YEAR_DAYS and settled["remainingDebt"] == 0:
+                evidence = debt_gate_evidence(base_config, settled)
+                settled = unlock_true_extension(
+                    base_config,
+                    extended_config,
+                    settled,
+                    evidence,
+                )
+                active_config = extended_config
+                extension_unlocked = True
+        state = settled
+        terminal_live_cash = state["cash"]
+        minimum_cash = min(minimum_cash, state["cash"])
+        minimum_finance_cash = min(minimum_finance_cash, state["cash"])
 
-        total_gross += gross
-        total_upkeep += upkeep
-        total_reactivation += reactivation
-        total_repayment += repayment_paid
-        minimum_cash = min(minimum_cash, cash)
+    if base_deadline_snapshot is None:
+        base_deadline_snapshot = {
+            "day": BASE_YEAR_DAYS,
+            "observed": False,
+            "cash": terminal_live_cash,
+            "finance_cash": state["cash"],
+            "cumulative_repayment": state["cumulativeRepayment"],
+            "remaining_principal": state["remainingDebt"],
+            "qualified": False,
+            "status": "NOT_REACHED_EARLY_TERMINAL",
+            "terminal_status": (
+                "ANALYSIS_INPUT_UNEXECUTABLE_PREPARATION_PLAN"
+                if analysis_rejection is not None
+                else state["status"]
+            ),
+        }
 
-    assert base_deadline_snapshot is not None
-    base_rows = ledger[:BASE_YEAR_DAYS]
-    extension_rows = ledger[BASE_YEAR_DAYS:]
-    extension_repayment = sum(
-        row["repayment"]["paid"] for row in extension_rows
+    runtime_entries = state["ledger"]
+    base_entries = [entry for entry in runtime_entries if entry["stageNumber"] <= 56]
+    extension_entries = [entry for entry in runtime_entries if entry["stageNumber"] > 56]
+    extension_repayment = sum(entry["manualRepayment"] for entry in extension_entries)
+    if extension_repayment != 0:
+        raise AssertionError("runtime-conformant extension cannot contain repayment")
+    failed_preparation_is_base = (
+        failed_day_preparation["day"] is not None
+        and failed_day_preparation["day"] <= BASE_YEAR_DAYS
+    )
+    base_failed_reactivation = (
+        failed_day_preparation["reactivation"] if failed_preparation_is_base else 0
+    )
+    base_failed_room_service = (
+        failed_day_preparation["room_service"] if failed_preparation_is_base else 0
     )
     base_totals = {
-        "gross": sum(row["gross"] for row in base_rows),
-        "upkeep": sum(row["upkeep"] for row in base_rows),
-        "reactivation": sum(row["reactivation"]["amount"] for row in base_rows),
-        "repayment": sum(row["repayment"]["paid"] for row in base_rows),
+        "gross": sum(entry["income"] for entry in base_entries),
+        "upkeep": sum(entry["upkeep"] for entry in base_entries),
+        "reactivation": (
+            sum(entry["reactivation"] for entry in base_entries)
+            + base_failed_reactivation
+        ),
+        "room_service": (
+            sum(entry["roomService"] for entry in base_entries)
+            + base_failed_room_service
+        ),
+        "repayment": sum(entry["manualRepayment"] for entry in base_entries),
     }
+    total_gross = sum(entry["income"] for entry in runtime_entries)
+    total_upkeep = sum(entry["upkeep"] for entry in runtime_entries)
+    total_reactivation = (
+        sum(entry["reactivation"] for entry in runtime_entries)
+        + failed_day_preparation["reactivation"]
+    )
+    total_room_service = (
+        sum(entry["roomService"] for entry in runtime_entries)
+        + failed_day_preparation["room_service"]
+    )
+    total_repayment = sum(entry["manualRepayment"] for entry in runtime_entries)
+    pending_preparation_expense = state["cash"] - terminal_live_cash
+    if pending_preparation_expense != failed_day_preparation["total"]:
+        raise AssertionError("terminal finance/live cash gap must equal paid failed-day preparation")
+    terminal_status = (
+        "ANALYSIS_INPUT_UNEXECUTABLE_PREPARATION_PLAN"
+        if analysis_rejection is not None
+        else state["status"]
+    )
     result = {
-        "status": "SIMULATED_PROVISIONAL",
-        "balance_verdict": "NOT_EVALUATED",
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "status": (
+            "ANALYSIS_INPUT_UNEXECUTABLE_PREPARATION_PLAN"
+            if analysis_rejection is not None
+            else "SIMULATED_RUNTIME_CONFORMANT_PROVISIONAL"
+        ),
+        "runtime_conformance": True,
+        "runtime_conformance_scope": RUNTIME_CONFORMANCE_SCOPE,
+        "runtime_conformance_excludes": RUNTIME_CONFORMANCE_EXCLUDES,
+        "full_game_controller_conformance_claimed": False,
+        "path_executable": analysis_rejection is None,
+        "analysis_rejection": analysis_rejection,
+        "balance_verdict": RUNTIME_BALANCE_VERDICT,
         "policy_id": policy_id,
         "policy_role": (
-            "recommended_structure_under_test"
+            "runtime_conformant_analysis_strategy"
             if policy_id == POLICY_CHAPTER_MANUAL
-            else "comparison_only"
+            else "runtime_conformant_comparison_strategy"
         ),
-        "settlement_assumption": (
-            "PARTIAL_CHAPTER_GAP_FROM_AVAILABLE_CASH_ANALYSIS_ONLY"
-            if policy_id == POLICY_CHAPTER_MANUAL
-            else "NOT_APPLICABLE"
-        ),
+        "settlement_assumption": "EXPLICIT_BOUNDED_MANUAL_REPAYMENT_POLICY_AGENT",
+        "settlement_sequence": RUNTIME_SETTLEMENT_SEQUENCE,
         "scenario_id": config.scenario_id,
         "base_year_deadline": base_deadline_snapshot,
         "true_extension_rule": {
             "extension_days_present": config.total_days > BASE_YEAR_DAYS,
+            "extension_unlocked": extension_unlocked,
             "repayment_paid_after_day_56": extension_repayment,
-            "final_debt_changed_after_day_56": extension_repayment > 0,
+            "final_debt_changed_after_day_56": False,
             "repayment_after_day_56_can_retroactively_change_qualification": False,
         },
         "chapter_hurdles": checkpoints,
-        "all_chapter_minimums_reached": all(
+        "all_chapter_minimums_reached": len(checkpoints) == len(CHAPTER_DAYS) and all(
             checkpoint["status"] == "REACHED" for checkpoint in checkpoints
         ),
         "base_year_totals": base_totals,
         "whole_sequence_totals": {
-            "days": config.total_days,
+            "days": state["completedStageCount"],
+            "scheduled_days": config.total_days,
             "gross": total_gross,
             "upkeep": total_upkeep,
             "reactivation": total_reactivation,
+            "room_service": total_room_service,
             "repayment": total_repayment,
-            "closing_cash": cash,
-            "remaining_principal": config.principal - cumulative_repayment,
+            "closing_cash": terminal_live_cash,
+            "closing_finance_cash": state["cash"],
+            "terminal_live_cash": terminal_live_cash,
+            "pending_preparation_expense": pending_preparation_expense,
+            "failed_day_preparation": failed_day_preparation,
+            "remaining_principal": state["remainingDebt"],
             "minimum_cash": minimum_cash,
+            "minimum_live_cash": minimum_cash,
+            "minimum_finance_cash": minimum_finance_cash,
             "liquidity_shortfall_days": [
                 row["day"] for row in ledger if row["liquidity_shortfall"]
             ],
+            "terminal_status": terminal_status,
+            "attempted_operation_count": sum(
+                1 for row in ledger if row["operation_attempted"]
+            ),
         },
         "conservation_check": {
             "opening_cash_plus_gross": config.starting_cash + total_gross,
             "closing_cash_plus_outflows": (
-                cash + total_upkeep + total_reactivation + total_repayment
+                terminal_live_cash
+                + total_upkeep
+                + total_reactivation
+                + total_room_service
+                + total_repayment
             ),
             "delta": (
                 config.starting_cash
                 + total_gross
-                - cash
+                - terminal_live_cash
                 - total_upkeep
                 - total_reactivation
+                - total_room_service
                 - total_repayment
             ),
         },
+        "runtime_terminal_state": {
+            "phase": state["phase"],
+            "status": state["status"],
+            "completed_stage_count": state["completedStageCount"],
+            "operating_failure": state["operatingFailure"],
+            "finance_cash": state["cash"],
+            "terminal_live_cash": terminal_live_cash,
+            "pending_preparation_expense": pending_preparation_expense,
+            "game_terminal": state["status"] != "ACTIVE",
+            "analysis_status": terminal_status,
+        },
         "disclaimer": BALANCE_DISCLAIMER,
-        "settlement_limit": PARTIAL_SETTLEMENT_LIMIT,
+        "settlement_limit": RUNTIME_SETTLEMENT_CONTRACT,
     }
     if include_ledger:
         result["daily_ledger"] = ledger
@@ -741,17 +1128,54 @@ def _compact_result(result: dict[str, Any]) -> dict[str, Any]:
     base = result["base_year_deadline"]
     totals = result["base_year_totals"]
     whole = result["whole_sequence_totals"]
+    day_56_observed = base["observed"] is True
     return {
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "scenario_id": result["scenario_id"],
         "policy_id": result["policy_id"],
         "policy_role": result["policy_role"],
-        "gross_days_1_56": totals["gross"],
-        "upkeep_days_1_56": totals["upkeep"],
-        "reactivation_days_1_56": totals["reactivation"],
-        "repaid_by_day_56": base["cumulative_repayment"],
-        "remaining_principal_day_56": base["remaining_principal"],
-        "cash_day_56": base["cash"],
-        "day_56_gate": base["status"],
+        "runtime_conformance": result["runtime_conformance"],
+        "path_executable": result["path_executable"],
+        "analysis_rejection_type": (
+            result["analysis_rejection"]["type"]
+            if result["analysis_rejection"] is not None
+            else None
+        ),
+        "executed_prefix_completed_days": whole["days"],
+        "executed_prefix_attempted_operation_count": whole[
+            "attempted_operation_count"
+        ],
+        "executed_prefix_gross": whole["gross"],
+        "executed_prefix_upkeep": whole["upkeep"],
+        "executed_prefix_reactivation": whole["reactivation"],
+        "executed_prefix_room_service": whole["room_service"],
+        "terminal_live_cash": whole["terminal_live_cash"],
+        "terminal_finance_cash": whole["closing_finance_cash"],
+        "day_56_observed": day_56_observed,
+        "gross_days_1_56": totals["gross"] if day_56_observed else None,
+        "upkeep_days_1_56": totals["upkeep"] if day_56_observed else None,
+        "reactivation_days_1_56": (
+            totals["reactivation"] if day_56_observed else None
+        ),
+        "room_service_days_1_56": (
+            totals["room_service"] if day_56_observed else None
+        ),
+        "repaid_by_day_56": (
+            base["cumulative_repayment"] if day_56_observed else None
+        ),
+        "remaining_principal_day_56": (
+            base["remaining_principal"] if day_56_observed else None
+        ),
+        "cash_day_56": base["cash"] if day_56_observed else None,
+        "day_56_gate": base["status"] if day_56_observed else None,
+        "legacy_day_56_fields": {
+            "deprecated": True,
+            "observed_only": True,
+            "meaning": (
+                "legacy *_days_1_56 and *_day_56 values are populated only after "
+                "day 56 has actually settled; use executed_prefix_* for early terminals"
+            ),
+        },
         "all_chapter_minimums_reached": result["all_chapter_minimums_reached"],
         "chapter_statuses": {
             str(checkpoint["day"]): checkpoint["status"]
@@ -759,7 +1183,9 @@ def _compact_result(result: dict[str, Any]) -> dict[str, Any]:
         },
         "minimum_cash": whole["minimum_cash"],
         "liquidity_shortfall_day_count": len(whole["liquidity_shortfall_days"]),
-        "balance_verdict": "NOT_EVALUATED",
+        "terminal_status": whole["terminal_status"],
+        "completed_days": whole["days"],
+        "balance_verdict": RUNTIME_BALANCE_VERDICT,
     }
 
 
@@ -779,13 +1205,19 @@ def make_sensitivity_report(
             if include_ledger:
                 detailed.append(result)
     return {
-        "status": "PROVISIONAL_SENSITIVITY_ANALYSIS",
-        "balance_verdict": "NOT_EVALUATED",
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "status": "RUNTIME_CONFORMANT_PROVISIONAL_SENSITIVITY_ANALYSIS",
+        "runtime_conformance": True,
+        "runtime_conformance_scope": RUNTIME_CONFORMANCE_SCOPE,
+        "runtime_conformance_excludes": RUNTIME_CONFORMANCE_EXCLUDES,
+        "full_game_controller_conformance_claimed": False,
+        "balance_verdict": RUNTIME_BALANCE_VERDICT,
         "base_year_days": BASE_YEAR_DAYS,
         "chapter_days": list(CHAPTER_DAYS),
         "currency_contract": (
             "nonnegative JavaScript-safe integer gold inputs and aggregate exposure; "
-            "cash may become negative to expose liquidity shortfall"
+            "cash never becomes negative; a preparation bundle above opening finance cash rejects "
+            "the analysis path, while a later operating shortfall closes the executed route"
         ),
         "audit_income_reference": reference,
         "assumption_status": "ILLUSTRATIVE_ONLY",
@@ -794,6 +1226,7 @@ def make_sensitivity_report(
             "principal": 700,
             "chapter_cumulative_targets": _default_targets(700),
             "reactivation_spends": {"8": 30, "15": 45, "29": 60, "43": 75},
+            "room_service_spends": {},
             "manual_extra_repayments": {"21": 30, "35": 30},
             "gross_construction": (
                 "Each five-day audit reference, plus its elementwise midpoint, is mechanically "
@@ -807,7 +1240,7 @@ def make_sensitivity_report(
         "interpretation_limits": [
             BALANCE_DISCLAIMER,
             AUDIT_LIMIT_KO,
-            PARTIAL_SETTLEMENT_LIMIT,
+            RUNTIME_SETTLEMENT_CONTRACT,
         ],
     }
 
@@ -815,16 +1248,19 @@ def make_sensitivity_report(
 def policy_definitions() -> dict[str, str]:
     return {
         POLICY_CHAPTER_MANUAL: (
-            "At each chapter boundary, pay the gap to the cumulative minimum from available cash, "
-            "then apply player-scheduled extra repayments. Earlier extras reduce later cumulative gaps. "
-            "A cash-short gap receives a partial payment in this analyzer only; the actual game applies "
-            "only the player's explicit repayment atomically and closes a missed chapter hurdle."
+            "An analysis agent proposes the next checkpoint gap plus any player-scheduled extra amount, "
+            "bounds that proposal to cash and remaining debt, and submits the result as one explicit "
+            "manualRepayment. A remaining checkpoint gap closes the route immediately."
         ),
         POLICY_FINAL_LUMP: (
-            "Make no repayment before day 56, then pay as much of the remaining principal as cash allows."
+            "An analysis agent explicitly selects zero before day 56 and a cash/debt-bounded manual "
+            "repayment on day 56. A nonzero earlier checkpoint target therefore closes this route at "
+            "the first missed chapter rather than allowing a later lump-sum recovery."
         ),
         POLICY_DAILY_AUTO: (
-            "Each base-year day, catch up toward ceil(principal * day / 56) from available cash."
+            "On each base-year result review, an analysis agent explicitly selects a cash/debt-bounded "
+            "manual repayment toward ceil(principal * day / 56). This is a comparison strategy, not an "
+            "automatic debit performed by the game."
         ),
     }
 
@@ -837,6 +1273,7 @@ def _base_self_test_raw(**overrides: Any) -> dict[str, Any]:
         "daily_gross_sequence": [10] * BASE_YEAR_DAYS,
         "per_day_upkeep_schedule": 2,
         "reactivation_spends": [],
+        "room_service_spends": [],
         "chapter_cumulative_targets": {
             "7": 10,
             "14": 20,
@@ -858,11 +1295,14 @@ def run_self_tests() -> dict[str, Any]:
     )
     assert conservation["conservation_check"]["delta"] == 0
     assert all(row["conservation_delta"] == 0 for row in conservation["daily_ledger"])
-    checks.append("cash_conservation_equation")
+    assert conservation["runtime_conformance"] is True
+    assert conservation["whole_sequence_totals"]["minimum_cash"] >= 0
+    checks.append("runtime_cash_conservation_equation")
 
     for bad_field, bad_value in (
         ("per_day_upkeep_schedule", -1),
         ("reactivation_spends", [{"day": 1, "amount": -1}]),
+        ("room_service_spends", [{"day": 1, "amount": -1}]),
         ("manual_extra_repayments", [{"day": 1, "amount": -1}]),
     ):
         try:
@@ -905,6 +1345,13 @@ def run_self_tests() -> dict[str, Any]:
                 starting_cash=100,
                 daily_gross_sequence=[0] * BASE_YEAR_DAYS,
                 per_day_upkeep_schedule=0,
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 100,
+                },
             )
         ),
         POLICY_FINAL_LUMP,
@@ -915,6 +1362,13 @@ def run_self_tests() -> dict[str, Any]:
                 starting_cash=99,
                 daily_gross_sequence=[0] * BASE_YEAR_DAYS,
                 per_day_upkeep_schedule=0,
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 100,
+                },
             )
         ),
         POLICY_FINAL_LUMP,
@@ -940,14 +1394,17 @@ def run_self_tests() -> dict[str, Any]:
         normalize_config(extension_raw), POLICY_CHAPTER_MANUAL
     )
     assert extension["base_year_deadline"]["qualified"] is False
-    assert extension["whole_sequence_totals"]["remaining_principal"] == 0
+    assert extension["whole_sequence_totals"]["remaining_principal"] == 100
+    assert extension["whole_sequence_totals"]["days"] == 56
+    assert extension["true_extension_rule"]["extension_unlocked"] is False
+    assert extension["true_extension_rule"]["repayment_paid_after_day_56"] == 0
     assert (
         extension["true_extension_rule"][
             "repayment_after_day_56_can_retroactively_change_qualification"
         ]
         is False
     )
-    checks.append("true_extension_does_not_retroactively_change_gate")
+    checks.append("failed_day_56_does_not_consume_extension")
 
     comparison_config = normalize_config(
         _base_self_test_raw(
@@ -968,15 +1425,186 @@ def run_self_tests() -> dict[str, Any]:
         row["repayment"]["manual_paid"] > 0 for row in chapter["daily_ledger"]
     )
     assert lump["chapter_hurdles"][0]["status"] == "MISSED"
-    assert lump["base_year_deadline"]["qualified"] is True
-    assert daily["daily_ledger"][0]["repayment"]["automatic_paid"] > 0
+    assert lump["base_year_deadline"]["observed"] is False
+    assert lump["whole_sequence_totals"]["days"] == 7
+    assert lump["whole_sequence_totals"]["terminal_status"] == "CHAPTER_HURDLE_MISSED"
+    lump_compact = _compact_result(lump)
+    assert lump_compact["report_schema_version"] == REPORT_SCHEMA_VERSION
+    assert lump_compact["executed_prefix_completed_days"] == 7
+    assert lump_compact["executed_prefix_gross"] == 70
+    assert lump_compact["executed_prefix_upkeep"] == 0
+    assert lump_compact["terminal_live_cash"] == lump["whole_sequence_totals"][
+        "terminal_live_cash"
+    ]
+    assert lump_compact["terminal_finance_cash"] == lump["whole_sequence_totals"][
+        "closing_finance_cash"
+    ]
+    assert lump_compact["day_56_observed"] is False
+    assert lump_compact["gross_days_1_56"] is None
+    assert lump_compact["upkeep_days_1_56"] is None
+    assert lump_compact["reactivation_days_1_56"] is None
+    assert lump_compact["room_service_days_1_56"] is None
+    assert lump_compact["repaid_by_day_56"] is None
+    assert lump_compact["remaining_principal_day_56"] is None
+    assert lump_compact["cash_day_56"] is None
+    assert lump_compact["day_56_gate"] is None
+    checks.append("day_7_terminal_compact_uses_executed_prefix_schema")
+    assert daily["daily_ledger"][0]["repayment"]["manual_paid"] > 0
+    assert all(result["runtime_conformance"] is True for result in comparison.values())
+    assert all(
+        row["closing_cash"] >= 0
+        for result in comparison.values()
+        for row in result["daily_ledger"]
+    )
     assert set(comparison) == set(POLICY_IDS)
-    checks.append("three_policy_comparison")
+    checks.append("three_explicit_manual_policy_agents")
+
+    operating_failure = simulate_policy(
+        normalize_config(
+            _base_self_test_raw(
+                starting_cash=0,
+                principal=0,
+                daily_gross_sequence=[0] * BASE_YEAR_DAYS,
+                per_day_upkeep_schedule=1,
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 0,
+                },
+            )
+        ),
+        POLICY_CHAPTER_MANUAL,
+    )
+    assert operating_failure["runtime_terminal_state"]["status"] == (
+        "OPERATING_CASH_SHORTFALL"
+    )
+    assert operating_failure["whole_sequence_totals"]["days"] == 0
+    assert operating_failure["whole_sequence_totals"]["closing_cash"] == 0
+    assert operating_failure["whole_sequence_totals"]["liquidity_shortfall_days"] == [1]
+    checks.append("operating_shortfall_is_atomic_terminal")
+
+    prep_paid_failure = simulate_policy(
+        normalize_config(
+            _base_self_test_raw(
+                starting_cash=10,
+                principal=0,
+                daily_gross_sequence=[20, 9] + [0] * (BASE_YEAR_DAYS - 2),
+                per_day_upkeep_schedule=[17, 18]
+                + [0] * (BASE_YEAR_DAYS - 2),
+                reactivation_spends=[{"day": 2, "amount": 5}],
+                room_service_spends=[{"day": 2, "amount": 8}],
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 0,
+                },
+            )
+        ),
+        POLICY_CHAPTER_MANUAL,
+    )
+    prep_totals = prep_paid_failure["whole_sequence_totals"]
+    prep_terminal = prep_paid_failure["runtime_terminal_state"]
+    assert prep_terminal["status"] == "OPERATING_CASH_SHORTFALL"
+    assert prep_terminal["completed_stage_count"] == 1
+    assert prep_terminal["finance_cash"] == 13
+    assert prep_terminal["terminal_live_cash"] == 0
+    assert prep_terminal["pending_preparation_expense"] == 13
+    assert prep_totals["gross"] == 20
+    assert prep_totals["upkeep"] == 17
+    assert prep_totals["reactivation"] == 5
+    assert prep_totals["room_service"] == 8
+    assert prep_totals["closing_finance_cash"] == 13
+    assert prep_totals["terminal_live_cash"] == 0
+    assert prep_totals["minimum_cash"] == 0
+    assert prep_totals["failed_day_preparation"] == {
+        "day": 2,
+        "reactivation": 5,
+        "room_service": 8,
+        "total": 13,
+    }
+    assert prep_paid_failure["base_year_totals"]["reactivation"] == 5
+    assert prep_paid_failure["base_year_totals"]["room_service"] == 8
+    assert prep_paid_failure["conservation_check"] == {
+        "opening_cash_plus_gross": 30,
+        "closing_cash_plus_outflows": 30,
+        "delta": 0,
+    }
+    checks.append("prep_paid_operating_failure_conservation")
+
+    unpayable_preparation = simulate_policy(
+        normalize_config(
+            _base_self_test_raw(
+                starting_cash=5,
+                principal=0,
+                daily_gross_sequence=[100] + [0] * (BASE_YEAR_DAYS - 1),
+                per_day_upkeep_schedule=0,
+                reactivation_spends=[{"day": 1, "amount": 6}],
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 0,
+                },
+            )
+        ),
+        POLICY_CHAPTER_MANUAL,
+    )
+    assert unpayable_preparation["path_executable"] is False
+    assert unpayable_preparation["analysis_rejection"]["day"] == 1
+    assert unpayable_preparation["analysis_rejection"]["shortfall_amount"] == 1
+    assert unpayable_preparation["whole_sequence_totals"]["days"] == 0
+    assert unpayable_preparation["whole_sequence_totals"]["attempted_operation_count"] == 0
+    assert unpayable_preparation["whole_sequence_totals"]["closing_cash"] == 5
+    assert unpayable_preparation["whole_sequence_totals"]["reactivation"] == 0
+    assert unpayable_preparation["runtime_terminal_state"]["game_terminal"] is False
+    assert unpayable_preparation["conservation_check"]["delta"] == 0
+    assert all(
+        row["closing_live_cash"] >= 0
+        for row in unpayable_preparation["daily_ledger"]
+    )
+    checks.append("unpayable_preparation_plan_rejected_before_operation")
+
+    post_deadline = simulate_policy(
+        normalize_config(
+            _base_self_test_raw(
+                starting_cash=10,
+                principal=0,
+                daily_gross_sequence=[0] * 70,
+                per_day_upkeep_schedule=0,
+                room_service_spends=[{"day": 1, "amount": 3}],
+                chapter_cumulative_targets={
+                    "7": 0,
+                    "14": 0,
+                    "28": 0,
+                    "42": 0,
+                    "56": 0,
+                },
+                manual_extra_repayments=[{"day": 57, "amount": 5}],
+            )
+        ),
+        POLICY_CHAPTER_MANUAL,
+    )
+    day_57 = next(row for row in post_deadline["daily_ledger"] if row["day"] == 57)
+    assert post_deadline["true_extension_rule"]["extension_unlocked"] is True
+    assert post_deadline["base_year_totals"]["room_service"] == 3
+    assert day_57["repayment"]["manual_paid"] == 0
+    assert day_57["repayment"]["ignored_manual_requested_by_policy"] == 5
+    checks.append("room_service_and_zero_post_deadline_repayment")
 
     return {
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "status": "SELF_TEST_PASS",
+        "runtime_conformance": True,
+        "runtime_conformance_scope": RUNTIME_CONFORMANCE_SCOPE,
+        "runtime_conformance_excludes": RUNTIME_CONFORMANCE_EXCLUDES,
+        "full_game_controller_conformance_claimed": False,
         "checks": checks,
-        "balance_verdict": "NOT_EVALUATED",
+        "balance_verdict": RUNTIME_BALANCE_VERDICT,
         "disclaimer": BALANCE_DISCLAIMER,
     }
 
@@ -1039,6 +1667,7 @@ def _custom_raw_from_args(args: argparse.Namespace) -> dict[str, Any] | None:
             args.daily_gross,
             args.per_day_upkeep,
             args.reactivation_spend,
+            args.room_service_spend,
             args.chapter_target,
             args.manual_extra,
             args.scenario_id,
@@ -1067,6 +1696,11 @@ def _custom_raw_from_args(args: argparse.Namespace) -> dict[str, Any] | None:
     )
     if reactivation is not None:
         raw["reactivation_spends"] = reactivation
+    room_service = _parse_day_amount_specs(
+        args.room_service_spend, "--room-service-spend", allow_label=True
+    )
+    if room_service is not None:
+        raw["room_service_spends"] = room_service
     chapter_targets = _parse_day_amount_specs(
         args.chapter_target, "--chapter-target", allow_label=False
     )
@@ -1087,8 +1721,9 @@ def _selected_policies(selection: str) -> tuple[str, ...]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare provisional 56-day campaign debt repayment policies without claiming "
-            "a final balance verdict."
+            "Compare provisional 56/70-day campaign repayment strategies through the "
+            "finance kernel plus a resolved/prepaid-input adapter without claiming full "
+            "GameController conformance or a final balance verdict."
         )
     )
     parser.add_argument("--input", help="scenario JSON path, or - for stdin")
@@ -1097,7 +1732,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--starting-cash", type=int)
     parser.add_argument("--principal", type=int)
     parser.add_argument(
-        "--daily-gross", help="comma-separated sequence with at least 56 integer amounts"
+        "--daily-gross", help="comma-separated sequence with exactly 56 or 70 integer amounts"
     )
     parser.add_argument(
         "--per-day-upkeep",
@@ -1107,6 +1742,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--reactivation-spend",
         action="append",
         help="repeatable DAY:AMOUNT[:LABEL] planned reactivation spend",
+    )
+    parser.add_argument(
+        "--room-service-spend",
+        action="append",
+        help="repeatable DAY:AMOUNT[:LABEL] resolved room-service spend",
     )
     parser.add_argument(
         "--chapter-target",
@@ -1149,8 +1789,13 @@ def main() -> int:
             else:
                 config = normalize_config(custom_raw)
                 report = {
-                    "status": "PROVISIONAL_POLICY_COMPARISON",
-                    "balance_verdict": "NOT_EVALUATED",
+                    "report_schema_version": REPORT_SCHEMA_VERSION,
+                    "status": "RUNTIME_CONFORMANT_PROVISIONAL_POLICY_COMPARISON",
+                    "runtime_conformance": True,
+                    "runtime_conformance_scope": RUNTIME_CONFORMANCE_SCOPE,
+                    "runtime_conformance_excludes": RUNTIME_CONFORMANCE_EXCLUDES,
+                    "full_game_controller_conformance_claimed": False,
+                    "balance_verdict": RUNTIME_BALANCE_VERDICT,
                     "base_year_days": BASE_YEAR_DAYS,
                     "chapter_days": list(CHAPTER_DAYS),
                     "audit_income_reference": reference,
@@ -1168,6 +1813,14 @@ def main() -> int:
                                 "label": spend.label,
                             }
                             for spend in config.reactivation_spends
+                        ],
+                        "room_service_spends": [
+                            {
+                                "day": spend.day,
+                                "amount": spend.amount,
+                                "label": spend.label,
+                            }
+                            for spend in config.room_service_spends
                         ],
                         "chapter_cumulative_targets": {
                             str(day): config.chapter_targets[day]
@@ -1190,18 +1843,19 @@ def main() -> int:
                     "interpretation_limits": [
                         BALANCE_DISCLAIMER,
                         AUDIT_LIMIT_KO,
-                        PARTIAL_SETTLEMENT_LIMIT,
+                        RUNTIME_SETTLEMENT_CONTRACT,
                     ],
                 }
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0
-    except (EconomyInputError, json.JSONDecodeError, OSError) as exc:
+    except (EconomyInputError, FinanceSimulationError, json.JSONDecodeError, OSError) as exc:
         print(
             json.dumps(
                 {
                     "status": "INPUT_ERROR",
                     "error": str(exc),
-                    "balance_verdict": "NOT_EVALUATED",
+                    "runtime_conformance": False,
+                    "balance_verdict": RUNTIME_BALANCE_VERDICT,
                 },
                 ensure_ascii=False,
                 indent=2,
