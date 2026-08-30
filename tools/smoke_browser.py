@@ -103,7 +103,11 @@ class CdpClient:
         return self.evaluate("document.body.innerText") or ""
 
 
-def debugger_target(port: int, timeout: float = 10.0):
+def debugger_target(
+    port: int,
+    timeout: float = 10.0,
+    allowed_url_prefixes: tuple[str, ...] = ("http://", "https://"),
+):
     deadline = time.time() + timeout
     url = f"http://127.0.0.1:{port}/json"
     last_error = None
@@ -114,7 +118,7 @@ def debugger_target(port: int, timeout: float = 10.0):
             pages = [
                 target for target in targets
                 if target.get("type") == "page"
-                and target.get("url", "").startswith(("http://", "https://"))
+                and target.get("url", "").startswith(allowed_url_prefixes)
             ]
             if pages:
                 return pages[0]

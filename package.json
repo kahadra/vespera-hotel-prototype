@@ -1,0 +1,19 @@
+{
+  "name": "vespera-hotel",
+  "productName": "Vespera Hotel",
+  "version": "0.0.0-desktop-spike",
+  "private": true,
+  "description": "Vespera Hotel desktop shell spike",
+  "main": "desktop/main.cjs",
+  "license": "UNLICENSED",
+  "scripts": {
+    "desktop:dev": "node desktop/launch.cjs",
+    "desktop:package": "node desktop/package.cjs",
+    "test:desktop:storage": "node --test --test-isolation=none desktop/file-storage.test.cjs",
+    "test:desktop:dev": "python tools/test_electron_spike.py --kind dev --executable node_modules/electron/dist/electron.exe --app-dir .",
+    "test:desktop:packaged": "python tools/test_electron_spike.py --kind packaged --executable \"out/Vespera Hotel-win32-x64/VesperaHotel.exe\""
+  },
+  "devDependencies": {
+    "electron": "44.0.0"
+  }
+}

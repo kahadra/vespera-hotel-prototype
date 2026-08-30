@@ -392,6 +392,35 @@ def run(base_url: str, debug_port: int, seed: int):
               const retryTriggerRolledBack = !retryRelic.state.displayRelicTriggerCounts
                 .DISPLAY_RELIC_UNBLEMISHED_LEDGER;
 
+              const recordFailureStorage = memoryStorage();
+              const campaignSaveKey = 'vespera.hotel.active-run.v2.campaign';
+              const recordKey = 'vespera.hotel.run-records.v1';
+              const originalSetItem = recordFailureStorage.setItem;
+              const recordFailure = new GameController(campaignData, {
+                seed: 1237,
+                storage: recordFailureStorage,
+              });
+              recordFailure.start();
+              recordFailure.confirmNewGame();
+              const recordFailureSave = recordFailure.saveCheckpoint();
+              const activeSaveBeforeFailure = recordFailureStorage.getItem(campaignSaveKey);
+              recordFailureStorage.setItem = (key, value) => {
+                if (key === recordKey) throw new Error('injected record write failure');
+                return originalSetItem(key, value);
+              };
+              let recordFailureCode = null;
+              try {
+                recordFailure.completeRun();
+              } catch (error) {
+                recordFailureCode = error.code ?? null;
+              }
+              const recordFailureReloaded = new GameController(campaignData, {
+                seed: 9999,
+                storage: recordFailureStorage,
+              });
+              const recordFailureCheckpointDetected = recordFailureReloaded.hasCheckpoint();
+              const recordFailureResumed = recordFailureReloaded.resumeRun();
+
               return {
                 failurePhase: failure.state.phase,
                 failureOutcome: failure.state.runRecord?.outcome,
@@ -419,6 +448,16 @@ def run(base_url: str, debug_port: int, seed: int):
                 retryTriggerNotCommitted,
                 retryRestored,
                 retryTriggerRolledBack,
+                recordFailureCode,
+                recordFailureSaveCreated: Boolean(recordFailureSave),
+                recordFailureActiveSavePreserved: recordFailureStorage.getItem(campaignSaveKey)
+                  === activeSaveBeforeFailure,
+                recordFailureArchiveCount: JSON.parse(recordFailureStorage.getItem(recordKey) ?? '[]').length,
+                recordFailureRunRecordDeferred: recordFailure.state.runRecord === null,
+                recordFailureCheckpointDetected,
+                recordFailureResumed,
+                recordFailureResumedPhase: recordFailureReloaded.state.phase,
+                recordFailureResumedSeed: recordFailureReloaded.state.runSeed,
               };
             })()
             """
@@ -460,6 +499,15 @@ def run(base_url: str, debug_port: int, seed: int):
             "retryTriggerNotCommitted": True,
             "retryRestored": True,
             "retryTriggerRolledBack": True,
+            "recordFailureCode": "RUN_RECORD_WRITE_FAILED",
+            "recordFailureSaveCreated": True,
+            "recordFailureActiveSavePreserved": True,
+            "recordFailureArchiveCount": 0,
+            "recordFailureRunRecordDeferred": True,
+            "recordFailureCheckpointDetected": True,
+            "recordFailureResumed": True,
+            "recordFailureResumedPhase": "STORY",
+            "recordFailureResumedSeed": 1237,
         }, contracts
 
         return {

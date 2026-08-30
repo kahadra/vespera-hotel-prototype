@@ -377,9 +377,15 @@ export function storeRunRecord(record, storage = globalThis.localStorage) {
   const records = [record, ...existing].slice(0, RUN_RECORD_LIMIT);
   if (!storage) return records;
   try {
-    storage.setItem(RUN_RECORD_STORAGE_KEY, JSON.stringify(records));
+    const serialized = JSON.stringify(records);
+    storage.setItem(RUN_RECORD_STORAGE_KEY, serialized);
+    if (storage.getItem(RUN_RECORD_STORAGE_KEY) !== serialized) {
+      throw new Error("Run record could not be read back after writing.");
+    }
     return records;
-  } catch {
-    return existing;
+  } catch (cause) {
+    const error = new Error("실행 기록을 저장하지 못해 진행 저장을 보존했습니다.", { cause });
+    error.code = "RUN_RECORD_WRITE_FAILED";
+    throw error;
   }
 }

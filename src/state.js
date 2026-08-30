@@ -2036,8 +2036,9 @@ export class GameController {
   completeRun() {
     if (!this.state.runRecord) {
       this.persistProfileKnowledge({ commitRelicTriggers: true, commitEndlessBest: true });
-      this.state.runRecord = createRunRecord(this.data, this.state);
-      const records = storeRunRecord(this.state.runRecord, this.recordStorage);
+      const runRecord = createRunRecord(this.data, this.state);
+      const records = storeRunRecord(runRecord, this.recordStorage);
+      this.state.runRecord = runRecord;
       this.state.recordArchiveCount = records.length;
       clearActiveRunSave(this.data, this.recordStorage);
       this.pendingCheckpoint = null;

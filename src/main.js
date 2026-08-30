@@ -5,6 +5,15 @@ import { GameController } from "./state.js";
 
 const app = document.querySelector("#app");
 
+function runtimeStorage() {
+  const desktop = globalThis.vesperaDesktop;
+  if (!desktop) return globalThis.localStorage;
+  if (desktop.platform !== "electron" || desktop.storageReady !== true || !desktop.storage) {
+    throw new Error(desktop.storageError ?? "데스크톱 파일 저장소를 초기화하지 못했습니다.");
+  }
+  return desktop.storage;
+}
+
 async function boot() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -13,6 +22,7 @@ async function boot() {
     const requestedSeed = Number(params.get("seed"));
     const controller = new GameController(data, {
       seed: Number.isFinite(requestedSeed) && requestedSeed > 0 ? requestedSeed : Date.now(),
+      storage: runtimeStorage(),
     });
     const rerender = () => renderApp(app, controller);
     setupInput(app, controller, rerender);

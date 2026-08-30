@@ -809,5 +809,8 @@ export function renderApp(app, controller) {
 }
 
 export function renderFatalError(app, error) {
-  app.innerHTML = `<section class="loading-card error-card"><p class="eyebrow">LOAD ERROR</p><h1>영업 준비에 실패했습니다.</h1><p>${escapeHtml(error.message)}</p><p class="error-help">파일을 직접 열지 말고 <code>python -m http.server 8000</code>으로 실행하세요.</p></section>`;
+  const help = globalThis.vesperaDesktop
+    ? "데스크톱 저장 파일과 설치 자산을 확인한 뒤 다시 실행하세요."
+    : "파일을 직접 열지 말고 <code>python -m http.server 8000</code>으로 실행하세요.";
+  app.innerHTML = `<section class="loading-card error-card"><p class="eyebrow">LOAD ERROR</p><h1>영업 준비에 실패했습니다.</h1><p>${escapeHtml(error.message)}</p><p class="error-help">${help}</p></section>`;
 }
