@@ -1,4 +1,4 @@
-export const CAMPAIGN_FINANCE_SCHEMA_VERSION = 2;
+export const CAMPAIGN_FINANCE_SCHEMA_VERSION = 3;
 export const CAMPAIGN_FINANCE_CONTRACT_STATUS = "PROVISIONAL";
 export const CAMPAIGN_FINANCE_BALANCE_VERDICT = "NOT_EVALUATED";
 export const CAMPAIGN_FINANCE_DEBT_DEADLINE_STAGE = 56;
@@ -28,6 +28,7 @@ const STATE_KEYS = Object.freeze([
   "cumulativeRepayment",
   "debtClearedAtDeadline",
   "pendingDayResult",
+  "operatingFailure",
   "ledger",
 ]);
 
@@ -78,6 +79,21 @@ const LEDGER_ENTRY_KEYS = Object.freeze([
   "cashConservation",
   "debtConservation",
   "checkpoint",
+]);
+
+const OPERATING_FAILURE_KEYS = Object.freeze([
+  "type",
+  "stageNumber",
+  "campaignOperationId",
+  "campaignResultIdentity",
+  "openingCash",
+  "income",
+  "availableCash",
+  "upkeep",
+  "reactivation",
+  "roomService",
+  "operatingOutflow",
+  "shortfallAmount",
 ]);
 
 function assert(condition, message) {
@@ -240,7 +256,19 @@ function expectedEnvelope(
   debtClearedAtDeadline,
   pendingDayResult,
   terminalStatus,
+  operatingFailure,
 ) {
+  if (operatingFailure !== null) {
+    assert(terminalStatus === null,
+      "an operating cash shortfall cannot follow a terminal checkpoint");
+    assert(pendingDayResult === null,
+      "an operating cash shortfall cannot retain a pending result");
+    return {
+      phase: "CLOSED",
+      status: "OPERATING_CASH_SHORTFALL",
+      nextStageNumber: null,
+    };
+  }
   if (terminalStatus !== null) {
     assert(pendingDayResult === null,
       "a missed chapter hurdle cannot retain a pending result");
@@ -436,6 +464,58 @@ function validatePendingDayResult(config, pending, stageNumber, prior, seenOpera
   }
 }
 
+function validateOperatingFailure(config, failure, stageNumber, prior, seenOperationIds) {
+  const owner = "operatingFailure";
+  assert(exactKeys(failure, OPERATING_FAILURE_KEYS), `${owner} has an invalid shape`);
+  assert(failure.type === "CAMPAIGN_OPERATING_CASH_SHORTFALL",
+    `${owner}.type is unknown`);
+  assert(failure.stageNumber === stageNumber, `${owner}.stageNumber is inconsistent`);
+  assert(stageNumber <= config.total_stages, `${owner}.stageNumber exceeds the stage limit`);
+  validateCampaignOperationIdentity(
+    failure.campaignOperationId,
+    failure.campaignResultIdentity,
+    stageNumber,
+    owner,
+  );
+  assert(failure.campaignOperationId === failure.campaignOperationId.trim(),
+    `${owner}.campaignOperationId must be canonical`);
+  assert(!seenOperationIds.has(failure.campaignOperationId),
+    `${owner}.campaignOperationId already exists in the settled ledger`);
+  for (const field of [
+    "openingCash",
+    "income",
+    "availableCash",
+    "upkeep",
+    "reactivation",
+    "roomService",
+    "operatingOutflow",
+    "shortfallAmount",
+  ]) {
+    assertAmount(failure[field], `${owner}.${field}`);
+  }
+  assert(failure.openingCash === prior.cash,
+    `${owner}.openingCash does not follow the ledger`);
+  const availableCash = safeSum(
+    `${owner}.availableCash`,
+    failure.openingCash,
+    failure.income,
+  );
+  assert(failure.availableCash === availableCash,
+    `${owner}.availableCash is inconsistent`);
+  const operatingOutflow = safeSum(
+    `${owner}.operatingOutflow`,
+    failure.upkeep,
+    failure.reactivation,
+    failure.roomService,
+  );
+  assert(failure.operatingOutflow === operatingOutflow,
+    `${owner}.operatingOutflow is inconsistent`);
+  assert(operatingOutflow > availableCash,
+    `${owner} requires operating outflow above available cash`);
+  assert(failure.shortfallAmount === operatingOutflow - availableCash,
+    `${owner}.shortfallAmount is inconsistent`);
+}
+
 export function validateCampaignFinanceState(config, state) {
   validateCampaignFinanceConfig(config);
   assert(exactKeys(state, STATE_KEYS), "state has an invalid shape");
@@ -489,7 +569,29 @@ export function validateCampaignFinanceState(config, state) {
       seenOperationIds,
     );
   });
-  if (state.pendingDayResult !== null) {
+  assert(state.operatingFailure === null || isPlainObject(state.operatingFailure),
+    "state.operatingFailure must be null or an object");
+  if (state.operatingFailure !== null) {
+    assert(reconstructed.terminalStatus === null,
+      "an operating cash shortfall cannot follow a terminal checkpoint");
+    assert(state.pendingDayResult === null,
+      "an operating cash shortfall cannot retain a pending result");
+    assert(state.completedStageCount < config.total_stages,
+      "completed finance cannot retain an operating failure");
+    validateOperatingFailure(
+      config,
+      state.operatingFailure,
+      state.completedStageCount + 1,
+      reconstructed,
+      seenOperationIds,
+    );
+    assert(state.cash === reconstructed.cash,
+      "operating failure cannot apply attempted income or outflow");
+    assert(state.remainingDebt === reconstructed.remainingDebt,
+      "operating failure cannot change remaining debt");
+    assert(state.cumulativeRepayment === reconstructed.cumulativeRepayment,
+      "operating failure cannot change cumulative repayment");
+  } else if (state.pendingDayResult !== null) {
     assert(reconstructed.terminalStatus === null,
       "a missed chapter hurdle cannot have a later pending result");
     assert(state.completedStageCount < config.total_stages,
@@ -533,6 +635,7 @@ export function validateCampaignFinanceState(config, state) {
     state.debtClearedAtDeadline,
     state.pendingDayResult,
     reconstructed.terminalStatus,
+    state.operatingFailure,
   );
   assert(state.phase === envelope.phase, "state.phase is inconsistent");
   assert(state.status === envelope.status, "state.status is inconsistent");
@@ -564,6 +667,7 @@ export function createCampaignFinanceState(config) {
     cumulativeRepayment: 0,
     debtClearedAtDeadline: null,
     pendingDayResult: null,
+    operatingFailure: null,
     ledger: [],
   };
   validateCampaignFinanceState(config, state);
@@ -610,8 +714,33 @@ export function commitCampaignDayResult(config, state, result) {
     result.reactivation,
     result.roomService,
   );
-  assert(operatingOutflow <= available,
-    "upkeep, reactivation, and room service cannot produce negative cash");
+  if (operatingOutflow > available) {
+    const operatingFailure = {
+      type: "CAMPAIGN_OPERATING_CASH_SHORTFALL",
+      stageNumber: result.stageNumber,
+      campaignOperationId,
+      campaignResultIdentity: { ...result.campaignResultIdentity },
+      openingCash: state.cash,
+      income: result.income,
+      availableCash: available,
+      upkeep: result.upkeep,
+      reactivation: result.reactivation,
+      roomService: result.roomService,
+      operatingOutflow,
+      shortfallAmount: operatingOutflow - available,
+    };
+    const failed = {
+      ...state,
+      nextStageNumber: null,
+      phase: "CLOSED",
+      status: "OPERATING_CASH_SHORTFALL",
+      pendingDayResult: null,
+      operatingFailure,
+      ledger: cloneJson(state.ledger),
+    };
+    validateCampaignFinanceState(config, failed);
+    return failed;
+  }
   const pendingDayResult = {
     type: "CAMPAIGN_DAY_RESULT_COMMIT",
     stageNumber: result.stageNumber,
@@ -631,6 +760,7 @@ export function commitCampaignDayResult(config, state, result) {
     phase: "RESULT_COMMITTED",
     cash: pendingDayResult.cashAfterOperations,
     pendingDayResult,
+    operatingFailure: null,
     ledger: cloneJson(state.ledger),
   };
   validateCampaignFinanceState(config, next);
@@ -706,6 +836,7 @@ export function settleCampaignDay(config, state, settlement) {
     debtClearedAtDeadline,
     null,
     terminalStatusForCheckpoint(checkpoint),
+    null,
   );
   const next = {
     ...state,

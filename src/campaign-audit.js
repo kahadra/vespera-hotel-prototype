@@ -32,6 +32,7 @@ function baseWitness(data) {
     ownedUpgradeIds: [],
     foresightRetryCount: 0,
     chapterHurdleFailures: 0,
+    campaignFinance: null,
     truthEvidenceCount: 0,
     peaceAllianceComplete: false,
     relationshipProgressByRole,
@@ -86,6 +87,12 @@ function satisfyCondition(data, state, condition) {
   };
   if (condition.metric === "completed_nights") {
     ensureCompletedNights(state, value);
+    return;
+  }
+  if (condition.metric === "campaign_operating_cash_shortfall") {
+    state.campaignFinance = value >= 1
+      ? { operatingFailure: { stageNumber: 1, shortfallAmount: 1 } }
+      : null;
     return;
   }
   if (scalarStateKeys[condition.metric]) {

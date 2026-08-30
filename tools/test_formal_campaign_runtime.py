@@ -26,11 +26,22 @@ def run(base_url: str, debug_port: int, seed: int):
 
         script = r"""
         (async () => {
-          const [dataModule, stateModule, saveModule, progressModule] = await Promise.all([
+          const [
+            dataModule,
+            stateModule,
+            saveModule,
+            progressModule,
+            runModule,
+            renderModule,
+            inputModule,
+          ] = await Promise.all([
             import('./src/data.js'),
             import('./src/state.js'),
             import('./src/save.js'),
             import('./src/campaign-progress.js'),
+            import('./src/run.js'),
+            import('./src/render.js'),
+            import('./src/input.js'),
           ]);
           const { loadGameData, createIndexes } = dataModule;
           const { GameController } = stateModule;
@@ -43,6 +54,9 @@ def run(base_url: str, debug_port: int, seed: int):
             readActiveRunSave,
           } = saveModule;
           const { FORMAL_CAMPAIGN_PROGRESS_CONFIG } = progressModule;
+          const { RUN_RECORD_STORAGE_KEY, readRunRecords } = runModule;
+          const { renderApp } = renderModule;
+          const { setupInput } = inputModule;
           const seed = __SEED__;
 
           const clone = value => JSON.parse(JSON.stringify(value));
@@ -376,6 +390,38 @@ def run(base_url: str, debug_port: int, seed: int):
           const sixBeforeSave = playToReview(base, 6);
           assert(base.setFormalCampaignRepayment(1) === true,
             'stage 6 selected repayment must be savable');
+          const selectedOperatingForecast = base.formalCampaignOperatingForecast();
+          assert(selectedOperatingForecast.cashOnHand
+              === base.state.gold - base.state.campaignSelectedRepayment
+            && selectedOperatingForecast.minimumIncomeRequired === Math.max(
+              0,
+              selectedOperatingForecast.nextUpkeep - selectedOperatingForecast.cashOnHand,
+            ),
+          'RESULT_REVIEW operating forecast must project the selected repayment');
+          const forecastApp = document.createElement('div');
+          const rerenderForecast = () => renderApp(forecastApp, base);
+          setupInput(forecastApp, base, rerenderForecast);
+          rerenderForecast();
+          const repaymentInput = forecastApp.querySelector('[data-formal-repayment-input]');
+          const forecastPanel = forecastApp.querySelector('[data-formal-operating-forecast]');
+          const acceptButtonBeforeChange = forecastApp.querySelector(
+            '[data-action="accept-secretary-report"]',
+          );
+          assert(repaymentInput?.value === '1'
+            && forecastPanel?.textContent.includes(`${selectedOperatingForecast.nextUpkeep}G`)
+            && forecastPanel?.textContent.includes(`${selectedOperatingForecast.cashOnHand}G`),
+          'RESULT_REVIEW must render repayment input and operating forecast');
+          repaymentInput.value = '2';
+          repaymentInput.dispatchEvent(new Event('change', { bubbles: true }));
+          assert(base.state.campaignSelectedRepayment === 2
+            && forecastApp.querySelector('[data-formal-repayment-input]')?.value === '2'
+            && forecastApp.querySelector('[data-action="accept-secretary-report"]')
+              === acceptButtonBeforeChange
+            && forecastApp.querySelector('[data-formal-operating-forecast]')
+              ?.textContent.includes(`${base.state.gold - 2}G`),
+          'repayment input must update its forecast without replacing the pending click target');
+          assert(base.setFormalCampaignRepayment(1) === true,
+            'stage 6 selected repayment must reset after the input regression');
           const preSaveCash = base.state.campaignFinance.cash;
           const preSaveDebt = base.state.campaignFinance.remainingDebt;
           assert(base.saveCheckpoint(), 'RESULT_REVIEW save must succeed');
@@ -518,9 +564,13 @@ def run(base_url: str, debug_port: int, seed: int):
             'post-boundary operations must remain NORMAL');
           acceptReview(base, 0);
           openNextDay(base);
-          for (let stage = 10; stage <= 56; stage += 1) {
-            playSettled(base, stage, paymentFor(stage), stage === 56);
+          for (let stage = 10; stage <= 55; stage += 1) {
+            playSettled(base, stage, paymentFor(stage));
           }
+          playToReview(base, 56);
+          assert(base.formalCampaignOperatingForecast() === null,
+            'base day 56 review must not forecast an unconfirmed next operation');
+          acceptReview(base, paymentFor(56));
 
           const baseIds = base.state.nightResults.map(result => result.campaignOperationId);
           const baseTemplates = base.state.nightResults.map(
@@ -538,8 +588,8 @@ def run(base_url: str, debug_port: int, seed: int):
             'base ledger must clear all debt');
           assert(base.state.campaignFinance.ledger.length === 56,
             'base ledger must contain 56 entries');
-          assert(base.state.runRecord.schema_version === 5,
-            'base FINAL must use run record schema 5');
+          assert(base.state.runRecord.schema_version === 6,
+            'base FINAL must use run record schema 6');
           assert(baseMetrics.campaign_completed_stages === 56
             && baseMetrics.campaign_starting_cash === 10
             && baseMetrics.campaign_original_principal === 200
@@ -576,6 +626,313 @@ def run(base_url: str, debug_port: int, seed: int):
             'formal active run must use the .formal_campaign key');
           assert(!storage.keys().some(key => key === formalKey),
             'formal active save must clear after base FINAL');
+
+          // An upkeep shortfall is an immediate, data-driven operational ending.
+          // Real preparation purchases remain part of the last DAY_OPENING
+          // checkpoint, while the attempted guest operation and its relic trigger
+          // are rolled back instead of becoming a partially settled day.
+          const shortfallData = clone(formalData);
+          shortfallData.campaign.formal_finance.runtime_policy.base_daily_upkeep = 17;
+          const shortfallUpgrade = shortfallData.upgrades.find(
+            upgrade => upgrade.id === 'SOUNDPROOFING',
+          );
+          shortfallUpgrade.cost = 5;
+          shortfallUpgrade.unlock_stage = 1;
+          shortfallData.indexes = createIndexes(shortfallData);
+          assert(shortfallData.run_completion.ending_rules.some(
+            ending => ending.id === 'BAD_MAINTENANCE_SHORTFALL'
+              && ending.conditions?.some(
+                condition => condition.metric === 'campaign_operating_cash_shortfall',
+              ),
+          ), 'operating shortfall ending must be declared by run-completion data');
+          const shortfallStorage = memoryStorage();
+          const shortfallSeed = seed + 550;
+
+          // Keep the zero-completion terminal edge explicit: a campaign can
+          // fail on its very first operation without appending progress,
+          // results, or a finance ledger row.
+          const dayOneFailureStorage = memoryStorage();
+          const dayOneFailureSeed = shortfallSeed - 1;
+          const dayOneFailureRun = boot(
+            shortfallData,
+            dayOneFailureSeed,
+            dayOneFailureStorage,
+          );
+          assert(dayOneFailureRun.saveCheckpoint()
+            && dayOneFailureStorage.getItem(formalKey) !== null,
+          'day 1 failure fixture must begin from a persisted active save');
+          assert(dayOneFailureRun.startDayBusiness() === true,
+            'day 1 failure fixture must begin business');
+          dayOneFailureRun.completeNight(syntheticResult(1, 0));
+          const expectedDayOneFailure = {
+            type: 'CAMPAIGN_OPERATING_CASH_SHORTFALL',
+            stageNumber: 1,
+            campaignOperationId:
+              `FORMAL_CAMPAIGN_PROGRESS@1:${dayOneFailureSeed}:1`,
+            campaignResultIdentity: {
+              stageNumber: 1,
+              operationKind: 'NORMAL',
+              templateIndex: 0,
+            },
+            openingCash: 10,
+            income: 0,
+            availableCash: 10,
+            upkeep: 17,
+            reactivation: 0,
+            roomService: 0,
+            operatingOutflow: 17,
+            shortfallAmount: 7,
+          };
+          assert(dayOneFailureRun.state.phase === 'FINAL'
+            && dayOneFailureRun.state.runRecord.ending_id
+              === 'BAD_MAINTENANCE_SHORTFALL',
+          'day 1 shortfall must immediately resolve the maintenance ending');
+          assert(dayOneFailureRun.state.campaignProgress.completedStageCount === 0
+            && dayOneFailureRun.state.campaignFinance.completedStageCount === 0
+            && dayOneFailureRun.state.campaignFinance.ledger.length === 0
+            && dayOneFailureRun.state.nightResults.length === 0,
+          'day 1 shortfall must remain a zero-completion terminal run');
+          assert(dayOneFailureRun.state.gold === 10
+            && dayOneFailureRun.state.campaignFinance.cash === 10
+            && dayOneFailureRun.state.campaignFinance.remainingDebt === 200,
+          'day 1 shortfall must preserve opening cash and debt without a ledger row');
+          assert(same(
+            dayOneFailureRun.state.runRecord.operating_failure_evidence,
+            expectedDayOneFailure,
+          ), 'day 1 failure evidence drifted');
+          assert(dayOneFailureRun.state.runRecord.metrics.completed_nights === 0
+            && dayOneFailureRun.state.runRecord.metrics.campaign_completed_stages === 0
+            && dayOneFailureRun.state.runRecord.metrics.campaign_finance_ledger_entries === 0,
+          'day 1 failure record must preserve zero completed operations');
+          assert(dayOneFailureStorage.getItem(formalKey) === null
+            && dayOneFailureRun.hasCheckpoint() === false,
+          'day 1 terminal failure must clear its active save and checkpoint');
+          const storedDayOneFailureRecords = readRunRecords(dayOneFailureStorage);
+          assert(storedDayOneFailureRecords.length === 1
+            && storedDayOneFailureRecords[0].schema_version === 6
+            && storedDayOneFailureRecords[0].ending_id
+              === 'BAD_MAINTENANCE_SHORTFALL'
+            && same(
+              storedDayOneFailureRecords[0].operating_failure_evidence,
+              expectedDayOneFailure,
+            )
+            && storedDayOneFailureRecords[0].metrics.completed_nights === 0
+            && storedDayOneFailureRecords[0].metrics.campaign_completed_stages === 0
+            && storedDayOneFailureRecords[0].metrics.campaign_finance_ledger_entries === 0,
+          'day 1 schema 6 failure record must reread exact zero-completion evidence');
+
+          const shortfallRun = boot(shortfallData, shortfallSeed, shortfallStorage);
+          const operatingForecast = shortfallRun.formalCampaignOperatingForecast();
+          assert(same(operatingForecast, {
+            nextUpkeep: 17,
+            cashOnHand: 10,
+            pendingExpense: 0,
+            minimumIncomeRequired: 7,
+          }), `day 1 operating forecast drifted: ${JSON.stringify(operatingForecast)}`);
+          playToReview(shortfallRun, 1, 20, {
+            acceptedGuestIds: ['G01_LUNE'],
+            placements: { G01_LUNE: 'F1-A' },
+          });
+          acceptReview(shortfallRun, 0);
+          assert(shortfallRun.state.phase === 'UPGRADE'
+            && shortfallRun.state.gold === 13,
+          'shortfall fixture must reach a funded stage 1 preparation');
+          shortfallRun.state.currentUpgradeOfferIds = [shortfallUpgrade.id];
+          assert(shortfallRun.buyUpgrade(shortfallUpgrade.id) === true,
+            'shortfall fixture must pay a real 5G reactivation');
+          assert(shortfallRun.serviceRoom('F1-A') === true,
+            'shortfall fixture must pay a real 8G room service cost');
+          const rollbackRelic = shortfallData.display_relics.find(
+            relic => relic.effect_id === 'NO_CANCELLATION_GOLD_BONUS',
+          );
+          const rollbackRelicId = rollbackRelic.id;
+          shortfallRun.state.ownedDisplayRelicIds.push(rollbackRelicId);
+          shortfallRun.state.displayRelicTriggerCounts[rollbackRelicId] = 0;
+          assert(same(shortfallRun.formalCampaignOperatingForecast(), {
+            nextUpkeep: 18,
+            cashOnHand: 0,
+            pendingExpense: 13,
+            minimumIncomeRequired: 18,
+          }), 'paid preparation expenses must be visible before day 2');
+          const upgradeForecastApp = document.createElement('div');
+          renderApp(upgradeForecastApp, shortfallRun);
+          assert(upgradeForecastApp.querySelector('[data-formal-operating-forecast]')
+            ?.textContent.includes('최소 필요 수입18G'),
+          'UPGRADE must render the operating forecast before day 2');
+          assert(shortfallRun.finishUpgrade() === true,
+            'shortfall fixture must open day 2 after paid preparation');
+          const openingForecastApp = document.createElement('div');
+          renderApp(openingForecastApp, shortfallRun);
+          assert(openingForecastApp.querySelector('[data-formal-operating-forecast]')
+            ?.textContent.includes('최소 필요 수입18G'),
+          'DAY_OPENING must render the same operating forecast');
+          assert(shortfallRun.saveCheckpoint(),
+            'day 2 opening must persist paid preparation before the failure');
+          assert(shortfallStorage.getItem(formalKey) !== null,
+            'operating failure fixture must begin with a persisted active save');
+          const openingRollbackState = clone(shortfallRun.stageCheckpoint);
+          assert(shortfallRun.startDayBusiness() === true,
+            'operating failure fixture must begin day 2 business');
+          const shortfallBefore = {
+            gold: openingRollbackState.gold,
+            financeCash: openingRollbackState.campaignFinance.cash,
+            remainingDebt: openingRollbackState.campaignFinance.remainingDebt,
+            cumulativeRepayment: openingRollbackState.campaignFinance.cumulativeRepayment,
+            ledger: clone(openingRollbackState.campaignFinance.ledger),
+            progress: clone(openingRollbackState.campaignProgress),
+            nightResults: clone(openingRollbackState.nightResults),
+            hotelReputation: openingRollbackState.hotelReputation,
+            guestHistory: clone(openingRollbackState.guestHistory),
+            expectationReputationByGuest: clone(
+              openingRollbackState.expectationReputationByGuest,
+            ),
+            stayovers: clone(openingRollbackState.stayovers),
+            roomConditions: clone(openingRollbackState.roomConditions),
+            lastRoomWear: clone(openingRollbackState.lastRoomWear),
+            pendingExpenses: clone(openingRollbackState.campaignPendingExpenses),
+            ownedUpgradeIds: clone(openingRollbackState.ownedUpgradeIds),
+            displayRelicTriggerCounts: clone(openingRollbackState.displayRelicTriggerCounts),
+          };
+          shortfallRun.completeNight(syntheticResult(2, 6, {
+            reputationDelta: 99,
+            acceptedGuestIds: ['G01_LUNE'],
+            placements: { G01_LUNE: 'F1-A' },
+          }));
+          const expectedOperatingFailure = {
+            type: 'CAMPAIGN_OPERATING_CASH_SHORTFALL',
+            stageNumber: 2,
+            campaignOperationId:
+              `FORMAL_CAMPAIGN_PROGRESS@1:${shortfallSeed}:2`,
+            campaignResultIdentity: {
+              stageNumber: 2,
+              operationKind: 'NORMAL',
+              templateIndex: 1,
+            },
+            openingCash: 13,
+            income: 9,
+            availableCash: 22,
+            upkeep: 18,
+            reactivation: 5,
+            roomService: 8,
+            operatingOutflow: 31,
+            shortfallAmount: 9,
+          };
+          const shortfallFinance = shortfallRun.state.campaignFinance;
+          const shortfallRecord = shortfallRun.state.runRecord;
+          const shortfallMetrics = shortfallRecord.metrics;
+          assert(shortfallRun.state.phase === 'FINAL',
+            'day 2 operating shortfall must immediately enter FINAL');
+          assert(shortfallRecord.ending_id === 'BAD_MAINTENANCE_SHORTFALL',
+            'operating shortfall must resolve its data-driven bad ending');
+          assert(shortfallRecord.schema_version === 6,
+            'operating shortfall run record must use schema 6');
+          assert(shortfallFinance.schemaVersion === 3
+            && shortfallFinance.phase === 'CLOSED'
+            && shortfallFinance.status === 'OPERATING_CASH_SHORTFALL'
+            && shortfallFinance.nextStageNumber === null
+            && shortfallFinance.pendingDayResult === null,
+          'operating shortfall must close finance under schema 3');
+          assert(same(shortfallFinance.operatingFailure, expectedOperatingFailure),
+            `operating failure evidence drifted: ${JSON.stringify(shortfallFinance.operatingFailure)}`);
+          assert(same(shortfallRecord.operating_failure_evidence, expectedOperatingFailure),
+            'run record must preserve exact operating failure evidence');
+          assert(shortfallRun.state.gold === shortfallBefore.gold
+            && shortfallFinance.cash === shortfallBefore.financeCash
+            && shortfallFinance.remainingDebt === shortfallBefore.remainingDebt
+            && shortfallFinance.cumulativeRepayment === shortfallBefore.cumulativeRepayment
+            && same(shortfallFinance.ledger, shortfallBefore.ledger)
+            && shortfallFinance.completedStageCount === 1,
+          'failed operation must not apply attempted income, upkeep, debt, or a ledger row');
+          const rollbackChecks = {
+            progress: same(shortfallRun.state.campaignProgress, shortfallBefore.progress),
+            nightResults: same(shortfallRun.state.nightResults, shortfallBefore.nightResults),
+            reputation:
+              shortfallRun.state.hotelReputation === shortfallBefore.hotelReputation,
+            guestHistory: same(shortfallRun.state.guestHistory, shortfallBefore.guestHistory),
+            expectation: same(
+              shortfallRun.state.expectationReputationByGuest,
+              shortfallBefore.expectationReputationByGuest,
+            ),
+            stayovers: same(shortfallRun.state.stayovers, shortfallBefore.stayovers),
+            roomConditions: same(
+              shortfallRun.state.roomConditions,
+              shortfallBefore.roomConditions,
+            ),
+            lastRoomWear: same(shortfallRun.state.lastRoomWear, shortfallBefore.lastRoomWear),
+            pendingExpenses: same(
+              shortfallRun.state.campaignPendingExpenses,
+              shortfallBefore.pendingExpenses,
+            ),
+            ownedUpgradeIds: same(
+              shortfallRun.state.ownedUpgradeIds,
+              shortfallBefore.ownedUpgradeIds,
+            ),
+            displayRelicTriggerCounts: same(
+              shortfallRun.state.displayRelicTriggerCounts,
+              shortfallBefore.displayRelicTriggerCounts,
+            ),
+          };
+          assert(Object.values(rollbackChecks).every(Boolean),
+            `failed day rollback drifted: ${JSON.stringify(rollbackChecks)}`);
+          assert(shortfallMetrics.completed_nights === 1
+            && shortfallMetrics.total_income === 20
+            && shortfallMetrics.reputation_delta === 0
+            && shortfallMetrics.campaign_completed_stages === 1
+            && shortfallMetrics.campaign_finance_ledger_entries === 1
+            && shortfallMetrics.campaign_total_income === 20
+            && shortfallMetrics.campaign_total_upkeep === 17
+            && shortfallMetrics.campaign_total_reactivation_spend === 5
+            && shortfallMetrics.campaign_total_room_service_spend === 8
+            && shortfallMetrics.campaign_remaining_debt === 200
+            && shortfallMetrics.campaign_operating_cash_shortfall === 1
+            && shortfallMetrics.campaign_operating_failure_stage === 2
+            && shortfallMetrics.campaign_operating_failure_income === 9
+            && shortfallMetrics.campaign_operating_failure_available_cash === 22
+            && shortfallMetrics.campaign_operating_failure_upkeep === 18
+            && shortfallMetrics.campaign_operating_failure_reactivation === 5
+            && shortfallMetrics.campaign_operating_failure_room_service === 8
+            && shortfallMetrics.campaign_operating_failure_outflow === 31
+            && shortfallMetrics.campaign_operating_failure_shortfall === 9,
+          `operating failure metrics drifted: ${JSON.stringify(shortfallMetrics)}`);
+          assert(shortfallMetrics.campaign_starting_cash
+              + shortfallMetrics.campaign_total_income
+              - shortfallMetrics.campaign_total_upkeep
+              - shortfallMetrics.campaign_total_reactivation_spend
+              - shortfallMetrics.campaign_total_room_service_spend
+              - shortfallMetrics.campaign_total_repayment
+              === shortfallMetrics.final_gold,
+          'operating failure metrics must conserve actual cash including paid preparation');
+          assert(shortfallRun.formalCampaignOperatingForecast() === null,
+            'operating forecast must close with campaign finance');
+          assert(shortfallStorage.getItem(formalKey) === null
+            && shortfallRun.hasCheckpoint() === false,
+          'operating failure FINAL must clear its active save and checkpoint');
+          assert(!(shortfallRun.profile.display_relics?.triggered_ids ?? [])
+            .includes(rollbackRelicId),
+          'rolled-back result relic trigger must not enter the profile');
+
+          const storedShortfallRecords = readRunRecords(shortfallStorage);
+          assert(storedShortfallRecords.length === 1
+            && storedShortfallRecords[0].schema_version === 6
+            && same(
+              storedShortfallRecords[0].operating_failure_evidence,
+              expectedOperatingFailure,
+            ),
+          'stored run schema 6 must reread exact operating failure evidence');
+
+          const legacyV5 = clone(base.state.runRecord);
+          legacyV5.schema_version = 5;
+          delete legacyV5.operating_failure_evidence;
+          const migratedV5 = readRunRecords(memoryStorage({
+            [RUN_RECORD_STORAGE_KEY]: JSON.stringify([legacyV5]),
+          }));
+          assert(migratedV5.length === 1
+            && migratedV5[0].schema_version === 6
+            && migratedV5[0].operating_failure_evidence === null
+            && migratedV5[0].record_id === legacyV5.record_id
+            && migratedV5[0].ending_id === legacyV5.ending_id
+            && same(migratedV5[0].metrics, legacyV5.metrics),
+          'run schema 5 records must remain readable through schema 6 migration');
 
           // Every intermediate chapter target is a hard boundary. Reach each
           // boundary after meeting all prior targets, then miss by exactly one.
@@ -670,6 +1027,8 @@ def run(base_url: str, debug_port: int, seed: int):
           assert(trueRun.state.campaignFinance.configId
             === formalData.campaign.formal_finance.true_extension.id,
           'derived true gate must switch to the extended finance authority');
+          assert(trueRun.formalCampaignOperatingForecast() !== null,
+            'unlocked stage 57 preparation must resume the operating forecast');
           assert(createRunSave(formalData, trueRun.state, trueRun.stageCheckpoint) !== null,
             'unlocked UPGRADE boundary must remain savable');
           assert(trueRun.saveCheckpoint(), 'unlocked UPGRADE save must write');
@@ -692,9 +1051,13 @@ def run(base_url: str, debug_port: int, seed: int):
             'nonzero repayment must be rejected after day 56');
           acceptReview(trueRun, 0);
           openNextDay(trueRun);
-          for (let stage = 58; stage <= 70; stage += 1) {
-            playSettled(trueRun, stage, 0, stage === 70);
+          for (let stage = 58; stage <= 69; stage += 1) {
+            playSettled(trueRun, stage, 0);
           }
+          playToReview(trueRun, 70);
+          assert(trueRun.formalCampaignOperatingForecast() === null,
+            'true day 70 review must not forecast a nonexistent next operation');
+          acceptReview(trueRun, 0);
           const trueIds = trueRun.state.nightResults.map(
             result => result.campaignOperationId,
           );
@@ -709,8 +1072,8 @@ def run(base_url: str, debug_port: int, seed: int):
             && trueRun.state.campaignFinance.remainingDebt === 0
             && trueRun.state.campaignFinance.ledger.length === 70,
           'true ledger must close at cash 90, debt 0, and 70 entries');
-          assert(trueRun.state.runRecord.schema_version === 5,
-            'true FINAL must use run record schema 5');
+          assert(trueRun.state.runRecord.schema_version === 6,
+            'true FINAL must use run record schema 6');
           assert(trueMetrics.campaign_completed_stages === 70
             && trueMetrics.campaign_starting_cash === 10
             && trueMetrics.campaign_original_principal === 200
@@ -888,6 +1251,30 @@ def run(base_url: str, debug_port: int, seed: int):
               selected: selectedForecast,
               rejectedOverCash: true,
             },
+            operatingShortfall: {
+              phase: shortfallRun.state.phase,
+              ending: shortfallRecord.ending_id,
+              financeSchema: shortfallFinance.schemaVersion,
+              financeStatus: shortfallFinance.status,
+              completed: shortfallRun.state.campaignProgress.completedStageCount,
+              cash: shortfallFinance.cash,
+              liveCash: shortfallRun.state.gold,
+              debt: shortfallFinance.remainingDebt,
+              ledger: shortfallFinance.ledger.length,
+              pendingExpense: clone(shortfallRun.state.campaignPendingExpenses),
+              preparationPersisted: same(
+                shortfallRun.state.ownedUpgradeIds,
+                openingRollbackState.ownedUpgradeIds,
+              ) && same(
+                shortfallRun.state.roomConditions,
+                openingRollbackState.roomConditions,
+              ),
+              failure: clone(shortfallFinance.operatingFailure),
+              forecast: operatingForecast,
+              forecastAfterClosure: shortfallRun.formalCampaignOperatingForecast(),
+              activeSaveCleared: shortfallStorage.getItem(formalKey) === null,
+              runSchema: shortfallRecord.schema_version,
+            },
             hurdle: {
               phase: hurdle.state.phase,
               status: hurdle.state.campaignFinance.status,
@@ -940,7 +1327,7 @@ def run(base_url: str, debug_port: int, seed: int):
             "cash": 34,
             "debt": 0,
             "ledger": 56,
-            "runSchema": 5,
+            "runSchema": 6,
             "templateCycle": [0, 1, 2, 3, 4, 0, 1, 2, 3, 4],
             "operationIdPrefix": [
                 f"FORMAL_CAMPAIGN_PROGRESS@1:{seed}:1",
@@ -972,6 +1359,51 @@ def run(base_url: str, debug_port: int, seed: int):
             },
             "rejectedOverCash": True,
         }, contracts["forecast"]
+        assert contracts["operatingShortfall"] == {
+            "phase": "FINAL",
+            "ending": "BAD_MAINTENANCE_SHORTFALL",
+            "financeSchema": 3,
+            "financeStatus": "OPERATING_CASH_SHORTFALL",
+            "completed": 1,
+            "cash": 13,
+            "liveCash": 0,
+            "debt": 200,
+            "ledger": 1,
+            "pendingExpense": {
+                "reactivation": 5,
+                "roomService": 8,
+            },
+            "preparationPersisted": True,
+            "failure": {
+                "type": "CAMPAIGN_OPERATING_CASH_SHORTFALL",
+                "stageNumber": 2,
+                "campaignOperationId": (
+                    f"FORMAL_CAMPAIGN_PROGRESS@1:{seed + 550}:2"
+                ),
+                "campaignResultIdentity": {
+                    "stageNumber": 2,
+                    "operationKind": "NORMAL",
+                    "templateIndex": 1,
+                },
+                "openingCash": 13,
+                "income": 9,
+                "availableCash": 22,
+                "upkeep": 18,
+                "reactivation": 5,
+                "roomService": 8,
+                "operatingOutflow": 31,
+                "shortfallAmount": 9,
+            },
+            "forecast": {
+                "nextUpkeep": 17,
+                "cashOnHand": 10,
+                "pendingExpense": 0,
+                "minimumIncomeRequired": 7,
+            },
+            "forecastAfterClosure": None,
+            "activeSaveCleared": True,
+            "runSchema": 6,
+        }, contracts["operatingShortfall"]
         assert contracts["hurdle"] == {
             "phase": "FINAL",
             "status": "CHAPTER_HURDLE_MISSED",
@@ -1031,6 +1463,7 @@ def run(base_url: str, debug_port: int, seed: int):
             "true_cash": contracts["trueRun"]["cash"],
             "retry_operation_id": contracts["retry"]["afterRetryId"],
             "day_one_forecast": contracts["forecast"],
+            "operating_shortfall": contracts["operatingShortfall"],
             "chapter_hurdle_status": contracts["hurdle"]["status"],
             "chapter_hurdles_verified": contracts["hurdle"]["verifiedBoundaries"],
             "debt_deadline_status": contracts["deadline"]["status"],

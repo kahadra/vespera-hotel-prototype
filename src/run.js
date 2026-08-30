@@ -1,6 +1,6 @@
 import { campaignOperationId } from "./campaign-progress.js";
 
-export const RUN_RECORD_SCHEMA_VERSION = 5;
+export const RUN_RECORD_SCHEMA_VERSION = 6;
 export const RUN_RECORD_STORAGE_KEY = "vespera.hotel.run-records.v1";
 export const RUN_RECORD_LIMIT = 20;
 
@@ -54,6 +54,15 @@ function formalDay56DebtGateEvidence(data, state) {
   };
 }
 
+function formalOperatingFailureEvidence(state) {
+  const failure = state.campaignFinance?.operatingFailure;
+  if (!failure) return null;
+  return {
+    ...failure,
+    campaignResultIdentity: { ...failure.campaignResultIdentity },
+  };
+}
+
 function formalRunFields(data, state) {
   if (!isFormalCampaign(data)) return {};
   const config = data.campaign.formal_progress;
@@ -64,6 +73,7 @@ function formalRunFields(data, state) {
     progression_authority: config.id,
     finance_authority: finance?.configId ?? null,
     day_56_debt_gate_evidence: formalDay56DebtGateEvidence(data, state),
+    operating_failure_evidence: formalOperatingFailureEvidence(state),
     campaign_stage_limit: progress.stageLimit,
     true_extension_unlocked: progress.trueExtensionUnlocked,
     last_operation_id: lastRecord
@@ -136,11 +146,13 @@ export function summarizeRun(data, state) {
       && readyRelationshipCount === relationshipRoles.length ? 1 : 0,
     dream_demon_other_species_allies: dreamDemonOtherSpeciesAllies,
     dream_demon_other_species_network: dreamDemonOtherSpeciesAllies >= dreamDemonRequiredSpeciesCount ? 1 : 0,
+    campaign_operating_cash_shortfall: state.campaignFinance?.operatingFailure ? 1 : 0,
   };
   if (isFormal) {
     const finance = state.campaignFinance;
     const financeLedger = formalFinanceLedger(state);
     const debtGateEvidence = formalDay56DebtGateEvidence(data, state);
+    const operatingFailure = formalOperatingFailureEvidence(state);
     const baseFinance = data.campaign?.formal_finance?.base_year;
     campaignMetrics.campaign_completed_stages = state.campaignProgress.completedStageCount;
     campaignMetrics.campaign_starting_cash = Number(baseFinance?.starting_cash ?? 0);
@@ -156,11 +168,11 @@ export function summarizeRun(data, state) {
     campaignMetrics.campaign_total_reactivation_spend = sum(
       financeLedger,
       (entry) => Number(entry.reactivation ?? 0),
-    );
+    ) + Number(operatingFailure?.reactivation ?? 0);
     campaignMetrics.campaign_total_room_service_spend = sum(
       financeLedger,
       (entry) => Number(entry.roomService ?? 0),
-    );
+    ) + Number(operatingFailure?.roomService ?? 0);
     campaignMetrics.campaign_total_repayment = sum(
       financeLedger,
       (entry) => Number(entry.manualRepayment ?? 0),
@@ -168,6 +180,30 @@ export function summarizeRun(data, state) {
     campaignMetrics.campaign_remaining_debt = Number(finance?.remainingDebt ?? 0);
     campaignMetrics.campaign_day_56_debt_cleared = debtGateEvidence?.passed ? 1 : 0;
     campaignMetrics.campaign_finance_ledger_entries = financeLedger.length;
+    campaignMetrics.campaign_operating_failure_stage = Number(
+      operatingFailure?.stageNumber ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_income = Number(
+      operatingFailure?.income ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_available_cash = Number(
+      operatingFailure?.availableCash ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_upkeep = Number(
+      operatingFailure?.upkeep ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_reactivation = Number(
+      operatingFailure?.reactivation ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_room_service = Number(
+      operatingFailure?.roomService ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_outflow = Number(
+      operatingFailure?.operatingOutflow ?? 0,
+    );
+    campaignMetrics.campaign_operating_failure_shortfall = Number(
+      operatingFailure?.shortfallAmount ?? 0,
+    );
   }
   const endlessMetrics = {
     endless_closed: state.endlessClosed ? 1 : 0,
@@ -309,7 +345,7 @@ export function readRunRecords(storage = globalThis.localStorage) {
     const parsed = JSON.parse(storage.getItem(RUN_RECORD_STORAGE_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((record) => [1, 2, 3, 4, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
+      .filter((record) => [1, 2, 3, 4, 5, RUN_RECORD_SCHEMA_VERSION].includes(record?.schema_version) && typeof record.record_id === "string")
       .map((record) => ({
         profile_id: "default",
         description: "",
@@ -327,6 +363,7 @@ export function readRunRecords(storage = globalThis.localStorage) {
         endless_closure_reason: null,
         finance_authority: null,
         day_56_debt_gate_evidence: null,
+        operating_failure_evidence: null,
         ...record,
         schema_version: RUN_RECORD_SCHEMA_VERSION,
       }));

@@ -492,6 +492,17 @@ export function createCampaignGreyboxData(source) {
     record_namespace: "vespera.campaign.greybox.v2",
     ending_rules: [
       {
+        id: "BAD_MAINTENANCE_SHORTFALL",
+        ending_tier: "BAD",
+        priority: 1100,
+        outcome: "FAILURE",
+        title: "오토마타의 불빛이 꺼지다",
+        description: "당일 수입과 운전자금으로 오토마타 유지비를 감당하지 못해 호텔 영업이 즉시 중단되었습니다.",
+        conditions: [
+          { metric: "campaign_operating_cash_shortfall", operator: "GTE", value: 1 },
+        ],
+      },
+      {
         id: "BAD_CHAPTER_HURDLE",
         ending_tier: "BAD",
         priority: 1000,

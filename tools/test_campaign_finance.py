@@ -147,10 +147,31 @@ def run(base_url: str, debug_port: int):
                 day1Committed,
                 { manualRepayment: 0 },
               );
+              const shortfallInput = dayResult(day1Settled, {
+                income: 2,
+                upkeep: 30,
+                reactivation: 10,
+                roomService: 16,
+              });
+              const shortfallSourceSnapshot = JSON.stringify(day1Settled);
+              const shortfallInputSnapshot = JSON.stringify(shortfallInput);
+              const shortfallRun = commitCampaignDayResult(
+                baseConfig,
+                day1Settled,
+                shortfallInput,
+              );
+              const shortfallForecast = campaignRepaymentForecast(
+                baseConfig,
+                shortfallRun,
+              );
               const immutableInputs = {
                 initialUnchanged: JSON.stringify(initial) === initialSnapshot,
                 dayInputUnchanged: JSON.stringify(day1Input) === day1InputSnapshot,
                 committedUnchanged: JSON.stringify(day1Committed) === day1CommittedSnapshot,
+                shortfallSourceUnchanged:
+                  JSON.stringify(day1Settled) === shortfallSourceSnapshot,
+                shortfallInputUnchanged:
+                  JSON.stringify(shortfallInput) === shortfallInputSnapshot,
               };
 
               const day2Settled = closeDay(baseConfig, day1Settled);
@@ -451,16 +472,100 @@ def run(base_url: str, debug_port: int):
                 initial,
                 dayResult(initial, { roomService: -1 }),
               ));
-              invalid.operatingShortfall = rejects(() => commitCampaignDayResult(
+              const invalidOperatingFailure = (name, mutate) => {
+                const candidate = clone(shortfallRun);
+                mutate(candidate);
+                invalid[name] = rejects(() => validateCampaignFinanceState(
+                  baseConfig,
+                  candidate,
+                ));
+              };
+              invalidOperatingFailure('failureSchemaVersion', value => {
+                value.schemaVersion = 2;
+              });
+              invalidOperatingFailure('failureMissingEvidence', value => {
+                value.operatingFailure = null;
+              });
+              invalidOperatingFailure('failurePendingResult', value => {
+                value.pendingDayResult = clone(day1Committed.pendingDayResult);
+              });
+              invalidOperatingFailure('failureWrongPhase', value => {
+                value.phase = 'AWAITING_RESULT';
+              });
+              invalidOperatingFailure('failureWrongStatus', value => {
+                value.status = 'ACTIVE';
+              });
+              invalidOperatingFailure('failureNextStage', value => {
+                value.nextStageNumber = 2;
+              });
+              invalidOperatingFailure('failureAppliedCash', value => {
+                value.cash = value.operatingFailure.availableCash;
+              });
+              invalidOperatingFailure('failureChangedDebt', value => {
+                value.remainingDebt -= 1;
+                value.cumulativeRepayment += 1;
+              });
+              invalidOperatingFailure('failureAppliedStage', value => {
+                value.completedStageCount += 1;
+              });
+              invalidOperatingFailure('failureWrongType', value => {
+                value.operatingFailure.type = 'UNKNOWN_FAILURE';
+              });
+              invalidOperatingFailure('failureExtraEvidenceField', value => {
+                value.operatingFailure.extra = true;
+              });
+              invalidOperatingFailure('failureWrongStage', value => {
+                value.operatingFailure.stageNumber = 3;
+              });
+              invalidOperatingFailure('failureEmptyOperationId', value => {
+                value.operatingFailure.campaignOperationId = '   ';
+              });
+              invalidOperatingFailure('failureDuplicateOperationId', value => {
+                value.operatingFailure.campaignOperationId = 'FINANCE-OP-1';
+              });
+              invalidOperatingFailure('failureIdentityStage', value => {
+                value.operatingFailure.campaignResultIdentity.stageNumber = 3;
+              });
+              invalidOperatingFailure('failureIdentityKind', value => {
+                value.operatingFailure.campaignResultIdentity.operationKind = 'RECOVERY';
+              });
+              invalidOperatingFailure('failureOpeningCash', value => {
+                value.operatingFailure.openingCash += 1;
+              });
+              invalidOperatingFailure('failureIncome', value => {
+                value.operatingFailure.income += 1;
+              });
+              invalidOperatingFailure('failureAvailableCash', value => {
+                value.operatingFailure.availableCash += 1;
+              });
+              invalidOperatingFailure('failureUpkeep', value => {
+                value.operatingFailure.upkeep += 1;
+              });
+              invalidOperatingFailure('failureReactivation', value => {
+                value.operatingFailure.reactivation += 1;
+              });
+              invalidOperatingFailure('failureRoomService', value => {
+                value.operatingFailure.roomService += 1;
+              });
+              invalidOperatingFailure('failureOperatingOutflow', value => {
+                value.operatingFailure.operatingOutflow += 1;
+              });
+              invalidOperatingFailure('failureShortfallAmount', value => {
+                value.operatingFailure.shortfallAmount += 1;
+              });
+              invalid.commitAfterOperatingFailure = rejects(() => commitCampaignDayResult(
                 baseConfig,
-                initial,
-                dayResult(initial, {
-                  income: 0,
-                  upkeep: 30,
-                  reactivation: 10,
-                  roomService: 11,
-                }),
+                shortfallRun,
+                dayResult(shortfallRun, { stageNumber: 2 }),
               ));
+              invalid.settleAfterOperatingFailure = rejects(() => settleCampaignDay(
+                baseConfig,
+                shortfallRun,
+                { manualRepayment: 0 },
+              ));
+              invalid.forecastProposalAfterOperatingFailure = rejects(
+                () => campaignRepaymentForecast(baseConfig, shortfallRun, 1),
+              );
               invalid.wrongStage = rejects(() => commitCampaignDayResult(
                 baseConfig,
                 initial,
@@ -640,6 +745,12 @@ def run(base_url: str, debug_port: int):
                 hurdleMissRun,
                 passedEvidence,
               ));
+              invalid.unlockOperatingFailure = rejects(() => unlockCampaignFinanceTrueExtension(
+                baseConfig,
+                extendedConfig,
+                shortfallRun,
+                passedEvidence,
+              ));
               invalid.unlockWrongEvidence = rejects(() => unlockCampaignFinanceTrueExtension(
                 baseConfig,
                 extendedConfig,
@@ -715,6 +826,12 @@ def run(base_url: str, debug_port: int):
                   pending: day1Committed.pendingDayResult,
                 },
                 day1Entry: day1Settled.ledger[0],
+                operatingShortfall: {
+                  state: shortfallRun,
+                  forecast: shortfallForecast,
+                  sourceLedgerPreserved: JSON.stringify(shortfallRun.ledger)
+                    === JSON.stringify(day1Settled.ledger),
+                },
                 preRepaymentAtSeven,
                 day7Checkpoint,
                 day14Checkpoint,
@@ -781,7 +898,7 @@ def run(base_url: str, debug_port: int):
         assert contracts["initial"]["cash"] == 50, contracts["initial"]
         assert contracts["initial"]["remainingDebt"] == 100, contracts["initial"]
         assert contracts["initial"]["totalStages"] == 56, contracts["initial"]
-        assert contracts["initial"]["schemaVersion"] == 2, contracts["initial"]
+        assert contracts["initial"]["schemaVersion"] == 3, contracts["initial"]
         assert contracts["initial"]["balanceVerdict"] == "NOT_EVALUATED"
         forecasts = contracts["forecasts"]
         forecast_keys = {
@@ -878,6 +995,39 @@ def run(base_url: str, debug_port: int):
         assert day1["manualRepayment"] == 0
         assert day1["cashConservation"]["delta"] == 0
         assert day1["debtConservation"]["delta"] == 0
+
+        shortfall = contracts["operatingShortfall"]
+        failed_state = shortfall["state"]
+        assert failed_state["schemaVersion"] == 3, failed_state
+        assert failed_state["phase"] == "CLOSED", failed_state
+        assert failed_state["status"] == "OPERATING_CASH_SHORTFALL", failed_state
+        assert failed_state["nextStageNumber"] is None, failed_state
+        assert failed_state["completedStageCount"] == 1, failed_state
+        assert failed_state["cash"] == 53, failed_state
+        assert failed_state["remainingDebt"] == 100, failed_state
+        assert failed_state["cumulativeRepayment"] == 0, failed_state
+        assert len(failed_state["ledger"]) == 1, failed_state
+        assert failed_state["pendingDayResult"] is None, failed_state
+        assert failed_state["operatingFailure"] == {
+            "type": "CAMPAIGN_OPERATING_CASH_SHORTFALL",
+            "stageNumber": 2,
+            "campaignOperationId": "FINANCE-OP-2",
+            "campaignResultIdentity": {
+                "stageNumber": 2,
+                "operationKind": "NORMAL",
+                "templateIndex": 1,
+            },
+            "openingCash": 53,
+            "income": 2,
+            "availableCash": 55,
+            "upkeep": 30,
+            "reactivation": 10,
+            "roomService": 16,
+            "operatingOutflow": 56,
+            "shortfallAmount": 1,
+        }, failed_state
+        assert shortfall["forecast"] is None, shortfall
+        assert shortfall["sourceLedgerPreserved"] is True, shortfall
 
         assert contracts["preRepaymentAtSeven"] == {
             "ledgerCount": 6,
@@ -993,7 +1143,7 @@ def run(base_url: str, debug_port: int):
 
         assert all(contracts["conservation"].values()), contracts["conservation"]
         assert contracts["constants"] == {
-            "financeSchemaVersion": 2,
+            "financeSchemaVersion": 3,
             "operationKinds": ["NORMAL"],
             "balanceVerdict": "NOT_EVALUATED",
             "settlementSequence": (
@@ -1036,6 +1186,8 @@ def run(base_url: str, debug_port: int):
                 )
             ),
             "chapter_hurdle_miss_outcome": contracts["hurdleMissState"]["status"],
+            "operating_shortfall_outcome": contracts["operatingShortfall"]["state"]["status"],
+            "operating_shortfall_amount": contracts["operatingShortfall"]["state"]["operatingFailure"]["shortfallAmount"],
             "day_56_gate": contracts["passedEvidence"]["passed"],
             "true_extension_prefix": contracts["extensionStart"]["prefixPreserved"],
             "day_57_debt_grace": contracts["passedEvidence"]["debtGraceAfterBoundary"],

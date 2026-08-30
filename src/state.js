@@ -559,6 +559,36 @@ export class GameController {
     );
   }
 
+  formalCampaignOperatingForecast() {
+    if (!this.isFormalCampaignMode) return null;
+    const finance = this.state.campaignFinance;
+    if (
+      finance?.status !== "ACTIVE"
+      || !["AWAITING_RESULT", "RESULT_COMMITTED"].includes(finance.phase)
+    ) return null;
+    if (
+      finance.phase === "RESULT_COMMITTED"
+      && finance.pendingDayResult?.stageNumber >= this.state.campaignProgress.stageLimit
+    ) return null;
+    this.verifyFormalCampaignLiveCash();
+    const pendingExpense = safeAmountSum(
+      "FORMAL_CAMPAIGN pending operating expense forecast",
+      this.state.campaignPendingExpenses.reactivation,
+      this.state.campaignPendingExpenses.roomService,
+    );
+    const nextUpkeep = this.calculateFormalCampaignUpkeep();
+    const projectedRepayment = finance.phase === "RESULT_COMMITTED"
+      ? this.state.campaignSelectedRepayment
+      : 0;
+    const cashOnHand = this.state.gold - projectedRepayment;
+    return {
+      nextUpkeep,
+      cashOnHand,
+      pendingExpense,
+      minimumIncomeRequired: Math.max(0, nextUpkeep - cashOnHand),
+    };
+  }
+
   calculateFormalCampaignUpkeep() {
     if (!this.isFormalCampaignMode) return 0;
     const policy = this.formalCampaignFinanceRuntimePolicy;
@@ -600,7 +630,13 @@ export class GameController {
     if (accountedCash !== this.state.campaignFinance.cash) {
       throw new Error("FORMAL_CAMPAIGN live gold plus pending expenses must equal finance cash");
     }
-    if (this.state.campaignFinance.completedStageCount
+    // The guest-operation record is complete while its finance row remains
+    // pending until the secretary report is signed.
+    const pendingResultOffset = this.state.campaignFinance.phase === "RESULT_COMMITTED"
+      && this.state.campaignFinance.pendingDayResult
+      ? 1
+      : 0;
+    if (this.state.campaignFinance.completedStageCount + pendingResultOffset
       !== this.state.campaignProgress.completedStageCount) {
       throw new Error("FORMAL_CAMPAIGN finance and progress completed stages are out of sync");
     }
@@ -1394,7 +1430,7 @@ export class GameController {
         resolvedResult.campaignResultIdentity = clone(formalCompletion.resultIdentity);
         const pending = this.state.campaignPendingExpenses;
         const config = this.activeCampaignFinanceConfig;
-        this.state.campaignFinance = commitCampaignDayResult(
+        const nextFinance = commitCampaignDayResult(
           config,
           this.state.campaignFinance,
           {
@@ -1407,6 +1443,17 @@ export class GameController {
             roomService: pending.roomService,
           },
         );
+        if (nextFinance.status === "OPERATING_CASH_SHORTFALL") {
+          const openingCheckpoint = this.stageCheckpoint;
+          if (!openingCheckpoint || openingCheckpoint.phase !== PHASES.DAY_OPENING) {
+            throw new Error("FORMAL_CAMPAIGN operating failure requires a DAY_OPENING checkpoint");
+          }
+          this.state = clone(openingCheckpoint);
+          this.state.campaignFinance = nextFinance;
+          this.completeRun();
+          return;
+        }
+        this.state.campaignFinance = nextFinance;
         this.state.campaignPendingExpenses = { reactivation: 0, roomService: 0 };
         this.state.gold = this.state.campaignFinance.cash;
       } else {

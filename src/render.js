@@ -428,9 +428,15 @@ function secretaryPortrait(controller) {
   return `<div class="secretary-portrait ${presentationClass}" aria-label="비서 오토마타"><span aria-hidden="true">◇</span><small>SECRETARY AUTOMATA</small></div>`;
 }
 
+function renderFormalOperatingForecast(controller) {
+  const forecast = controller.formalCampaignOperatingForecast();
+  if (!forecast) return "";
+  return `<section class="audit-contract-grid" data-formal-operating-forecast><article><small>다음 유지비</small><strong data-formal-operating-value="nextUpkeep">${forecast.nextUpkeep}G</strong><span>현재 시설 기준</span></article><article><small>가용 현금</small><strong data-formal-operating-value="cashOnHand">${forecast.cashOnHand}G</strong><span>선택 상환 반영</span></article><article><small>대기 비용</small><strong data-formal-operating-value="pendingExpense">${forecast.pendingExpense}G</strong><span>공사·객실 정비</span></article><article><small>최소 필요 수입</small><strong data-formal-operating-value="minimumIncomeRequired">${forecast.minimumIncomeRequired}G</strong><span>다음 영업 유지 조건</span></article></section>`;
+}
+
 function renderDayOpening(controller) {
   const repeated = controller.state.foresightRetryCount > 0;
-  return `<section class="screen-shell secretary-scene day-opening-scene"><div class="scene-heading"><p class="eyebrow">MORNING BRIEFING · DAY ${controller.currentNightNumber}</p><h1>영업 개시 보고</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>${repeated ? "잠시만요. 처음 펼친 장부인데… 지배인님께서는 다음 항목을 이미 알고 계신 표정이군요." : "좋은 아침입니다, 지배인님. 오늘 접수된 예약과 객실 현황을 순서대로 읽어 드리겠습니다."}</p><p>준비가 끝나는 대로 예약 장부를 개방하겠습니다.</p></article></div><div class="center-action"><button class="button primary large" data-action="start-day-business">오늘 영업을 개시한다</button></div></section>`;
+  return `<section class="screen-shell secretary-scene day-opening-scene"><div class="scene-heading"><p class="eyebrow">MORNING BRIEFING · DAY ${controller.currentNightNumber}</p><h1>영업 개시 보고</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>${repeated ? "잠시만요. 처음 펼친 장부인데… 지배인님께서는 다음 항목을 이미 알고 계신 표정이군요." : "좋은 아침입니다, 지배인님. 오늘 접수된 예약과 객실 현황을 순서대로 읽어 드리겠습니다."}</p><p>준비가 끝나는 대로 예약 장부를 개방하겠습니다.</p></article></div>${renderFormalOperatingForecast(controller)}<div class="center-action"><button class="button primary large" data-action="start-day-business">오늘 영업을 개시한다</button></div></section>`;
 }
 
 function renderDisplayRelicOffer(controller) {
@@ -452,7 +458,15 @@ function renderDisplayRelicOffer(controller) {
 }
 
 function renderResultReview(controller) {
-  return `<section class="screen-shell secretary-scene result-review-scene"><div class="scene-heading"><p class="eyebrow">CLOSING REPORT · DAY ${controller.currentNightNumber}</p><h1>마감 확인</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>오늘 장부의 수입, 평판과 객실 변동을 모두 정리했습니다.</p><p>이 내용으로 마감 서명을 남길까요, 지배인님?</p></article></div><div class="center-action split-actions"><button class="button secondary large" data-action="restart-day-through-secretary">아침 장부부터 다시 읽어 줘.</button><button class="button primary large" data-action="accept-secretary-report">이대로 서명하지.</button></div></section>`;
+  const finance = controller.state.campaignFinance;
+  const canRepay = controller.isFormalCampaignMode
+    && finance?.pendingDayResult?.stageNumber <= 56;
+  const repaymentLimit = canRepay ? Math.min(finance.cash, finance.remainingDebt) : 0;
+  const repaymentForecast = canRepay ? controller.formalCampaignRepaymentForecast() : null;
+  const repayment = canRepay
+    ? `<section class="maintenance-panel" data-formal-repayment><div><p class="eyebrow">DEBT REPAYMENT</p><h2>추가 상환</h2><p>이번 정산에서 상환할 금액을 직접 정합니다.<span data-formal-repayment-forecast>${repaymentForecast ? ` 다음 허들 ${repaymentForecast.nextCheckpointStage}일 · 남은 목표 ${repaymentForecast.remainingAmount}G` : ""}</span></p></div><label>선택 상환액 <input type="number" min="0" max="${repaymentLimit}" step="1" value="${controller.state.campaignSelectedRepayment}" data-formal-repayment-input />G</label></section>`
+    : "";
+  return `<section class="screen-shell secretary-scene result-review-scene"><div class="scene-heading"><p class="eyebrow">CLOSING REPORT · DAY ${controller.currentNightNumber}</p><h1>마감 확인</h1></div><div class="secretary-dialogue">${secretaryPortrait(controller)}<article><small>비서 오토마타</small><p>오늘 장부의 수입, 평판과 객실 변동을 모두 정리했습니다.</p><p>이 내용으로 마감 서명을 남길까요, 지배인님?</p></article></div>${repayment}${renderFormalOperatingForecast(controller)}<div class="center-action split-actions"><button class="button secondary large" data-action="restart-day-through-secretary">아침 장부부터 다시 읽어 줘.</button><button class="button primary large" data-action="accept-secretary-report">이대로 서명하지.</button></div></section>`;
 }
 
 function renderMaintenance(controller) {
@@ -525,6 +539,7 @@ function renderUpgrade(controller) {
   return `
     <section class="screen-shell shop-screen">
       <div class="screen-heading"><div><p class="eyebrow">HOTEL RENOVATION · ${escapeHtml(nextServiceLabel)}</p><h1>다음 영업을 위한 공사를 준비하세요.</h1></div><p>보유 골드 <b>${state.gold}G</b> · 증축 ${builtExpansionCount} · 시설 ${installedFacilityCount}</p></div>
+      ${renderFormalOperatingForecast(controller)}
       ${renderOddsStrip(data, odds, "upgrade-rank-odds")}
       <section class="maintenance-panel"><div><p class="eyebrow">HOUSEKEEPING</p><h2>객실 정비</h2><p>연박 중인 객실은 이동하거나 정비할 수 없습니다.</p></div>${renderMaintenance(controller)}</section>
       <div class="renovation-layout" data-video-target="upgrade-offers">

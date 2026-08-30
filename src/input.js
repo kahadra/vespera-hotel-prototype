@@ -1,4 +1,29 @@
 export function setupInput(app, controller, rerender) {
+  app.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-formal-repayment-input]");
+    if (!input) return;
+    const changed = controller.setFormalCampaignRepayment(Number(input.value));
+    if (!changed) input.value = String(controller.state.campaignSelectedRepayment);
+    controller.saveCheckpoint();
+    const operating = controller.formalCampaignOperatingForecast();
+    if (operating) {
+      for (const field of [
+        "nextUpkeep",
+        "cashOnHand",
+        "pendingExpense",
+        "minimumIncomeRequired",
+      ]) {
+        const value = app.querySelector(`[data-formal-operating-value="${field}"]`);
+        if (value) value.textContent = `${operating[field]}G`;
+      }
+    }
+    const repayment = controller.formalCampaignRepaymentForecast();
+    const repaymentCopy = app.querySelector("[data-formal-repayment-forecast]");
+    if (repaymentCopy && repayment) {
+      repaymentCopy.textContent = ` 다음 허들 ${repayment.nextCheckpointStage}일 · 남은 목표 ${repayment.remainingAmount}G`;
+    }
+  });
+
   app.addEventListener("click", (event) => {
     const target = event.target.closest("[data-action], [data-guest-id]");
     if (!target) return;
