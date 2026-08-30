@@ -150,7 +150,8 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 공개 호출 경계는 `commitCampaignDayResult()`의 정확한 7필드 결과 `{ stageNumber, campaignOperationId, campaignResultIdentity, income, upkeep, reactivation, roomService }`와 `settleCampaignDay()`의 정확한 1필드 정산 `{ manualRepayment }`다. Python 미러도 이 두 단계와 같은 처리 순서·원자적 실패·원장 상태를 사용한다.
 - `tools/campaign_finance_js_oracle.mjs`는 복제한 JavaScript 계산 결과를 읽는 대신 실제 `src/campaign-finance.js`를 import한다. 공통 fixture 18경로에서 Python과 JavaScript의 전체 결과를 재귀 비교해 12개 수락·6개 거부, 원장 278행과 추적 851건의 일치를 확인했다. 엄격 fixture 로더 2건, Python 상태 검증기 5건, 공개 API 형상 4건의 별도 probe도 PASS했다.
 - 이 정합성의 범위는 선지급된 준비비와 이미 해결된 일일 입력을 소비하는 `RESOLVED_DAILY_FINANCE_TRANSITIONS`, 즉 재정 커널뿐이다. 손님 생성, 배치·점수, 공사 제안·실행 자격, 객실 상태 자격과 전체 `GameController` 롤백은 포함하지 않는다. 기존 Edge 재정 92개 거부 계약, 형식 56/70일 통합, 진행 회귀는 별도 PASS로 유지한다.
-- 정합성 PASS는 수치 밸런스 PASS가 아니다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지한다. 다음 P0는 시작 운전자금·부채 원금·챕터 누적 상환 허들·유지비·재가동비의 후보 범위를 생성하는 것이며, 정확한 값은 그 증거를 제시한 뒤 사용자 결정으로 확정한다. 정식 종족 방향과 특화 시설 표본도 별도 사용자 선택 전까지 경제 fixture의 고정 콘텐츠로 넣지 않는다.
+- 정합성 PASS는 수치 밸런스 PASS가 아니다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지한다. 그 위의 `tools/generate_campaign_economy_candidates.py`는 15개 phase trace, 상환 곡선 3개, 재가동비 배분 2개와 시작금·원금·기본 유지비·활성 단위 유지비·총 재가동비 5개 축을 90개 구조·450개 단일 축 관측으로 계산한다. `tools/test_campaign_economy_candidates.py`는 산출물 스키마·원본 감사 SHA-256·정의역 내부 인접 증인·현금 보존식·조기 종단·비선정 가드를 검증한다. 중심값은 10/15 trace였고 64개 셀은 다른 중심값을 고정한 채 축을 0으로 내려도 공통 경계를 만들 수 없었다. 이 개수는 확률·밸런스·공동 실행 가능 영역이 아니다.
+- 생성기가 기록한 3,642회는 memoization cache miss인 고유 시뮬레이션 telemetry다. 독립 검증기가 실행 횟수를 입증하거나 모든 후보를 JavaScript 오라클로 다시 실행했다는 뜻이 아니다. 정확한 수치 번들은 아직 생성·선택할 준비가 되지 않았다. 다음 게이트는 현재 런타임처럼 모든 보유 업그레이드를 공용 유지비 단위 하나로 계속 셀지 결정하는 것이다. 객실 정비·서비스비는 발생 규칙이 생길 때까지 중심 입력 0으로 유지하고 이후 별도 stress overlay로 추가한다. 정식 종족 방향과 특화 시설 표본도 별도 사용자 선택 전까지 경제 fixture의 고정 콘텐츠로 넣지 않는다.
 
 ### 시드 제안과 공정성
 

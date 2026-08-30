@@ -100,6 +100,8 @@ python .\tools\validate_campaign_reachability.py
 python .\tools\test_campaign_progress.py
 python .\tools\test_campaign_finance.py
 python .\tools\test_campaign_finance_conformance.py
+python .\tools\generate_campaign_economy_candidates.py --self-test
+python .\tools\test_campaign_economy_candidates.py
 python .\tools\test_formal_campaign_runtime.py
 ```
 
@@ -108,6 +110,10 @@ python .\tools\test_formal_campaign_runtime.py
 `test_campaign_finance_conformance.py`는 공통 fixture를 독립 Python 재정 미러와 실제 `src/campaign-finance.js`를 import하는 JavaScript 오라클에 각각 넣고 전체 결과를 재귀 비교한다. 기능 커밋 `564c204` 기준 18경로가 12개 수락·6개 거부로 일치했고, 원장 278행과 추적 851건도 같았다. 엄격 로더 2건, Python 상태 검증기 5건, 7필드 결과 확정과 `{ manualRepayment }` 정산을 포함한 공개 API 형상 4건도 PASS했다. 기존 Edge 재정 회귀의 거부 계약 92건, 형식 56/70일 통합 회귀와 진행 계약 회귀도 함께 PASS했다.
 
 이 테스트의 판정 범위는 선지급된 준비비와 해결된 일일 입력을 소비하는 `RESOLVED_DAILY_FINANCE_TRANSITIONS`다. 손님 생성·배치·점수·공사 및 객실 자격·전체 `GameController` 롤백은 대상이 아니며, 정합성 PASS를 경제 밸런스 PASS로 해석하지 않는다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지해야 한다.
+
+잠정 경제 경계 생성 회귀는 15개 phase trace·상환 곡선 3개·재가동비 배분 2개·수치 축 5개가 정확히 90개 구조와 450개 경계 관측을 만드는지 확인한다. 각 정의역 내부 경계는 인접 정수 증인을, 0 하한 경계는 정의된 방향의 증인을 보존해야 하며, 조기 종단 뒤의 day 56 값은 관측값으로 채우지 않는다. 중심값의 `10/15`와 64개 `NO_FEASIBLE_NONNEGATIVE_VALUE_WITH_HELD_ANCHORS` 셀도 원본 JSON과 보고서에서 일치해야 한다.
+
+경계 테스트는 trace 개수를 확률이나 완주율로 변환하지 않고, 단일 축 경계를 공동 실행 가능 번들로 합치지 않으며, `NOT_EVALUATED`를 유지해야 한다. 생성기 보고값 3,642회는 현재 cache miss telemetry의 회귀 대상일 뿐 독립 실행 횟수 증명이 아니다. 객실 정비·서비스 입력은 발생 규칙이 생길 때까지 0인 중심 조건으로 남기고 추후 별도 stress overlay가 추가되면 그 식별자와 입력을 독립 검증한다.
 
 ### 통과 조건
 
