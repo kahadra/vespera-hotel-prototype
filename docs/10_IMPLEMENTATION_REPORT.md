@@ -75,12 +75,14 @@
 ### Electron 데스크톱 스파이크 — PASS · NOT RELEASE READY
 
 - Electron 44.0.0과 제한된 preload를 기존 웹 코어에 부착했다. `vespera://app/`은 허용된 게임 자산만 제공하며 renderer는 sandbox·context isolation·web security를 유지하고 Node 전역·임의 IPC·외부 내비게이션에 접근하지 못한다.
+- 쿼리 없는 Electron 기동은 캠페인·무한 영업·초청 영업을 선택하는 모드 허브를 표시한다. 쿼리 없는 브라우저는 이전처럼 `SHOWCASE`를 시작하므로 웹 회귀 계약은 바꾸지 않았다. 실제 외곽 창 960×600의 콘텐츠 영역 944×561에서 overflow 없이 세 모드를 노출했고 CDP Tab→Space 진입을 통과했다. 네트워크 오프라인 상태에서도 DOM 클릭 위임으로 허브와 `SHOWCASE` 데이터를 로드했다.
 - Electron에서는 같은 Storage 키와 게임 payload를 OS `userData/save-data/v1/profiles/local` 아래 프로필·실행 기록·모드별 활성 런 파일로 분리한다. 웹 개발 경로의 `localStorage` fallback은 보존한다.
+- `CAMPAIGN`, `ENDLESS`, `SHOWCASE` 파일은 함께 존재하고 재시작 뒤 선택한 모드의 단계·시드·영업일을 정확히 재개한다. 캠페인 `completeRun()`의 `CAMPAIGN_INTERRUPTED` 종결과 무한 영업 5-operation 감사 실패 종결은 대상 모드에만 tombstone을 남겼고, 비대상 primary·backup 원문 바이트와 재개 결과는 변하지 않았다.
 - 파일 envelope 스키마 1은 게임 세이브 스키마 6과 별개이며 checksum·revision·임시 기록·동기화·원자 교체·backup·손상 격리·삭제 tombstone·용량 상한을 제공한다.
 - 종료 기록은 저장 raw readback에 성공한 뒤에만 활성 런을 지운다. 예외 또는 silent no-op을 주입한 회귀에서 정확한 STORY 체크포인트와 미확정 실행 기록이 보존되고 새 컨트롤러가 같은 단계·시드로 재개했다.
-- 파일 저장 단위 테스트 `9/9`, 개발 Electron, 수동 폴더 패키지 `VesperaHotel.exe`가 모두 PASS했다. 최종 소스 재패키징 뒤 작은 스모크 표본의 OS 사용자 드라이브 동기 쓰기는 개발 p95 6.881ms, 패키지 p95 7.695ms였으며 장기 성능 판정으로 확대하지 않는다.
-- 최초 Codex 관리 실행의 Windows Mojo IPC 오류 `0x5`는 renderer 진입 전 하네스 환경 차단이었다. 일반 사용자 권한 재실행은 Electron sandbox를 끄지 않고 개발·패키지 모두 통과했다.
-- 현재 산출물은 installer·서명·Steam 계정·Cloud·웹 저장 이전·클린 PC 설치·전체 캠페인 파일 완주가 없는 스파이크다. 상세 증거와 한계는 `30_DESKTOP_RUNTIME_SPIKE.md`를 따른다.
+- 파일 저장 단위 테스트 `9/9`, 모드 허브 단위 테스트 `10/10`(통합 `19/19`), 개발 Electron과 폴더 패키지 `VesperaHotel.exe`가 모두 PASS했다. 첫 프로필에서 허브와 세 모드 저장을 공존시키는 동안 측정한 17회 FileStorage mutation의 동기 쓰기는 개발 p95 14.264ms, 최종 패키지 p95 11.206ms였다. 양방향 종단 격리는 별도 프로필·프로세스에서 PASS했으며 두 증거 모두 장기 성능 판정으로 확대하지 않는다.
+- 제한된 Codex 관리 실행의 Windows Mojo IPC 오류 `0x5`는 renderer 진입 전 `0x80000003`을 낸 환경 차단이었다. 일반 사용자 권한 재실행은 별도 시스템 설치나 `--no-sandbox` 없이 Electron sandbox를 유지한 채 개발·패키지 모두 통과했다.
+- 현재 산출물은 installer·서명·Steam 계정·Cloud·웹 저장 이전·클린 PC 설치·정식 56/70일 캠페인 파일 완주와 장기 무한 영업이 없는 스파이크다. 상세 증거와 한계는 `30_DESKTOP_RUNTIME_SPIKE.md`를 따른다.
 
 ## v1 보존 기록 — 최초 2영업 구현 결과
 

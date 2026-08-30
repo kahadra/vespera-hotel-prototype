@@ -1,4 +1,4 @@
-export function setupInput(app, controller, rerender) {
+export function setupInput(app, controller, rerender, options = {}) {
   app.addEventListener("change", (event) => {
     const input = event.target.closest("[data-formal-repayment-input]");
     if (!input) return;
@@ -29,6 +29,10 @@ export function setupInput(app, controller, rerender) {
     if (!target) return;
 
     const action = target.dataset.action;
+    if (action === "return-mode-hub" && options.onReturnToModeHub) {
+      options.onReturnToModeHub();
+      return;
+    }
     if (action === "open-handbook") controller.openHandbook(target.dataset.tab);
     else if (action === "close-handbook") controller.closeHandbook();
     else if (action === "open-reservation-board") controller.openReservationBoard();

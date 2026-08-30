@@ -268,19 +268,26 @@ python .\tools\test_formal_campaign_runtime.py
 ## 9.1. Electron 데스크톱 스파이크 테스트
 
 ```powershell
-npm run test:desktop:storage
+npm run test:desktop:unit
 npm run desktop:package
 npm run test:desktop:dev
 npm run test:desktop:packaged
 ```
 
 - 파일 키 분리, 재실행, checksum 손상, 이전 정상 backup과 backup 단독 복구, tombstone, 키·용량 제한, 합성 사용자 루트 격리 단위 테스트
+- 모드 허브의 세 모드 ID, 유효·손상·불일치 체크포인트 판별, 쇼케이스 v1 보조 조회, URL 전환과 저장소 예외 단위 테스트
 - 개발·폴더 패키지 모두 `vespera://app/` 로컬 자산만으로 기동하고 외부 내비게이션·새 창·비허용 자산 접근 차단
+- 쿼리 없는 Electron은 모드 허브로, 쿼리 없는 브라우저는 기존 `SHOWCASE`로 진입
+- 실제 외곽 창 960×600의 콘텐츠 영역 944×561에서 세 모드 카드·주요 행동이 잘리지 않고 overflow가 없으며, CDP의 Tab→Space 신뢰 입력으로 모드 진입이 작동. 1280×720·960×600 콘텐츠 viewport 에뮬레이션은 보조 검사로 분리
+- 네트워크 오프라인 상태를 유지한 채 허브의 DOM 클릭 위임으로 `SHOWCASE`를 열고 `prototype_v1.json`까지 모든 자원이 `vespera://app/`에서 로드된 뒤 허브로 복귀
 - sandbox, context isolation, web security 활성화와 renderer Node 전역 부재
-- 튜토리얼 활성 런 파일 저장 뒤 정상 종료·재실행 복구
+- `CAMPAIGN`, `ENDLESS`, `SHOWCASE` 활성 런 파일이 함께 존재하고 앱 재시작 뒤 각 모드의 단계·시드·영업일을 정확히 재개
+- 캠페인 `completeRun()`의 `CAMPAIGN_INTERRUPTED` 종결과 무한 영업 5-operation 감사 실패 종결에서 대상 파일만 tombstone 처리하고, 비대상 모드의 primary·backup 원문 바이트와 재개 상태를 보존
 - 실행 기록 쓰기 예외와 silent no-op 모두 활성 STORY 체크포인트 원문을 보존하고 같은 단계·시드로 재개
-- 현재 결과: 파일 저장 `9/9 PASS`, 개발 실행 `PASS`, 폴더 패키지 `PASS`
-- 증거 한계: 합성 `userData` 분리는 Steam 계정 시험이 아니며, CDP 오프라인 에뮬레이션은 클린 PC 설치 검증이 아니다. installer·서명·Steam Cloud·전체 56/70일 파일 완주는 출시 전 별도 시험이다.
+- 현재 종결 회귀는 정상 tombstone 기록 경로를 증명한다. backup tombstone 기록 뒤 primary 기록 전 강제 실패, 첫 tombstone 쓰기 실패와 삭제 실패 전파는 정식 저장 신뢰성 단계의 fault-injection 항목으로 남긴다.
+- 현재 결과: 파일 저장 `9/9 PASS`, 모드 허브 `10/10 PASS`(통합 단위 `19/19`), 개발 실행 `PASS`, 폴더 패키지 `PASS`
+- 제한된 Codex 실행 환경의 Chromium IPC 차단은 `0x80000003` 예외를 만들었지만 일반 사용자 권한의 개발·패키지는 sandbox를 유지한 채 통과했다. 시스템 설치나 `--no-sandbox` 우회는 필요하지 않다.
+- 증거 한계: 합성 `userData` 분리는 Steam 계정 시험이 아니며, CDP 오프라인 에뮬레이션은 클린 PC 설치 검증이 아니다. installer·서명·Steam Cloud·정식 56/70일 파일 완주와 무한 영업 장기 런은 출시 전 별도 시험이다.
 
 ## 10. 버그 우선순위
 

@@ -1,6 +1,6 @@
 # 프로토타입 기술 설계
 
-- 상태: `v2 IMPLEMENTED · ELECTRON DESKTOP SPIKE PASS · NOT RELEASE READY`
+- 상태: `v2 IMPLEMENTED · ELECTRON THREE-MODE ROUTING AND FILE RESUME PASS · NOT RELEASE READY`
 - 웹 게임 코어: 런타임 의존성 없는 정적 HTML/CSS/JavaScript 앱
 - 정식 배포 방향: 로컬 실행파일과 파일 저장을 사용하는 Windows 우선 데스크톱 게임, 이후 Steam 배포
 - 현재 환경 확인: Python·.NET 사용 가능, 시스템 Node.js/npm·Rust/Cargo·Godot는 설치하지 않음. Electron 스파이크는 Git 제외된 공식 Node 24.20.0 휴대용 런타임으로 수행
@@ -30,7 +30,7 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 - 기존 호스팅 웹의 `localStorage` 데이터는 Electron이 직접 읽지 못하므로 명시적 export/import 방식의 일회성 이전 대상으로 둔다. 아직 구현하지 않았으며 두 저장소를 동시에 권위로 사용하지 않는다.
 - 출하 게이트는 완전 오프라인 기동, 종료 후 재실행 복구, 손상 파일 백업 복구, 계정 분리, Steam Cloud 충돌 처리와 기존 캠페인·무한 영업 회귀다.
 
-스파이크 이후에도 규칙·캠페인 뼈대는 브라우저 회귀와 Electron 경계 회귀를 함께 사용해 완성한다. 현재 PASS는 튜토리얼 체크포인트의 파일 저장·프로세스 재실행 복구까지이며, 정식 56/70일과 무한 영업의 파일 기반 완주는 별도 게이트다.
+스파이크 이후에도 규칙·캠페인 뼈대는 브라우저 회귀와 Electron 경계 회귀를 함께 사용해 완성한다. Electron queryless 시작은 세 모드 허브를 열고 브라우저 queryless 시작은 기존 `SHOWCASE` 컨트롤러를 유지한다. 캠페인 저장 재개 직후의 명시적 `CAMPAIGN_INTERRUPTED` 종결과 무한 영업의 실제 5-operation 감사 실패 종결에서 모드별 활성 파일 공존, 대상 모드 tombstone, 비대상 모드 주·백업 파일 불변과 프로세스 재실행 뒤 정확 재개를 통과했다. 이는 캠페인 5영업 완주, 정식 56/70일 파일 완주나 정식 무한 영업 밸런스의 검증이 아니며 해당 항목은 별도 게이트다.
 
 ## v2 현재 구조
 
@@ -54,6 +54,7 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 | `emergency.js` | 시간 만료 시 연박 고정을 지키는 비최적 긴급 배정·강제 취소 |
 | `run.js` | 공통 런 지표 요약, 데이터 기반 종료 판정, 버전이 있는 로컬 실행 기록 |
 | `save.js` | 데이터·모드 버전을 검증하는 활성 런과 직전 영업 시작 체크포인트 생성·복구·삭제 |
+| `mode-hub.js` | 데스크톱의 허용 모드 목록, 모드별 활성 저장 요약, queryless 허브·모드 URL 정규화 |
 | `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 객실 상태, 발견, 예지 재시도, 누적 개선, 계약 한도 |
 | `render.js` | 초대장, 수첩, 예약 한도·기존 객실도, 객실 배정, 결산, 영업 준비·공사 계약, 종합 결과 |
 | `input.js` | 손님 클릭 정보 열람, 드래그 전용 배정·교환·해제, 수용·거절, 정비·계약, 수첩과 주요 전환 |
@@ -70,6 +71,10 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 ### v2 상태 전환
 
 ```text
+ELECTRON QUERYLESS → MODE_HUB → SHOWCASE / CAMPAIGN / ENDLESS TITLE
+                         ↑          └─ TITLE·FINAL에서만 허브 복귀
+BROWSER QUERYLESS ─────────────────→ SHOWCASE TITLE
+
 TITLE → TUTORIAL ─┐
   └─ saved run → RESUME ─┤
   └──── skip ─────┴→ NIGHT_1_PLACEMENT → RESULT
@@ -130,13 +135,19 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 실행 기록은 쓰기 뒤 같은 raw 문자열을 다시 읽어 확인한 다음에만 활성 런을 제거한다. 예외나 silent no-op이면 `RUN_RECORD_WRITE_FAILED`로 종료 확정을 중단하고 활성 체크포인트를 보존한다.
 - 실행 기록 스키마 6은 전체 상태를 복제하지 않고 모드·시드·엔딩 ID·계층, 종족·관계 인물 선택, 종족 엔딩에서 열린 지배인의 이후 선택지, 인과적으로 연결된 후일담과 핵심 지표만 최근 20개 보존한다. 형식 캠페인은 실제 완료 스테이지·진행 권위·활성 상한·트루 확장 여부·마지막 영업 ID와 수입·유지비·재가동·정비·상환·잔여 부채, day 56 부채 해결 및 운영자금 부족 증거도 기록한다. 같은 기록 ID의 중복 저장은 기존 항목을 대체한다.
 - 캠페인의 세이브·체크포인트·프로필 분리는 `24_SAVE_AND_RUN_STRUCTURE.md`의 계약을 따른다.
-- 현재 v2는 조작 뒤와 페이지 이탈 시 활성 런을 저장한다. 웹 개발 경로는 `localStorage`, Electron은 같은 동기식 Storage 계약에 파일 어댑터를 주입한다. 다시 열면 타이틀의 `지난 영업 이어하기`로 복구하며, 새 런 시작·확인된 엔딩 기록·재시작은 활성 세이브를 제거한다.
+- 현재 v2는 조작 뒤와 페이지 이탈 시 활성 런을 저장한다. 웹 개발 경로는 `localStorage`, Electron은 같은 동기식 Storage 계약에 파일 어댑터를 주입한다. Electron을 다시 열면 queryless 허브에서 모드를 고르고 해당 타이틀의 이어하기로 복구한다. 허브 복귀는 `TITLE`과 `FINAL`에서만 노출하고 저장을 지우지 않으며, 새 런 시작·확인된 엔딩 기록·재시작만 대상 모드의 활성 세이브를 제거한다. 프로필·운영 수첩·실행 기록은 공용 파일을 유지한다.
 - 활성 런 세이브 스키마 6은 모드별 키로 현재 상태와 `stage_checkpoint`를 보존한다. `SHOWCASE`는 예약·배치 시작 상태를, 시나리오 캠페인은 신청 생성 전 `DAY_OPENING` 상태를 캡처한다. 형식 캠페인은 결과 배열·실제 진행 기록·재정 원장·선택 상환을 일대일 교차검증하고, 현재·체크포인트의 접두부와 영업 ID 또는 현금·지출·부채 권위가 어긋난 저장을 거부한다. 별도 프로필 스키마 1은 모드가 공유하는 수첩 지식과 전시품 도감용 ID 집합만 저장한다.
 - `DAY_OPENING`과 `RESULT_REVIEW`는 시나리오 모드에서만 진입한다. `ENDLESS`는 결과 화면의 `이번 영업 다시`가 `retryCurrentStage()`를 직접 호출하고, `SHOWCASE`는 재검토 행동을 만들지 않는다.
 - `restartDayThroughSecretary()`는 마감 대화에서만 동작하며 골드·평판·난수·객실·연박·사건 상태를 아침 체크포인트로 되돌린다. 해당 경로에서 새로 확인한 숨은 선호 ID와 내부 재검토 횟수만 합쳐서 유지한다.
 - `secretaryPresentationId`는 `MALE` 또는 `FEMALE`만 허용하며 캠페인 상태 전환과 규칙 계산에는 사용하지 않는다.
 - 캠페인은 `NEW_GAME`과 `STORY` 상태를 추가한다. 플레이어·비서·관계 인물 표현 설정은 런에 고정하고, 마녀 관계 역할은 항상 `FEMALE`로 정규화한다.
 - 기존 비형식 스키마 3·4·5 및 과거 단일 키 `SHOWCASE` 저장은 읽을 때 스키마 6의 모드별 저장으로 정규화한다. 형식 캠페인은 스키마 6만 허용하고 이전 저장에서 진행·재정 권위를 추론하지 않는다. 손상 데이터나 프로필 ID가 다른 런은 재개하지 않는다.
+
+### 다음 P0 · 런타임 충실 경제 검산
+
+- 다음 자동 구현 게이트는 부채·유지비의 최종 숫자를 먼저 고르는 일이 아니라, 실제 JavaScript 런타임과 같은 일일 처리 순서·상태·실패 원장을 소비하는 경제 시뮬레이터를 만드는 것이다.
+- 같은 입력 fixture와 정책에서 JavaScript 런타임과 Python 분석기가 영업 가능 여부, 현금·부채·누적 상환, 유지비 부족과 챕터·day 56 종결을 동일하게 판정해야 한다.
+- 이 정합성 뒤에만 시작 운전자금·원금·상환 허들·재가동비·유지비 후보를 비교한다. 정식 종족 방향과 특화 시설 표본은 별도 사용자 선택 전까지 런타임 경제 fixture에 고정 콘텐츠로 넣지 않는다.
 
 ### 시드 제안과 공정성
 
@@ -187,9 +198,9 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 게임 코어는 현재 HTML/CSS/JavaScript 구조와 회귀를 유지하고, Windows 실행파일을 만드는 데스크톱 셸을 부착한다.
 - Electron 44.0.0을 현재 개발 셸로 선택했고, 동기식 저장 주입·로컬 자산 기동·파일 저장·프로세스 재실행 복구 스파이크를 통과했다. Tauri 2 비교는 설치 크기가 우선 제약으로 확정될 때까지 보류한다.
 - Godot 등으로의 전면 이식은 실시간 공간 연출·대규모 애니메이션·콘솔 대응이 실제 필수 요구가 될 때 별도 재검토한다.
-- 다음 플랫폼 작업은 전체 캠페인·무한 영업의 Electron 파일 회귀, 기존 웹 데이터 이전, 정식 패키저·installer·서명, Steam 계정·Cloud 순이다.
+- 다음 플랫폼 작업은 정식 56/70일 캠페인 파일 완주, 기존 웹 데이터 이전, 정식 패키저·installer·서명, Steam 계정·Cloud 순이다. 현재 캠페인의 저장 재개·명시 중단과 무한 영업의 5-operation 감사 실패에 대한 Electron 모드별 파일 종결 회귀는 완료됐다.
 
-## 2. 예정 파일 구조
+## 2. 현재 핵심 파일 구조 · 요약
 
 ```text
 vespera-hotel-prototype/
@@ -197,16 +208,28 @@ vespera-hotel-prototype/
 ├─ styles.css
 ├─ data/
 │  └─ prototype_v1.json
+├─ desktop/
+│  ├─ main.cjs
+│  ├─ preload.cjs
+│  ├─ file-storage.cjs
+│  ├─ package.cjs
+│  ├─ file-storage.test.cjs
+│  └─ mode-hub.test.cjs
 ├─ src/
 │  ├─ main.js
+│  ├─ mode-hub.js
 │  ├─ state.js
 │  ├─ data.js
 │  ├─ rules.js
 │  ├─ scoring.js
+│  ├─ save.js
+│  ├─ run.js
+│  ├─ endless.js
 │  ├─ render.js
 │  └─ input.js
 └─ tools/
-   └─ validate_prototype_puzzles.py
+   ├─ validate_prototype_puzzles.py
+   └─ test_electron_spike.py
 ```
 
 ## 3. 모듈 책임
@@ -384,7 +407,7 @@ python -m http.server 8000
 
 1. `[SPIKE PASS]` Electron 개발·폴더 패키지의 로컬 자산 기동, 제한된 preload와 보안 창 경계
 2. `[SPIKE PASS]` 앱 전용 폴더의 파일별 원자 저장·backup 복구, 튜토리얼 체크포인트의 프로세스 재실행 복구와 합성 `userData` 루트 분리
-3. `[PENDING]` Electron 안에서 동일 시드 전체 캠페인 56/70일·무한 영업·실행 기록 종단 회귀
+3. `[PARTIAL PASS]` Electron 안에서 캠페인 저장 재개 뒤 명시 중단 실행 기록과 무한 영업 5-operation 감사 실패 종단의 모드별 파일 격리. 캠페인 5영업 완주, 정식 56/70일 캠페인과 정식 무한 영업 밸런스 완주는 `PENDING`
 4. `[PENDING]` 기존 웹 저장 이전, installer·서명과 네트워크를 끊은 클린 Windows 환경 설치·한 런 완료
 5. `[PENDING]` 실제 Steam 계정 분리와 Auto-Cloud 충돌 처리 검증 뒤 Windows 실행파일을 배포 권위로 지정
 

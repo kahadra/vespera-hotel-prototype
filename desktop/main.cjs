@@ -19,6 +19,52 @@ const IPC_BOOTSTRAP = "vespera:storage:bootstrap";
 const IPC_MUTATE = "vespera:storage:mutate";
 const IPC_STATUS = "vespera:storage:status";
 const IS_TEST = process.argv.includes("--vespera-test");
+const DEFAULT_WINDOW_SIZE = Object.freeze({ width: 1280, height: 720 });
+const MIN_WINDOW_SIZE = Object.freeze({ width: 960, height: 600 });
+const MAX_TEST_WINDOW_DIMENSION = 8192;
+const TEST_WINDOW_SIZE_OPTION = "--vespera-test-window-size";
+
+function requestedWindowSize(argv, isTest) {
+  const sizeArguments = argv.filter((argument) => (
+    argument.startsWith(TEST_WINDOW_SIZE_OPTION)
+  ));
+  if (!isTest && sizeArguments.length > 0) {
+    throw new Error(`${TEST_WINDOW_SIZE_OPTION} is only allowed with --vespera-test`);
+  }
+  if (sizeArguments.length === 0) return DEFAULT_WINDOW_SIZE;
+  if (sizeArguments.length !== 1) {
+    throw new Error(`${TEST_WINDOW_SIZE_OPTION} may be specified only once`);
+  }
+
+  const match = /^--vespera-test-window-size=([1-9]\d*)x([1-9]\d*)$/.exec(
+    sizeArguments[0],
+  );
+  if (!match) {
+    throw new Error(
+      `${TEST_WINDOW_SIZE_OPTION} must use <integer>x<integer> format`,
+    );
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) {
+    throw new Error(`${TEST_WINDOW_SIZE_OPTION} dimensions must be safe integers`);
+  }
+  if (
+    width < MIN_WINDOW_SIZE.width
+    || height < MIN_WINDOW_SIZE.height
+    || width > MAX_TEST_WINDOW_DIMENSION
+    || height > MAX_TEST_WINDOW_DIMENSION
+  ) {
+    throw new Error(
+      `${TEST_WINDOW_SIZE_OPTION} must be at least `
+      + `${MIN_WINDOW_SIZE.width}x${MIN_WINDOW_SIZE.height} and no dimension may exceed `
+      + MAX_TEST_WINDOW_DIMENSION,
+    );
+  }
+  return Object.freeze({ width, height });
+}
+
+const MAIN_WINDOW_SIZE = requestedWindowSize(process.argv, IS_TEST);
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -172,10 +218,10 @@ function secureWindow(window) {
 
 function createWindow() {
   const window = new BrowserWindow({
-    width: 1280,
-    height: 720,
-    minWidth: 960,
-    minHeight: 600,
+    width: MAIN_WINDOW_SIZE.width,
+    height: MAIN_WINDOW_SIZE.height,
+    minWidth: MIN_WINDOW_SIZE.width,
+    minHeight: MIN_WINDOW_SIZE.height,
     show: !IS_TEST,
     backgroundColor: "#11100f",
     title: "베스페라 호텔",

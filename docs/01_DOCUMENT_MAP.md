@@ -20,7 +20,7 @@
 | `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·썸네일·Codex 활용 설명·제출 게이트 | 제출 입력값 준비 완료 |
 | `docs/13_CODEX_USAGE.md` | Codex 활용 네 문항 최종 원고·개발 이력 선택 문구·근거 | 제출 원고 완료 |
 | `docs/29_DEVELOPMENT_CHRONICLE.md` | 사용자 입력부터 판단·변경·검증·커밋까지의 시간순 개발 과정 | ACTIVE · 작업/지시마다 누적 |
-| `docs/30_DESKTOP_RUNTIME_SPIKE.md` | Electron 임시 셸, OS 사용자 파일 저장, 보안·패키징·출시 전 한계 | 스파이크 PASS · 출시 준비 전 |
+| `docs/30_DESKTOP_RUNTIME_SPIKE.md` | Electron 임시 셸, 세 모드 시작 허브, OS 사용자 파일 저장, 보안·패키징·출시 전 한계 | 스파이크·모드 라우팅·회색 상자 파일 재개·격리 PASS · 출시 준비 전 |
 | `artifacts/v2-core-playtest/REPORT.md` | v2 유효 배치 전수조사, 내부 만족도·후기·평판·평가 재검증 | 인과 모델 재감사 완료·난도 판단 대기 |
 
 ## B. 세로 단면 전에 필요한 설계 문서
@@ -43,9 +43,9 @@
 | 2 | `docs/21_HOTEL_BUILDING_SYSTEM.md` | 증축 규칙, 시설 범위, 철거·정지·매각 |
 | 3 | `docs/22_HIDDEN_RULE_SYSTEM.md` | 소문, 시험 숙박, 반응, 후보 제거, 공정성 |
 | 4 | `docs/23_GENERATION_AND_SOLVABILITY.md` | 예약 생성, 유효 부분집합 보장, 최고점 산출 |
-| 5 | `docs/24_SAVE_AND_RUN_STRUCTURE.md` | 기능적 뼈대, 공용 프로필과 모드별 런 상태, 종료 판정·실행 기록·세이브 마이그레이션 (캠페인·무한 영업 GREYBOX 종단 검증) |
+| 5 | `docs/24_SAVE_AND_RUN_STRUCTURE.md` | 기능적 뼈대, 공용 프로필과 모드별 런 상태, 종료 판정·실행 기록·세이브 마이그레이션 (Electron 세 모드 허브·캠페인 재개/명시 중단·무한 영업 5-operation 파일 종단 검증) |
 | 6 | `docs/25_SPECIES_AND_SYNERGY_SYSTEM.md` | 종족·계통·문화·신앙·직업 풀, 집단 인원·다종·지정 조합·시나리오 변화 시너지 (초안 작성됨) |
-| 7 | `docs/26_CAMPAIGN_AND_MODE_STRUCTURE.md` | 가변 캠페인, 영업·사건 시간 단위, 관계·엔딩 분기, 무한 영업과 모드 상태 경계 (초안 · 무한 영업 GREYBOX 종단 검증) |
+| 7 | `docs/26_CAMPAIGN_AND_MODE_STRUCTURE.md` | 가변 캠페인, 영업·사건 시간 단위, 관계·엔딩 분기, 무한 영업과 모드 상태 경계 (초안 · Electron 세 모드 진입과 GREYBOX 종단 검증) |
 | 8 | `docs/27_OPERATIONS_HANDBOOK.md` | 공유 운영 수첩, 발견 단계, 종족·시설·아이템·시너지·손님 교차 기록 (초안 작성됨) |
 | 9 | `docs/28_EXHIBITION_RELIC_SYSTEM.md` | 평판·관계별 전시품 후보군, 무작위 선택, 런 누적 패시브와 도감 (공용 3종 회색 상자 구현) |
 | 10 | `docs/29_DEVELOPMENT_CHRONICLE.md` | 프로젝트 착수부터 현재까지의 요청·재설계·구현·검증 순서와 이후 상시 변경 기록 |
