@@ -253,7 +253,7 @@ python .\tools\test_formal_campaign_runtime.py
 - 수용·거절이 귀찮은 사전 절차로만 인식됨
 - 결과 화면을 보고도 점수 원인을 설명하지 못함
 
-## 9. 배포본 테스트
+## 9. 보존 웹 배포본 테스트
 
 - 강력 새로고침 후 데이터 로딩
 - 콘솔 오류 없음
@@ -264,6 +264,23 @@ python .\tools\test_formal_campaign_runtime.py
 - Chrome과 Edge 최신 로컬 설치본 확인
 - 배포 URL에서 처음부터 최종 결과까지 진행
 - ZIP 루트에 `index.html` 존재
+
+## 9.1. Electron 데스크톱 스파이크 테스트
+
+```powershell
+npm run test:desktop:storage
+npm run desktop:package
+npm run test:desktop:dev
+npm run test:desktop:packaged
+```
+
+- 파일 키 분리, 재실행, checksum 손상, 이전 정상 backup과 backup 단독 복구, tombstone, 키·용량 제한, 합성 사용자 루트 격리 단위 테스트
+- 개발·폴더 패키지 모두 `vespera://app/` 로컬 자산만으로 기동하고 외부 내비게이션·새 창·비허용 자산 접근 차단
+- sandbox, context isolation, web security 활성화와 renderer Node 전역 부재
+- 튜토리얼 활성 런 파일 저장 뒤 정상 종료·재실행 복구
+- 실행 기록 쓰기 예외와 silent no-op 모두 활성 STORY 체크포인트 원문을 보존하고 같은 단계·시드로 재개
+- 현재 결과: 파일 저장 `9/9 PASS`, 개발 실행 `PASS`, 폴더 패키지 `PASS`
+- 증거 한계: 합성 `userData` 분리는 Steam 계정 시험이 아니며, CDP 오프라인 에뮬레이션은 클린 PC 설치 검증이 아니다. installer·서명·Steam Cloud·전체 56/70일 파일 완주는 출시 전 별도 시험이다.
 
 ## 10. 버그 우선순위
 

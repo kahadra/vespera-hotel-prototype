@@ -20,6 +20,7 @@
 | `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·썸네일·Codex 활용 설명·제출 게이트 | 제출 입력값 준비 완료 |
 | `docs/13_CODEX_USAGE.md` | Codex 활용 네 문항 최종 원고·개발 이력 선택 문구·근거 | 제출 원고 완료 |
 | `docs/29_DEVELOPMENT_CHRONICLE.md` | 사용자 입력부터 판단·변경·검증·커밋까지의 시간순 개발 과정 | ACTIVE · 작업/지시마다 누적 |
+| `docs/30_DESKTOP_RUNTIME_SPIKE.md` | Electron 임시 셸, OS 사용자 파일 저장, 보안·패키징·출시 전 한계 | 스파이크 PASS · 출시 준비 전 |
 | `artifacts/v2-core-playtest/REPORT.md` | v2 유효 배치 전수조사, 내부 만족도·후기·평판·평가 재검증 | 인과 모델 재감사 완료·난도 판단 대기 |
 
 ## B. 세로 단면 전에 필요한 설계 문서
