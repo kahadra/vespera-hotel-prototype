@@ -99,10 +99,15 @@ python .\tools\test_campaign_spine.py
 python .\tools\validate_campaign_reachability.py
 python .\tools\test_campaign_progress.py
 python .\tools\test_campaign_finance.py
+python .\tools\test_campaign_finance_conformance.py
 python .\tools\test_formal_campaign_runtime.py
 ```
 
 현재 `test_campaign_spine.py`는 캠페인 시작 전시품의 같은 시드 후보 재현, 대기 후보 저장·새로고침, 3택 1과 건너뛰기, 배치 시간·객실 정비비·무취소 수입 효과, 재검토 발동 기록 롤백, 프로필 도감·최종 실행 기록과 1280×720 선택 화면까지 검증한다. `validate_campaign_reachability.py`는 모든 종료 규칙의 최소 합성 증인을 실제 판정기에 넣고, 중단 대체 결말과 스토리·개발 분기·전시품 참조의 누락을 감사한다. `test_campaign_progress.py`는 회복 전용 일수 없이 이어지는 56/70일 정상 영업 권위를, `test_campaign_finance.py`는 결과 확정과 선택 상환의 분리, 현금·부채 보존식, 운영자금 부족 증거와 원자적 종료, CH1~4 허들 직접 실패, day 56 부채 gate와 day 57 이후 상환 금지를 검증한다. `test_formal_campaign_runtime.py`는 이 계약을 상태·정산·비용·세이브·재시도·실행 기록에 통합한 정상 56일·트루 70일·운영자금·챕터·최종 부채의 세 실패 경로를 실제 Edge에서 회귀한다. 첫날 부족 시 완료·결과·원장 0건으로 닫히는 경계와, 실제 재가동·객실 정비를 지불한 2일차 실패에서 DAY_OPENING 준비를 보존하고 그 비용을 실행 기록 총지출에 포함해 최종 현금 보존식을 지키는 경계를 각각 검사한다. 실패 영업의 결과 전시품 발동 롤백, 상환 입력과 세 화면의 운영비 예고 렌더링, 실행 기록 5→6 및 실패 기록 6 재독출도 확인한다. `test_timed_service.py`와 `smoke_browser.py`는 기본 `SHOWCASE`에 형식 캠페인 경로가 유입되지 않았는지 함께 확인한다.
+
+`test_campaign_finance_conformance.py`는 공통 fixture를 독립 Python 재정 미러와 실제 `src/campaign-finance.js`를 import하는 JavaScript 오라클에 각각 넣고 전체 결과를 재귀 비교한다. 기능 커밋 `564c204` 기준 18경로가 12개 수락·6개 거부로 일치했고, 원장 278행과 추적 851건도 같았다. 엄격 로더 2건, Python 상태 검증기 5건, 7필드 결과 확정과 `{ manualRepayment }` 정산을 포함한 공개 API 형상 4건도 PASS했다. 기존 Edge 재정 회귀의 거부 계약 92건, 형식 56/70일 통합 회귀와 진행 계약 회귀도 함께 PASS했다.
+
+이 테스트의 판정 범위는 선지급된 준비비와 해결된 일일 입력을 소비하는 `RESOLVED_DAILY_FINANCE_TRANSITIONS`다. 손님 생성·배치·점수·공사 및 객실 자격·전체 `GameController` 롤백은 대상이 아니며, 정합성 PASS를 경제 밸런스 PASS로 해석하지 않는다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지해야 한다.
 
 ### 통과 조건
 

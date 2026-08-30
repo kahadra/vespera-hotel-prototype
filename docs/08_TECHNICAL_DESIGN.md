@@ -51,6 +51,7 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 | `upgrades.js` | 공사 제안 생성, 선행조건·비용 검사, 구매 결과 |
 | `rules.js` | 객실·관계·필수 조건·공개/숨은 선호·재방문·시너지·상극 평가 |
 | `scoring.js` | 수입, 평판, 현재 만족도와 결과 설명 |
+| `campaign-finance.js` | 이미 해결된 일일 수입·유지비·재가동·객실 정비를 받는 순수 재정 상태 커널, 명시적 상환·챕터 허들·day 56 부채 gate·트루 확장 |
 | `emergency.js` | 시간 만료 시 연박 고정을 지키는 비최적 긴급 배정·강제 취소 |
 | `run.js` | 공통 런 지표 요약, 데이터 기반 종료 판정, 버전이 있는 로컬 실행 기록 |
 | `save.js` | 데이터·모드 버전을 검증하는 활성 런과 직전 영업 시작 체크포인트 생성·복구·삭제 |
@@ -143,11 +144,13 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 캠페인은 `NEW_GAME`과 `STORY` 상태를 추가한다. 플레이어·비서·관계 인물 표현 설정은 런에 고정하고, 마녀 관계 역할은 항상 `FEMALE`로 정규화한다.
 - 기존 비형식 스키마 3·4·5 및 과거 단일 키 `SHOWCASE` 저장은 읽을 때 스키마 6의 모드별 저장으로 정규화한다. 형식 캠페인은 스키마 6만 허용하고 이전 저장에서 진행·재정 권위를 추론하지 않는다. 손상 데이터나 프로필 ID가 다른 런은 재개하지 않는다.
 
-### 다음 P0 · 런타임 충실 경제 검산
+### 런타임 충실 경제 검산 — PASS · PROVISIONAL
 
-- 다음 자동 구현 게이트는 부채·유지비의 최종 숫자를 먼저 고르는 일이 아니라, 실제 JavaScript 런타임과 같은 일일 처리 순서·상태·실패 원장을 소비하는 경제 시뮬레이터를 만드는 것이다.
-- 같은 입력 fixture와 정책에서 JavaScript 런타임과 Python 분석기가 영업 가능 여부, 현금·부채·누적 상환, 유지비 부족과 챕터·day 56 종결을 동일하게 판정해야 한다.
-- 이 정합성 뒤에만 시작 운전자금·원금·상환 허들·재가동비·유지비 후보를 비교한다. 정식 종족 방향과 특화 시설 표본은 별도 사용자 선택 전까지 런타임 경제 fixture에 고정 콘텐츠로 넣지 않는다.
+- 기능 커밋 `564c204`에서 `tools/campaign_finance_runtime.py`를 JavaScript 재정 계약의 독립 Python 미러로 추가하고, 기존 `analyze_campaign_economy_frontier.py`가 이 커널을 사용하도록 전환했다. 분석 정책은 자동·부분 상환을 런타임 사실처럼 만들지 않고 매일 선택한 금액을 명시적 `manualRepayment`로 제출한다.
+- 공개 호출 경계는 `commitCampaignDayResult()`의 정확한 7필드 결과 `{ stageNumber, campaignOperationId, campaignResultIdentity, income, upkeep, reactivation, roomService }`와 `settleCampaignDay()`의 정확한 1필드 정산 `{ manualRepayment }`다. Python 미러도 이 두 단계와 같은 처리 순서·원자적 실패·원장 상태를 사용한다.
+- `tools/campaign_finance_js_oracle.mjs`는 복제한 JavaScript 계산 결과를 읽는 대신 실제 `src/campaign-finance.js`를 import한다. 공통 fixture 18경로에서 Python과 JavaScript의 전체 결과를 재귀 비교해 12개 수락·6개 거부, 원장 278행과 추적 851건의 일치를 확인했다. 엄격 fixture 로더 2건, Python 상태 검증기 5건, 공개 API 형상 4건의 별도 probe도 PASS했다.
+- 이 정합성의 범위는 선지급된 준비비와 이미 해결된 일일 입력을 소비하는 `RESOLVED_DAILY_FINANCE_TRANSITIONS`, 즉 재정 커널뿐이다. 손님 생성, 배치·점수, 공사 제안·실행 자격, 객실 상태 자격과 전체 `GameController` 롤백은 포함하지 않는다. 기존 Edge 재정 92개 거부 계약, 형식 56/70일 통합, 진행 회귀는 별도 PASS로 유지한다.
+- 정합성 PASS는 수치 밸런스 PASS가 아니다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지한다. 다음 P0는 시작 운전자금·부채 원금·챕터 누적 상환 허들·유지비·재가동비의 후보 범위를 생성하는 것이며, 정확한 값은 그 증거를 제시한 뒤 사용자 결정으로 확정한다. 정식 종족 방향과 특화 시설 표본도 별도 사용자 선택 전까지 경제 fixture의 고정 콘텐츠로 넣지 않는다.
 
 ### 시드 제안과 공정성
 
