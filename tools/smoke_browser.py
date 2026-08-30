@@ -44,7 +44,12 @@ class CdpClient:
     def __init__(self, ws_url: str):
         self.ws = websocket.create_connection(
             ws_url,
-            timeout=8,
+            # A fresh Edge 152 profile can acknowledge its first same-host
+            # navigation after more than eight seconds while still completing
+            # normally. Keep the command channel aligned with the controller
+            # startup allowance so a slow cold start is not reported as a game
+            # regression.
+            timeout=45,
             origin="http://127.0.0.1",
             suppress_origin=True,
         )
@@ -903,19 +908,19 @@ def run(
         )
         # CDP may treat a navigation to the already-open seeded URL as a no-op.
         # Reset first so repeated smoke runs never inherit an interrupted game.
-        client.command("Page.navigate", {"url": "about:blank"})
-        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=bootstrap"})
+        wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
-        wait_for(client, "document.readyState === 'complete'")
-        wait_for(client, "Boolean(window.__vesperaController)")
+        wait_for(client, "document.readyState !== 'loading'")
+        wait_for(client, "Boolean(window.__vesperaController)", timeout=45.0)
         # Profile knowledge is intentionally persistent in the game, but the
         # deterministic smoke run must begin from an undiscovered handbook.
         client.evaluate("localStorage.clear(); true")
-        client.command("Page.navigate", {"url": "about:blank"})
-        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=storage"})
+        wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
-        wait_for(client, "document.readyState === 'complete'")
-        wait_for(client, "Boolean(window.__vesperaController)")
+        wait_for(client, "document.readyState !== 'loading'")
+        wait_for(client, "Boolean(window.__vesperaController)", timeout=45.0)
         preopening_copy_audits.append({
             "screen": "title",
             **assert_preopening_copy(

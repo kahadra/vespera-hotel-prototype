@@ -741,19 +741,19 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         client.command("Log.enable")
         client.command("Network.enable")
         client.command("Network.setCacheDisabled", {"cacheDisabled": True})
-        client.command("Page.navigate", {"url": "about:blank"})
-        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=bootstrap"})
+        wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
-        wait_for(client, "document.readyState === 'complete'")
-        wait_for(client, "Boolean(window.__vesperaController)")
+        wait_for(client, "document.readyState !== 'loading'")
+        wait_for(client, "Boolean(window.__vesperaController)", timeout=45.0)
         # Shared profile knowledge is a product feature; this deterministic
         # regression owns a clean browser-storage fixture.
         client.evaluate("localStorage.clear(); true")
-        client.command("Page.navigate", {"url": "about:blank"})
-        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=storage"})
+        wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
-        wait_for(client, "document.readyState === 'complete'")
-        wait_for(client, "Boolean(window.__vesperaController)")
+        wait_for(client, "document.readyState !== 'loading'")
+        wait_for(client, "Boolean(window.__vesperaController)", timeout=45.0)
         assert_preopening_copy(
             client,
             "개장 전 초청 영업에",
@@ -900,11 +900,11 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
             "runSeed": tutorial["runSeed"],
             "acceptedGuestIds": tutorial["acceptedGuestIds"],
         }
-        client.command("Page.navigate", {"url": "about:blank"})
-        wait_for(client, "document.readyState === 'complete'")
+        client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=checkpoint"})
+        wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
-        wait_for(client, "document.readyState === 'complete'")
-        wait_for(client, "Boolean(window.__vesperaController)")
+        wait_for(client, "document.readyState !== 'loading'")
+        wait_for(client, "Boolean(window.__vesperaController)", timeout=45.0)
         reloaded_title = controller_state(client)
         assert reloaded_title["phase"] == "TITLE", reloaded_title
         assert client.evaluate("window.__vesperaController.hasCheckpoint()") is True
