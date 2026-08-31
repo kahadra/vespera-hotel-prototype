@@ -12,6 +12,8 @@
     "test:finance:conformance": "python -B tools/test_campaign_finance_conformance.py",
     "analyze:finance:candidates": "python -B tools/generate_campaign_economy_candidates.py --progress --output artifacts/campaign-economy-candidates/provisional-boundary-observations.json",
     "test:finance:candidates": "python -B tools/test_campaign_economy_candidates.py",
+    "analyze:finance:bundles": "python -B tools/generate_campaign_economy_bundles.py --progress --output artifacts/campaign-economy-bundles/provisional-linked-bundles.json",
+    "test:finance:bundles": "python -B tools/test_campaign_economy_bundles.py",
     "test:desktop:storage": "node --test --test-isolation=none desktop/file-storage.test.cjs",
     "test:desktop:unit": "node --test --test-isolation=none desktop/file-storage.test.cjs desktop/mode-hub.test.cjs",
     "test:desktop:dev": "python tools/test_electron_spike.py --kind dev --executable node_modules/electron/dist/electron.exe --app-dir .",
