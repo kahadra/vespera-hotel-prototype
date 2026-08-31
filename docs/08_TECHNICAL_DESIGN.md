@@ -11,15 +11,15 @@
 
 이는 검증된 웹 코어를 폐기한다는 뜻이 아니다. 현재 `src`의 약 9천 줄 JavaScript, DOM/CSS UI와 Edge 회귀는 서버 계산에 의존하지 않으므로 데스크톱 셸에서도 대부분 재사용할 수 있다. 호스팅 웹은 빠른 내부 검증과 과거 쇼케이스 보존 역할로 낮추고, 정식 실행파일이 배포 권위가 된다.
 
-### 셸 결정 — ELECTRON DESKTOP SPIKE PASS
+### 셸 결정 — FUNCTIONAL SPIKE PASS · NATIVE EXCEPTION INCIDENT OPEN
 
 | 후보 | 현재 코드 재사용 | 저장·Steam 경계 | 비용과 판단 |
 | --- | --- | --- | --- |
-| Electron | HTML/CSS/ES Modules와 Chromium 회귀를 거의 그대로 사용 | 제한된 preload에서 앱 데이터 파일과 네이티브 연동을 얇게 노출 | 44.0.0 개발·폴더 패키지 스파이크 PASS. 현재 임시 플랫폼 어댑터로 채택하되 출시 준비 완료는 아님 |
+| Electron | HTML/CSS/ES Modules와 Chromium 회귀를 거의 그대로 사용 | 제한된 preload에서 앱 데이터 파일과 네이티브 연동을 얇게 노출 | 44.0.0 개발·폴더 패키지 기능 스파이크 PASS. 네이티브 `0x80000003` 재발 원인 진단 중이며 출시 준비 완료는 아님 |
 | Tauri 2 | 프런트엔드 재사용 가능 | 앱 데이터 파일 API와 작은 설치본 제공 | Rust·MSVC와 비동기 브리지 비용이 있으므로 설치 크기가 핵심 제약으로 확정될 때만 비교 재개 |
 | Godot/Unity 이식 | JSON 개념과 일부 순수 규칙만 직접 재사용 | 엔진별 저장·Steam 플러그인 사용 | DOM 렌더러·상태 연결·자동 회귀를 대폭 재작성하므로 실시간 공간 연출·대규모 애니메이션·콘솔 대응이 핵심 요구가 되기 전에는 보류 |
 
-Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·향후 Steam 기능을 제공하는 플랫폼 어댑터 결정이다. `vespera://app/` 허용 자산만으로 오프라인 기동하고, sandbox·context isolation·web security를 유지한 렌더러가 제한된 동기식 Storage 호환 API로 파일 서비스에 접근하는 경계를 검증했다. 세부 구조·측정과 출시 전 한계는 `30_DESKTOP_RUNTIME_SPIKE.md`가 소유한다.
+Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·향후 Steam 기능을 제공하는 플랫폼 어댑터 결정이다. `vespera://app/` 허용 자산만으로 오프라인 기동하고, sandbox·context isolation·web security를 유지한 렌더러가 제한된 동기식 Storage 호환 API로 파일 서비스에 접근하는 기능 경계를 검증했다. 이후 본창과 함께 `0x80000003` 네이티브 예외가 다시 관측됐으므로 실행 안정성 PASS는 주장하지 않는다. 세부 구조·측정, 열린 사건과 출시 전 한계는 `30_DESKTOP_RUNTIME_SPIKE.md`가 소유한다.
 
 ### 데스크톱 저장 최소 계약
 

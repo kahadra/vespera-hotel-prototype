@@ -102,6 +102,8 @@ python .\tools\test_campaign_finance.py
 python .\tools\test_campaign_finance_conformance.py
 python .\tools\generate_campaign_economy_candidates.py --self-test
 python .\tools\test_campaign_economy_candidates.py
+python .\tools\generate_campaign_economy_bundles.py --self-test --output -
+python .\tools\test_campaign_economy_bundles.py
 python .\tools\test_formal_campaign_runtime.py
 ```
 
@@ -114,6 +116,16 @@ python .\tools\test_formal_campaign_runtime.py
 잠정 경제 경계 생성 회귀는 15개 phase trace·상환 곡선 3개·재가동비 배분 2개·수치 축 5개가 정확히 90개 구조와 450개 경계 관측을 만드는지 확인한다. 각 정의역 내부 경계는 인접 정수 증인을, 0 하한 경계는 정의된 방향의 증인을 보존해야 하며, 조기 종단 뒤의 day 56 값은 관측값으로 채우지 않는다. 중심값의 `10/15`와 64개 `NO_FEASIBLE_NONNEGATIVE_VALUE_WITH_HELD_ANCHORS` 셀도 원본 JSON과 보고서에서 일치해야 한다.
 
 경계 테스트는 trace 개수를 확률이나 완주율로 변환하지 않고, 단일 축 경계를 공동 실행 가능 번들로 합치지 않으며, `NOT_EVALUATED`를 유지해야 한다. 생성기 보고값 3,642회는 현재 cache miss telemetry의 회귀 대상일 뿐 독립 실행 횟수 증명이 아니다. 객실 정비·서비스 입력은 발생 규칙이 생길 때까지 0인 중심 조건으로 남기고 추후 별도 stress overlay가 추가되면 그 식별자와 입력을 독립 검증한다.
+
+### A/B/C 연동 경제 압력 후보 — IMPLEMENTED ANALYSIS · NOT_EVALUATED
+
+- 세 후보는 같은 공용 유지비 모델을 사용하며 모든 보유 업그레이드가 종류와 무관하게 정확히 정규화 단위 `1`로 계산되는지 검증한다. 기본 호텔은 기본 유지비에 포함하고 활성화일마다 보유 업그레이드 수가 하나씩 증가해야 한다.
+- 각 후보는 시작금·원금·챕터 허들·기본/단위 유지비·재가동비를 동시에 적용한 하나의 실행 가능한 벡터여야 한다. 압력 경로에서 시작금은 비증가하고 나머지 비용 축, 해결된 일일 유지비, 챕터 누적 목표와 재가동 사건 비용은 비감소해야 한다.
+- A는 모든 low/midpoint/canonical trace, B는 midpoint/canonical trace, C는 canonical trace가 상환 곡선 3개·재가동 배분 2개의 모든 구조에서 완료되는 최대 125bp 격자점을 저장한다. 각 후보의 바로 다음 높은 압력점은 같은 요구 trace 집합에서 실패해야 한다.
+- 산출물은 후보당 전체 90개 결과, 합계 270개 결과를 보존한다. B와 C의 요구 통과 수는 각각 60개와 30개이므로 이를 전체 90개 통과로 표기하지 않는다.
+- 검증기는 원본 단일 축 경계 보고서와 감사 산출물의 SHA-256, 압력 경로 재구성, 선택·인접 벡터의 새 런타임 재생, 결과 보존식, LF JSON과 `PROVISIONAL · NOT_EVALUATED · no winner` 가드를 확인한다.
+- A/B/C의 압력 순서는 경제 축에만 적용한다. 같은 입력 trace에서 C 요구 통과가 B와 A의 동일 관측 실패로 뒤집히지 않는지 확인하되, 이를 전체 난이도나 성공 확률로 해석하지 않는다. 손님 생성·배치 복잡도·제한 시간·사건·정보 공개는 이 회귀의 대상이 아니다.
+- 현재 예시 플레이가 매우 쉽다는 의견은 정성 관찰로 별도 기록하고 5영업 수입이나 합성 trace 개수를 확률·56일 완주율로 변환하지 않는다.
 
 ### 통과 조건
 
@@ -240,6 +252,13 @@ python .\tools\test_formal_campaign_runtime.py
 5. 이해되지 않거나 불공정하다고 느낀 규칙은 무엇인가?
 6. 다시 한다면 무엇을 다르게 하겠는가?
 
+### 손님 후기 문체 관찰 — BACKLOG · NOT CURRENT REGRESSION
+
+- 후기가 시너지명·선호 조건을 그대로 반복하는지 확인한다.
+- 손님이 내부 규칙 달성을 칭찬하는 대신 실제로 체감한 공간·동행·시설·불편을 말하는지 확인한다.
+- 종족·직업·개인 성향이 다른 손님의 어휘와 말투가 구분되는지 확인한다.
+- 이 항목은 계층형 후기 템플릿 구현 뒤 회귀로 승격한다. 현재 빌드의 PASS 조건이나 이번 UI·코드 변경 범위가 아니다.
+
 ## 8. 재미 판정
 
 ### PASS
@@ -297,7 +316,7 @@ npm run test:desktop:packaged
 - 실행 기록 쓰기 예외와 silent no-op 모두 활성 STORY 체크포인트 원문을 보존하고 같은 단계·시드로 재개
 - 현재 종결 회귀는 정상 tombstone 기록 경로를 증명한다. backup tombstone 기록 뒤 primary 기록 전 강제 실패, 첫 tombstone 쓰기 실패와 삭제 실패 전파는 정식 저장 신뢰성 단계의 fault-injection 항목으로 남긴다.
 - 현재 결과: 파일 저장 `9/9 PASS`, 모드 허브 `10/10 PASS`(통합 단위 `19/19`), 개발 실행 `PASS`, 폴더 패키지 `PASS`
-- 제한된 Codex 실행 환경의 Chromium IPC 차단은 `0x80000003` 예외를 만들었지만 일반 사용자 권한의 개발·패키지는 sandbox를 유지한 채 통과했다. 시스템 설치나 `--no-sandbox` 우회는 필요하지 않다.
+- 제한된 Codex 실행 환경의 Chromium IPC 차단 뒤 일반 사용자 권한의 개발·패키지는 sandbox를 유지한 채 통과했지만, 이후 모드 허브 본창과 함께 `0x80000003` 예외 창이 다시 관측됐다. 기능 회귀 PASS와 별개로 네이티브 안정성 사건은 열려 있다. 재발 시 main·renderer·GPU·utility의 정확한 프로세스 역할·PID, stderr·Crashpad dump와 본창 생존·자식 재생성 여부를 함께 수집하며, 증거 없이 `--no-sandbox`를 적용하지 않는다.
 - 증거 한계: 합성 `userData` 분리는 Steam 계정 시험이 아니며, CDP 오프라인 에뮬레이션은 클린 PC 설치 검증이 아니다. installer·서명·Steam Cloud·정식 56/70일 파일 완주와 무한 영업 장기 런은 출시 전 별도 시험이다.
 
 ## 10. 버그 우선순위

@@ -1,6 +1,6 @@
 # 프로토타입 구현 결과
 
-- 상태: `v2 FIVE-NIGHT FLOW PASS · CAMPAIGN/ENDLESS GREYBOX SPINE PASS · FINANCE KERNEL CONFORMANCE PASS · ELECTRON DESKTOP SPIKE PASS`
+- 상태: `v2 FIVE-NIGHT FLOW PASS · CAMPAIGN/ENDLESS GREYBOX SPINE PASS · FINANCE KERNEL CONFORMANCE PASS · ELECTRON FUNCTIONAL SPIKE PASS · NATIVE INCIDENT OPEN`
 - 대상: 정적 웹 코어와 비출시 Electron Windows 스파이크
 - 정식 제품 방향: 검증된 웹 코어를 재사용하는 Windows 데스크톱 실행파일과 로컬 파일 저장, 이후 Steam 배포
 - 기준 해상도: 1280×720
@@ -81,7 +81,7 @@
 - 40시즌·200영업 합성 장기 런에서 최근 영업 결과 20개와 감사 12개만 세이브에 보존하고, 생존 영업·누적 지표·생략 개수는 별도 집계로 유지해 저장 크기가 무한 증가하지 않음을 검증했다. 종료 화면은 최근 감사 5개만 표시한다.
 - 이 개발 경로는 `development/campaign-greybox`에만 있다. 심사는 종료됐으며 기존 `main`, 공개 URL과 ZIP은 새 정식판 산출물이 아니라 과거 쇼케이스 증빙으로 별도 변경 지시 전까지 보존한다.
 
-### Electron 데스크톱 스파이크 — PASS · NOT RELEASE READY
+### Electron 데스크톱 스파이크 — FUNCTIONAL PASS · NATIVE INCIDENT OPEN · NOT RELEASE READY
 
 - Electron 44.0.0과 제한된 preload를 기존 웹 코어에 부착했다. `vespera://app/`은 허용된 게임 자산만 제공하며 renderer는 sandbox·context isolation·web security를 유지하고 Node 전역·임의 IPC·외부 내비게이션에 접근하지 못한다.
 - 쿼리 없는 Electron 기동은 캠페인·무한 영업·초청 영업을 선택하는 모드 허브를 표시한다. 쿼리 없는 브라우저는 이전처럼 `SHOWCASE`를 시작하므로 웹 회귀 계약은 바꾸지 않았다. 실제 외곽 창 960×600의 콘텐츠 영역 944×561에서 overflow 없이 세 모드를 노출했고 CDP Tab→Space 진입을 통과했다. 네트워크 오프라인 상태에서도 DOM 클릭 위임으로 허브와 `SHOWCASE` 데이터를 로드했다.
@@ -90,7 +90,7 @@
 - 파일 envelope 스키마 1은 게임 세이브 스키마 6과 별개이며 checksum·revision·임시 기록·동기화·원자 교체·backup·손상 격리·삭제 tombstone·용량 상한을 제공한다.
 - 종료 기록은 저장 raw readback에 성공한 뒤에만 활성 런을 지운다. 예외 또는 silent no-op을 주입한 회귀에서 정확한 STORY 체크포인트와 미확정 실행 기록이 보존되고 새 컨트롤러가 같은 단계·시드로 재개했다.
 - 파일 저장 단위 테스트 `9/9`, 모드 허브 단위 테스트 `10/10`(통합 `19/19`), 개발 Electron과 폴더 패키지 `VesperaHotel.exe`가 모두 PASS했다. 첫 프로필에서 허브와 세 모드 저장을 공존시키는 동안 측정한 17회 FileStorage mutation의 동기 쓰기는 개발 p95 14.264ms, 최종 패키지 p95 11.206ms였다. 양방향 종단 격리는 별도 프로필·프로세스에서 PASS했으며 두 증거 모두 장기 성능 판정으로 확대하지 않는다.
-- 제한된 Codex 관리 실행의 Windows Mojo IPC 오류 `0x5`는 renderer 진입 전 `0x80000003`을 낸 환경 차단이었다. 일반 사용자 권한 재실행은 별도 시스템 설치나 `--no-sandbox` 없이 Electron sandbox를 유지한 채 개발·패키지 모두 통과했다.
+- 제한된 Codex 관리 실행의 Windows Mojo IPC 오류 `0x5` 뒤 일반 사용자 권한 재실행은 별도 시스템 설치나 `--no-sandbox` 없이 Electron sandbox를 유지한 채 개발·패키지 기능 회귀를 통과했다. 그러나 이후 모드 허브 본창과 함께 `0x80000003` 예외 창이 다시 관측돼 환경 한정 사건 종료 판단을 철회했다. 정확한 자식 프로세스 역할과 dump를 확보하기 전까지 기능 PASS를 네이티브 안정성 PASS로 확대하지 않는다.
 - 현재 산출물은 installer·서명·Steam 계정·Cloud·웹 저장 이전·클린 PC 설치·정식 56/70일 캠페인 파일 완주와 장기 무한 영업이 없는 스파이크다. 상세 증거와 한계는 `30_DESKTOP_RUNTIME_SPIKE.md`를 따른다.
 
 ## v1 보존 기록 — 최초 2영업 구현 결과
