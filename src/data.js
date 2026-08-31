@@ -33,7 +33,7 @@ function commonDisplayRelics() {
       name: "은빛 정비함",
       icon: "▣",
       description: "막간의 객실 정비 비용을 3G 줄입니다.",
-      trigger_description: "손상된 빈 객실을 실제로 정비할 때 발동",
+      trigger_description: "더러워진 객실을 실제로 청소할 때 발동",
       effect_id: "ROOM_SERVICE_COST_REDUCTION",
       effect_params: { value: 3 },
       stack_group: "ROOM_SERVICE_COST",
@@ -838,10 +838,22 @@ function validateDislike(rule, owner, indexes) {
   if (rule.facility_id) assertReferences([rule.facility_id], indexes.facilities, owner, "시설");
 }
 
+function ruleConditionSignature(rule) {
+  return JSON.stringify({
+    type: rule.type,
+    attribute: rule.attribute ?? null,
+    floor: rule.floor ?? null,
+    distance: rule.distance ?? null,
+    guest_id: rule.guest_id ?? null,
+    species_id: rule.species_id ?? null,
+    facility_id: rule.facility_id ?? null,
+  });
+}
+
 export function validateData(data, indexes = createIndexes(data)) {
   const rankIds = ["N", "R", "SR", "SSR"];
   const expectedRanks = new Set(rankIds);
-  assert(data.schema_version === 4, "쇼케이스 데이터는 schema_version 4여야 합니다.");
+  assert(data.schema_version === 5, "쇼케이스 데이터는 schema_version 5여야 합니다.");
   assert(data.prototype_mode?.type === "SHOWCASE", "프로토타입 모드는 SHOWCASE여야 합니다.");
   assert(data.prototype_mode?.total_nights === 5, "쇼케이스는 정확히 5회 영업이어야 합니다.");
   assert(data.prototype_mode?.accelerated === true, "쇼케이스의 압축 성장 표시가 필요합니다.");
@@ -884,8 +896,52 @@ export function validateData(data, indexes = createIndexes(data)) {
   assert(data.prototype_mode?.upgrade_offer_sizes?.FACILITY >= 2, "영업 준비에는 시설·인테리어 제안이 최소 2개 필요합니다.");
   assert(data.stayover_rules?.locks_initial_room === true, "연박 손님은 첫 배정 객실을 유지해야 합니다.");
   assert(Number.isFinite(data.balance?.room_service_cost) && data.balance.room_service_cost >= 0, "객실 정비 비용이 잘못되었습니다.");
-  assert(Number.isFinite(data.balance?.minimum_cleanliness), "최소 청결 기준이 필요합니다.");
-  assert(Number.isFinite(data.balance?.minimum_durability), "최소 내구 기준이 필요합니다.");
+  assert(
+    Number.isFinite(data.balance?.minimum_cleanliness)
+      && data.balance.minimum_cleanliness >= 0
+      && data.balance.minimum_cleanliness <= 100,
+    "최소 청결 기준은 0 이상 100 이하여야 합니다.",
+  );
+  assert(data.balance?.minimum_durability === undefined, "schema_version 5에서는 최소 내구 기준을 사용하지 않습니다.");
+  const cleanlinessBands = data.balance?.cleanliness_satisfaction_bands;
+  assert(Array.isArray(cleanlinessBands) && cleanlinessBands.length > 0, "청결 만족도 구간이 필요합니다.");
+  cleanlinessBands.forEach((band, index) => {
+    assert(
+      Number.isInteger(band.minimum) && band.minimum >= 0 && band.minimum <= 100,
+      `청결 만족도 ${index + 1}구간의 minimum은 0 이상 100 이하 정수여야 합니다.`,
+    );
+    assert(Number.isFinite(band.points) && band.points <= 0, `청결 만족도 ${index + 1}구간의 points는 0 이하여야 합니다.`);
+    assert(typeof band.label === "string" && band.label.length > 0, `청결 만족도 ${index + 1}구간의 label이 필요합니다.`);
+    if (index > 0) {
+      assert(
+        band.minimum < cleanlinessBands[index - 1].minimum,
+        "청결 만족도 구간의 minimum은 엄격한 내림차순이어야 합니다.",
+      );
+      assert(
+        band.points <= cleanlinessBands[index - 1].points,
+        "청결도가 낮은 구간의 만족도 점수는 이전 구간보다 높을 수 없습니다.",
+      );
+    }
+  });
+  assert(cleanlinessBands.at(-1).minimum === 0, "청결 만족도 구간은 minimum 0까지 포함해야 합니다.");
+  const cleaningRequest = data.balance?.stayover_cleaning_request;
+  assert(cleaningRequest?.status === "PROVISIONAL", "연박 청소 요청은 PROVISIONAL 상태여야 합니다.");
+  assert(
+    Number.isFinite(cleaningRequest?.chance) && cleaningRequest.chance >= 0 && cleaningRequest.chance <= 1,
+    "연박 청소 요청 확률은 0 이상 1 이하여야 합니다.",
+  );
+  assert(
+    Number.isInteger(cleaningRequest?.accept_reputation) && cleaningRequest.accept_reputation >= 0,
+    "연박 청소 요청 수락 평판은 0 이상의 정수여야 합니다.",
+  );
+  assert(
+    Number.isInteger(cleaningRequest?.reject_reputation) && cleaningRequest.reject_reputation <= 0,
+    "연박 청소 요청 거절 평판은 0 이하의 정수여야 합니다.",
+  );
+  assert(
+    cleaningRequest?.max_per_intermission === 1,
+    "현재 연박 청소 요청은 막간별 최대 1건이어야 합니다.",
+  );
   assert(data.balance?.booking_capacity_per_expansion_room === 1, "증축 객실당 응대 한도는 1명씩 늘어야 합니다.");
   assert(Number.isFinite(data.balance?.prestige_satisfaction_per_tier), "호텔 격차 만족도 계수가 필요합니다.");
   assert(Number.isFinite(data.balance?.evaluation_grade_thresholds?.good), "좋은 운영 평가 기준이 필요합니다.");
@@ -996,8 +1052,50 @@ export function validateData(data, indexes = createIndexes(data)) {
     }
     assert(Number.isInteger(guest.stay_nights) && guest.stay_nights >= 1, `${guest.id}의 stay_nights가 잘못되었습니다.`);
     assert(guest.stayover_locks_initial_room === true, `${guest.id}는 연박 시 첫 객실을 유지해야 합니다.`);
-    for (const field of ["cleanliness_impact", "durability_impact"]) {
-      assert(Number.isInteger(guest[field]) && guest[field] >= 0, `${guest.id}의 ${field}가 잘못되었습니다.`);
+    assert(
+      Number.isInteger(guest.cleanliness_impact) && guest.cleanliness_impact >= 0,
+      `${guest.id}의 cleanliness_impact가 잘못되었습니다.`,
+    );
+    assert(guest.durability_impact === undefined, `${guest.id}는 schema_version 5에서 durability_impact를 사용할 수 없습니다.`);
+    const species = indexes.species[guest.species];
+    const rank = indexes.ranks[guest.rank];
+    const mergedHardRules = [
+      ...species.hard_constraints,
+      ...rank.hard_constraints,
+      ...guest.hard_constraints,
+    ];
+    const mergedPositiveRules = [
+      ...species.soft_preferences,
+      ...rank.soft_preferences,
+      ...guest.soft_preferences,
+      ...(species.hidden_preferences_by_rank?.[guest.rank] ?? []),
+    ];
+    const commonPositiveRules = [
+      ...species.soft_preferences,
+      ...rank.soft_preferences,
+      ...(species.hidden_preferences_by_rank?.[guest.rank] ?? []),
+    ];
+    const commonDislikeRules = [
+      ...(species.soft_dislikes ?? []),
+      ...rank.soft_dislikes,
+    ];
+    const forbiddenAttributes = new Set(
+      mergedHardRules
+        .filter((rule) => rule.type === "ROOM_NOT_HAS")
+        .map((rule) => rule.attribute),
+    );
+    for (const rule of mergedPositiveRules) {
+      assert(
+        !(rule.type === "ROOM_HAS" && rule.points > 0 && forbiddenAttributes.has(rule.attribute)),
+        `${guest.id}는 필수 금지 속성 ${rule.attribute}을 동시에 양수 선호할 수 없습니다.`,
+      );
+    }
+    const commonPositiveConditions = new Set(commonPositiveRules.map(ruleConditionSignature));
+    for (const rule of commonDislikeRules) {
+      assert(
+        !commonPositiveConditions.has(ruleConditionSignature(rule)),
+        `${guest.id}는 공통 계층에서 같은 조건을 선호와 불호로 동시에 가질 수 없습니다: ${rule.label}`,
+      );
     }
     for (const rule of [...guest.hard_constraints, ...guest.soft_preferences, ...(guest.soft_dislikes ?? [])]) {
       if (rule.guest_id) assertReferences([rule.guest_id], indexes.guests, guest.id, "손님");

@@ -457,7 +457,7 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
         ids = [item["id"] for item in data[name]]
         require(len(ids) == len(set(ids)), f"Duplicate IDs in {name}")
 
-    require(data.get("schema_version") == 4, "Showcase data must use schema_version 4")
+    require(data.get("schema_version") == 5, "Showcase data must use schema_version 5")
     completion = data.get("run_completion", {})
     require(completion.get("record_namespace"), "Run record namespace is required")
     endings = completion.get("ending_rules", [])
@@ -631,7 +631,7 @@ def validate_static_data(data: dict[str, Any]) -> dict[str, Any]:
             "writeActiveRunSave",
             "clearActiveRunSave",
             "stage_checkpoint",
-            "RUN_SAVE_SCHEMA_VERSION = 6",
+            "RUN_SAVE_SCHEMA_VERSION = 7",
             "PROFILE_SCHEMA_VERSION = 1",
             "PROFILE_STORAGE_KEY",
             "activeRunStorageKey(data)",

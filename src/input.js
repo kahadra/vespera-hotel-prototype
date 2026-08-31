@@ -64,6 +64,8 @@ export function setupInput(app, controller, rerender, options = {}) {
     else if (action === "finish-upgrade") controller.finishUpgrade();
     else if (action === "skip-upgrade") controller.skipUpgrade();
     else if (action === "service-room") controller.serviceRoom(target.dataset.roomId);
+    else if (action === "accept-stayover-cleaning-request") controller.resolveStayoverCleaningRequest(true);
+    else if (action === "reject-stayover-cleaning-request") controller.resolveStayoverCleaningRequest(false);
     else if (action === "accept") controller.setApplicantDecision(target.dataset.guestId, "accept");
     else if (action === "reject") controller.setApplicantDecision(target.dataset.guestId, "reject");
     else if (action === "confirm-reservation") controller.confirmReservation();

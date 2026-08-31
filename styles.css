@@ -414,6 +414,14 @@ button:focus-visible, [data-room-id]:focus-visible { outline: 2px solid var(--go
 .maintenance-list button:disabled { opacity: .45; cursor: not-allowed; }
 .maintenance-list span { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .maintenance-list small { grid-column: 1 / -1; color: var(--gold); font-size: 8px; }
+.stayover-cleaning-request { margin: 12px 0; padding: 14px 16px; display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; gap: 16px; align-items: center; border: 1px solid rgba(216, 170, 78, .58); border-radius: 10px; background: linear-gradient(135deg, rgba(216, 170, 78, .14), rgba(106, 73, 43, .08)); }
+.stayover-cleaning-request h2 { margin: 2px 0 5px; font: 19px Georgia, "Noto Serif KR", serif; }
+.stayover-cleaning-request p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.request-consequences { display: flex; gap: 8px; }
+.request-consequences span { min-width: 112px; padding: 8px 10px; display: grid; gap: 3px; border: 1px solid var(--line-soft); border-radius: 7px; background: rgba(0, 0, 0, .18); }
+.request-consequences small { color: var(--muted); font-size: 8px; }
+.request-consequences b { color: var(--gold); font-size: 10px; }
+.request-actions { display: grid; gap: 6px; }
 .maintenance-clear { color: var(--green); font-size: 11px; }
 
 .reservation-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; }
@@ -628,6 +636,9 @@ code { color: var(--gold); }
   .renovation-layout { grid-template-columns: minmax(235px, .68fr) minmax(0, 2fr); gap: 7px; }
   .renovation-group { padding: 8px; }
   .renovation-cards.interior-cards { gap: 5px; }
+  .stayover-cleaning-request { grid-template-columns: 1fr auto; }
+  .stayover-cleaning-request > div:first-child { grid-column: 1 / -1; }
+  .request-actions { grid-auto-flow: column; }
   .special-ribbon { margin: -13px -13px 10px; }
   .secretary-dialogue { grid-template-columns: 180px 1fr; gap: 22px; }
   .secretary-portrait { width: 170px; height: 215px; }
@@ -638,8 +649,8 @@ code { color: var(--gold); }
   .mode-hub-heading h1 { font-size: 42px; }
 }
 
-@media (max-height: 760px) {
-  .content-frame { padding-top: 8px; padding-bottom: 8px; }
+@media (max-height: 768px) {
+  .content-frame { padding-top: 8px; padding-bottom: 2px; }
   .mode-hub-heading { margin: 3px 0 12px; }
   .mode-hub-heading h1 { margin-block: 2px 7px; font-size: 34px; }
   .mode-hub-heading > p:last-child { font-size: 11px; line-height: 1.5; }

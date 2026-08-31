@@ -6,7 +6,7 @@ import {
   endlessAuditTarget,
   endlessRiskTier,
 } from "./endless.js";
-import { createRngState } from "./random.js";
+import { createRngState, nextFloat, pickOne } from "./random.js";
 import {
   displayRelicById,
   displayRelicEffectValue,
@@ -81,7 +81,7 @@ const FORMAL_POST_OPERATION_PHASES = Object.freeze([
 
 function initialRoomConditions(data) {
   return Object.fromEntries(
-    data.rooms.map((room) => [room.id, { cleanliness: 100, durability: 100 }]),
+    data.rooms.map((room) => [room.id, { cleanliness: 100 }]),
   );
 }
 
@@ -429,6 +429,10 @@ function initialState(data, seed, recordArchiveCount = 0, profile = null) {
     lockedGuestIds: [],
     roomConditions: initialRoomConditions(data),
     lastRoomWear: [],
+    pendingStayoverCleaningRequest: null,
+    stayoverCleaningRequestChecked: false,
+    declinedStayoverCleaningRoomIds: [],
+    stayoverCleaningRequestGuestIds: [],
     secretaryPresentationId: null,
     foresightRetryCount: 0,
     foresightDiscoveryIds: [],
@@ -1218,6 +1222,9 @@ export class GameController {
     this.state.currentUpgradeOfferIds = [];
     this.state.renovationPurchaseIds = [];
     this.state.lastRoomWear = [];
+    this.state.pendingStayoverCleaningRequest = null;
+    this.state.stayoverCleaningRequestChecked = false;
+    this.state.declinedStayoverCleaningRoomIds = [];
     this.state.lastDiscoveries = [];
     this.state.reservationBoardOpen = false;
     this.rememberGuests([...fixedGuestIds, ...offer.guestIds]);
@@ -1365,16 +1372,13 @@ export class GameController {
       const guest = this.data.indexes.guests[guestId];
       const roomId = result.placements[guestId];
       if (!guest || !roomId) continue;
-      const condition = this.state.roomConditions[roomId] ?? { cleanliness: 100, durability: 100 };
+      const condition = this.state.roomConditions[roomId] ?? { cleanliness: 100 };
       const wearScale = this.data.balance?.wear_scale ?? 1;
       const cleanlinessLoss = guest.room_wear?.cleanliness
         ?? (guest.cleanliness_impact ?? 1) * wearScale;
-      const durabilityLoss = guest.room_wear?.durability
-        ?? (guest.durability_impact ?? 0) * wearScale;
       condition.cleanliness = clampCondition(condition.cleanliness - cleanlinessLoss);
-      condition.durability = clampCondition(condition.durability - durabilityLoss);
       this.state.roomConditions[roomId] = condition;
-      wear.push({ guestId, roomId, cleanlinessLoss, durabilityLoss, ...condition });
+      wear.push({ guestId, roomId, cleanlinessLoss, ...condition });
 
       const existing = this.state.stayovers[guestId];
       if (existing && existing.remainingNights > 1) {
@@ -1384,6 +1388,8 @@ export class GameController {
       }
     }
     this.state.stayovers = nextStayovers;
+    this.state.stayoverCleaningRequestGuestIds = this.state.stayoverCleaningRequestGuestIds
+      .filter((guestId) => Boolean(nextStayovers[guestId]));
     this.state.expectationReputationByGuest = Object.fromEntries(
       Object.keys(nextStayovers).map((guestId) => [
         guestId,
@@ -1637,6 +1643,9 @@ export class GameController {
     );
     this.state.currentUpgradeOfferIds = offer.upgradeIds;
     this.state.renovationPurchaseIds = [];
+    this.state.pendingStayoverCleaningRequest = null;
+    this.state.stayoverCleaningRequestChecked = false;
+    this.state.declinedStayoverCleaningRoomIds = [];
     this.state.rngState = offer.rngState;
     this.state.phase = PHASES.UPGRADE;
     return true;
@@ -1856,6 +1865,11 @@ export class GameController {
 
   finishUpgrade() {
     if (this.state.phase !== PHASES.UPGRADE) return false;
+    if (this.state.pendingStayoverCleaningRequest) return false;
+    if (!this.state.stayoverCleaningRequestChecked) {
+      const requestOpened = this.openStayoverCleaningRequest();
+      if (requestOpened) return false;
+    }
     if (this.isEndlessMode) {
       return this.beginEndlessNight(this.state.endlessSeasonNightIndex + 1);
     }
@@ -1925,19 +1939,20 @@ export class GameController {
 
   serviceRoom(roomId) {
     if (this.state.phase !== PHASES.UPGRADE) return false;
-    if (Object.values(this.state.stayovers).some((entry) => entry.roomId === roomId)) return false;
+    if (this.state.pendingStayoverCleaningRequest?.roomId === roomId) return false;
+    if (this.state.declinedStayoverCleaningRoomIds.includes(roomId)) return false;
     if (this.structuralBoardState().blockedRooms.has(roomId)) return false;
     const cost = this.roomServiceCost();
     const condition = this.state.roomConditions[roomId];
     if (!condition || this.state.gold < cost) return false;
-    if (condition.cleanliness === 100 && condition.durability === 100) return false;
+    if (condition.cleanliness === 100) return false;
     const formalSnapshot = this.isFormalCampaignMode ? clone(this.state) : null;
     try {
       this.state.gold -= cost;
       if (this.isFormalCampaignMode) {
         this.addFormalCampaignPendingExpense("roomService", cost);
       }
-      this.state.roomConditions[roomId] = { cleanliness: 100, durability: 100 };
+      this.state.roomConditions[roomId] = { cleanliness: 100 };
       const relic = this.ownedRelicWithEffect("ROOM_SERVICE_COST_REDUCTION");
       if (relic) this.recordDisplayRelicTrigger(relic.id);
       return true;
@@ -1955,6 +1970,126 @@ export class GameController {
       "ROOM_SERVICE_COST_REDUCTION",
     );
     return Math.max(0, baseCost - reduction);
+  }
+
+  stayoverCleaningRequestConfig() {
+    const source = this.data.balance?.stayover_cleaning_request ?? {};
+    return {
+      chance: Math.max(0, Math.min(1, Number(source.chance ?? 0))),
+      acceptReputation: Number(source.accept_reputation ?? 0),
+      rejectReputation: Number(source.reject_reputation ?? 0),
+      maxPerIntermission: Math.max(0, Number(source.max_per_intermission ?? 1)),
+    };
+  }
+
+  dirtyStayoverCleaningCandidates() {
+    return Object.entries(this.state.stayovers)
+      .map(([guestId, entry]) => ({
+        guestId,
+        roomId: entry.roomId,
+        cleanliness: this.state.roomConditions[entry.roomId]?.cleanliness ?? 100,
+      }))
+      .filter((entry) => entry.cleanliness < 100)
+      .filter((entry) => !this.state.stayoverCleaningRequestGuestIds.includes(entry.guestId))
+      .sort((left, right) => (
+        left.cleanliness - right.cleanliness
+        || left.roomId.localeCompare(right.roomId)
+        || left.guestId.localeCompare(right.guestId)
+      ));
+  }
+
+  openStayoverCleaningRequest() {
+    if (this.state.phase !== PHASES.UPGRADE) return false;
+    if (this.state.stayoverCleaningRequestChecked) {
+      return Boolean(this.state.pendingStayoverCleaningRequest);
+    }
+    this.state.stayoverCleaningRequestChecked = true;
+    const config = this.stayoverCleaningRequestConfig();
+    const candidates = this.dirtyStayoverCleaningCandidates();
+    if (!candidates.length || config.maxPerIntermission < 1 || config.chance <= 0) return false;
+
+    const triggerDraw = nextFloat(this.state.rngState);
+    this.state.rngState = triggerDraw.rngState;
+    if (triggerDraw.value >= config.chance) return false;
+
+    const picked = pickOne(candidates, this.state.rngState);
+    this.state.rngState = picked.rngState;
+    const candidate = picked.value;
+    this.state.pendingStayoverCleaningRequest = {
+      requestId: `STAYOVER_CLEANING:${this.currentNightNumber}:${candidate.guestId}:${candidate.roomId}`,
+      guestId: candidate.guestId,
+      roomId: candidate.roomId,
+      cleanliness: candidate.cleanliness,
+      serviceCost: this.roomServiceCost(),
+      acceptReputation: config.acceptReputation,
+      rejectReputation: config.rejectReputation,
+    };
+    return true;
+  }
+
+  resolveStayoverCleaningRequest(accepted) {
+    if (this.state.phase !== PHASES.UPGRADE) return false;
+    const request = this.state.pendingStayoverCleaningRequest;
+    if (!request || typeof accepted !== "boolean") return false;
+    const currentStay = this.state.stayovers[request.guestId];
+    if (!currentStay || currentStay.roomId !== request.roomId) return false;
+
+    const formalSnapshot = this.isFormalCampaignMode ? clone(this.state) : null;
+    try {
+      const reputationDelta = accepted
+        ? request.acceptReputation
+        : request.rejectReputation;
+      if (accepted) {
+        if (this.state.gold < request.serviceCost) return false;
+        this.state.gold -= request.serviceCost;
+        if (this.isFormalCampaignMode) {
+          this.addFormalCampaignPendingExpense("roomService", request.serviceCost);
+        }
+        this.state.roomConditions[request.roomId] = { cleanliness: 100 };
+        const relic = this.ownedRelicWithEffect("ROOM_SERVICE_COST_REDUCTION");
+        if (relic) this.recordDisplayRelicTrigger(relic.id);
+      } else {
+        this.state.declinedStayoverCleaningRoomIds = unique([
+          ...this.state.declinedStayoverCleaningRoomIds,
+          request.roomId,
+        ]);
+      }
+      this.state.hotelReputation = round2(this.state.hotelReputation + reputationDelta);
+      const latestResult = this.state.nightResults.at(-1);
+      if (latestResult) {
+        latestResult.intermissionReputationDelta = round2(
+          Number(latestResult.intermissionReputationDelta ?? 0) + reputationDelta,
+        );
+        latestResult.reputationDelta = round2(
+          Number(latestResult.reputationDelta ?? 0) + reputationDelta,
+        );
+        latestResult.intermissionEvents = [
+          ...(latestResult.intermissionEvents ?? []),
+          {
+            type: "STAYOVER_CLEANING_REQUEST",
+            requestId: request.requestId,
+            guestId: request.guestId,
+            roomId: request.roomId,
+            outcome: accepted ? "ACCEPTED" : "REJECTED",
+            reputationDelta,
+          },
+        ];
+      }
+      if (this.isEndlessMode) {
+        this.state.endlessLifetimeMetrics.reputationDelta = round2(
+          this.state.endlessLifetimeMetrics.reputationDelta + reputationDelta,
+        );
+      }
+      this.state.stayoverCleaningRequestGuestIds = unique([
+        ...this.state.stayoverCleaningRequestGuestIds,
+        request.guestId,
+      ]);
+      this.state.pendingStayoverCleaningRequest = null;
+      return true;
+    } catch (error) {
+      if (formalSnapshot) this.state = formalSnapshot;
+      throw error;
+    }
   }
 
   setApplicantDecision(guestId, decision) {

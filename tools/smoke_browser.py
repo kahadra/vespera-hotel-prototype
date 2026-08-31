@@ -752,7 +752,7 @@ def assert_reservation_board(
               const roomId = capacity.usableRoomIds.find(id => !stayoverRooms.has(id));
               if (!roomId) return null;
               const condition = { ...controller.state.roomConditions[roomId] };
-              controller.state.roomConditions[roomId] = { cleanliness: 0, durability: 0 };
+              controller.state.roomConditions[roomId] = { cleanliness: 0 };
               const { renderApp } = await import(new URL('./src/render.js', document.baseURI).href);
               renderApp(document.querySelector('#app'), controller);
               return { roomId, condition };
@@ -1088,7 +1088,7 @@ def run(
         capacity_audits.append(assert_capacity_contract(
             client,
             "night4",
-            expected_service_limit=8,
+            expected_service_limit=7,
         ))
         reservation_board_audits.append(assert_reservation_board(
             client,
@@ -1124,7 +1124,7 @@ def run(
         capacity_audits.append(assert_capacity_contract(
             client,
             "night5",
-            expected_service_limit=8,
+            expected_service_limit=7,
         ))
         reservation_board_audits.append(assert_reservation_board(
             client,

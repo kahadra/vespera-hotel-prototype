@@ -70,7 +70,6 @@ export function createBoardState(data, sourceContext = {}) {
   }
 
   const minimumCleanliness = data.balance?.minimum_cleanliness ?? 40;
-  const minimumDurability = data.balance?.minimum_durability ?? 35;
   const protectedRoomIds = new Set(context.protectedRoomIds ?? []);
   for (const [roomId, condition] of Object.entries(context.roomConditions ?? {})) {
     if (!rooms[roomId]) continue;
@@ -78,9 +77,6 @@ export function createBoardState(data, sourceContext = {}) {
     if ((condition.cleanliness ?? 100) < minimumCleanliness) {
       blockedRooms.add(roomId);
       blockedReasons.set(roomId, "청소 필요");
-    } else if ((condition.durability ?? 100) < minimumDurability) {
-      blockedRooms.add(roomId);
-      blockedReasons.set(roomId, "수리 필요");
     }
   }
 
@@ -249,9 +245,16 @@ function addScoreItem(guestScores, guestId, item) {
   if (!guestScores[guestId]) guestScores[guestId] = { total: 0, preferenceTotal: 0, items: [] };
   guestScores[guestId].items.push(item);
   guestScores[guestId].total += item.points;
-  if (!["prestige", "dislike"].includes(item.source)) {
+  if (!["prestige", "dislike", "cleanliness"].includes(item.source)) {
     guestScores[guestId].preferenceTotal += item.points;
   }
+}
+
+function cleanlinessSatisfactionBand(data, cleanliness) {
+  const bands = data.balance?.cleanliness_satisfaction_bands ?? [];
+  return [...bands]
+    .filter((entry) => cleanliness >= entry.minimum)
+    .sort((left, right) => right.minimum - left.minimum)[0] ?? null;
 }
 
 export function hotelPrestigeTierFor(data, reputation) {
@@ -437,6 +440,18 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
         guestScores[guestId].activeDislikes.push(item);
         addScoreItem(guestScores, guestId, item);
       }
+    }
+    const roomCondition = board.roomConditions[placements[guestId]] ?? { cleanliness: 100 };
+    const cleanlinessBand = cleanlinessSatisfactionBand(
+      data,
+      Number(roomCondition.cleanliness ?? 100),
+    );
+    if (cleanlinessBand?.points) {
+      addScoreItem(guestScores, guestId, {
+        label: cleanlinessBand.label,
+        points: cleanlinessBand.points,
+        source: "cleanliness",
+      });
     }
     if (prestigeGap > 0) {
       addScoreItem(guestScores, guestId, {

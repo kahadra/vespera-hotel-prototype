@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "prototype_mode": {
     "type": "SHOWCASE",
     "total_nights": 5,
@@ -35,7 +35,19 @@
   "balance": {
     "room_service_cost": 8,
     "minimum_cleanliness": 40,
-    "minimum_durability": 35,
+    "cleanliness_satisfaction_bands": [
+      {"minimum": 90, "points": 0, "label": "정돈된 객실"},
+      {"minimum": 75, "points": -1, "label": "청소가 필요한 기색"},
+      {"minimum": 50, "points": -3, "label": "눈에 띄게 정돈되지 않은 객실"},
+      {"minimum": 0, "points": -6, "label": "방치된 객실"}
+    ],
+    "stayover_cleaning_request": {
+      "status": "PROVISIONAL",
+      "chance": 0.35,
+      "accept_reputation": 1,
+      "reject_reputation": -1,
+      "max_per_intermission": 1
+    },
     "booking_capacity_per_expansion_room": 1,
     "wear_scale": 1,
     "prestige_satisfaction_per_tier": 1,
@@ -119,7 +131,7 @@
     },
     {
       "id": "PALADIN", "name": "성기사", "icon": "♙", "color": "#C4A45D",
-      "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "quiet", "label": "훈련 소리가 허용되는 객실"}],
+      "hard_constraints": [],
       "soft_preferences": [{"type": "ROOM_HAS", "attribute": "sunny", "points": 2, "label": "햇빛 객실"}],
       "synergy_thresholds": [
         {"count": 2, "points": 2, "label": "교대 경계"},
@@ -179,7 +191,7 @@
       "soft_dislikes": [
         {"type": "FLOOR_AT_MOST", "floor": 2, "points": -3, "ignored_at_prestige_gap": 1, "label": "최상층이 아닌 객실"},
         {"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 1, "points": -2, "ignored_at_prestige_gap": 2, "label": "붐비는 중앙 동선"},
-        {"type": "ROOM_HAS", "attribute": "sunny", "points": -2, "ignored_at_prestige_gap": 3, "label": "눈에 띄게 밝은 객실"}
+        {"type": "NEAR_FACILITY", "facility_id": "LOUNGE", "points": -2, "ignored_at_prestige_gap": 3, "label": "공용 라운지와 가까운 객실"}
       ]
     }
   ],
@@ -187,19 +199,19 @@
     {
       "id": "G01_LUNE", "name": "Lune", "species": "VAMPIRE", "rank": "N",
       "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "높은 층"}]
     },
     {
       "id": "G02_MORROW", "name": "Morrow", "species": "VAMPIRE", "rank": "N",
       "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 2, "label": "엘리베이터에서 떨어진 방"}]
     },
     {
       "id": "G03_LADY_NOX", "name": "Lady Nox", "species": "VAMPIRE", "rank": "SR",
       "base_fee": 15, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 10, "durability_impact": 3,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 10,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 4, "label": "엘리베이터에서 떨어진 방"},
@@ -209,7 +221,7 @@
     {
       "id": "G08_QUEEN_UMBRA", "name": "Queen Umbra", "species": "VAMPIRE", "rank": "SSR",
       "base_fee": 27, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "showcase_only": true, "special_invitation": true, "hard_constraints": [],
       "soft_preferences": [
         {"type": "NEAR_FACILITY", "facility_id": "ROYAL_SUITE", "points": 6, "label": "왕실 스위트 동선"},
@@ -219,13 +231,13 @@
     {
       "id": "G04_ARU", "name": "Aru", "species": "BEASTKIN", "rank": "N",
       "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [], "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 3, "label": "낮은 층"}]
     },
     {
       "id": "G05_FEN", "name": "Fen", "species": "BEASTKIN", "rank": "N",
       "base_fee": 5, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "ADJACENT_GUEST", "guest_id": "G04_ARU", "points": 4, "label": "Aru의 옆방"},
@@ -235,7 +247,7 @@
     {
       "id": "G06_GARR", "name": "Garr", "species": "BEASTKIN", "rank": "SR",
       "base_fee": 14, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 18, "durability_impact": 8,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 18,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "NEAR_FACILITY", "facility_id": "LOUNGE", "points": 5, "label": "라운지 옆"},
@@ -246,27 +258,27 @@
     {
       "id": "G07_MOONCLAW", "name": "Moonclaw", "species": "BEASTKIN", "rank": "R",
       "base_fee": 10, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 16, "durability_impact": 7,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 16,
       "hard_constraints": [],
       "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 4, "label": "정원과 가까운 1층"}]
     },
     {
       "id": "G09_ELOWEN", "name": "Elowen", "species": "WITCH", "rank": "N",
       "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 3, "label": "로비에서 떨어진 방"}]
     },
     {
       "id": "G10_MIRE", "name": "Mire", "species": "WITCH", "rank": "R",
       "base_fee": 10, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 9, "durability_impact": 3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 9,
       "hard_constraints": [],
       "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "MOON_GARDEN", "points": 5, "label": "달빛 정원 옆"}]
     },
     {
       "id": "G11_CIRCE", "name": "Circe", "species": "WITCH", "rank": "SR",
       "base_fee": 16, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "NEAR_FACILITY", "facility_id": "SECRET_PASSAGE", "points": 5, "label": "비밀 통로가 있는 객실"},
@@ -276,34 +288,34 @@
     {
       "id": "G12_OPHELIA", "name": "Ophelia", "species": "WITCH", "rank": "SSR",
       "base_fee": 25, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 14, "durability_impact": 6,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 14,
       "hard_constraints": [],
       "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "MOON_GARDEN", "points": 7, "label": "달빛 정원 옆"}]
     },
     {
       "id": "G13_ROWAN", "name": "Rowan", "species": "PALADIN", "rank": "N",
       "base_fee": 7, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 10, "durability_impact": 4,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 10,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 0, "points": 3, "label": "출동하기 좋은 엘리베이터 옆"}]
     },
     {
       "id": "G14_ASTER", "name": "Aster", "species": "PALADIN", "rank": "R",
       "base_fee": 11, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 11, "durability_impact": 5,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 11,
       "hard_constraints": [],
       "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 4, "label": "로비와 가까운 1층"}]
     },
     {
       "id": "G15_AURELIA", "name": "Aurelia", "species": "PALADIN", "rank": "SR",
       "base_fee": 16, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 13, "durability_impact": 6,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 13,
       "hard_constraints": [],
       "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "GRAND_BALLROOM", "points": 6, "label": "공식 행사장 옆"}]
     },
     {
       "id": "G16_CAELUM", "name": "King Caelum", "species": "PALADIN", "rank": "SSR",
       "base_fee": 28, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 15, "durability_impact": 9,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 15,
       "hard_constraints": [],
       "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "GRAND_BALLROOM", "points": 7, "label": "대연회장 옆"}]
     }

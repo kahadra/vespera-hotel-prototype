@@ -14,7 +14,7 @@ import {
 import { displayRelicEffectValue } from "./relics.js";
 import { createBoardState } from "./rules.js";
 
-export const RUN_SAVE_SCHEMA_VERSION = 6;
+export const RUN_SAVE_SCHEMA_VERSION = 7;
 export const PROFILE_SCHEMA_VERSION = 1;
 export const ACTIVE_RUN_STORAGE_KEY = "vespera.hotel.active-run.v1";
 export const ACTIVE_RUN_STORAGE_PREFIX = "vespera.hotel.active-run.v2";
@@ -108,6 +108,80 @@ function denseUniqueStrings(value) {
   return isDenseArray(value)
     && value.every((item) => typeof item === "string" && item.length > 0)
     && new Set(value).size === value.length;
+}
+
+function validLastRoomWear(data, lastRoomWear) {
+  return isDenseArray(lastRoomWear)
+    && lastRoomWear.every((entry) => exactKeys(
+      entry,
+      ["guestId", "roomId", "cleanlinessLoss", "cleanliness"],
+    )
+      && Boolean(data.indexes.guests[entry.guestId])
+      && Boolean(data.indexes.rooms[entry.roomId])
+      && Number.isFinite(entry.cleanlinessLoss)
+      && entry.cleanlinessLoss >= 0
+      && Number.isFinite(entry.cleanliness)
+      && entry.cleanliness >= 0
+      && entry.cleanliness <= 100);
+}
+
+function validStayoverCleaningState(data, state) {
+  const request = state.pendingStayoverCleaningRequest;
+  const declinedRoomIds = state.declinedStayoverCleaningRoomIds;
+  const resolvedGuestIds = state.stayoverCleaningRequestGuestIds;
+  const requestConfig = data.balance?.stayover_cleaning_request;
+  const baseServiceCost = data.balance?.room_service_cost ?? 8;
+  const serviceReduction = displayRelicEffectValue(
+    data,
+    state.ownedDisplayRelicIds ?? [],
+    "ROOM_SERVICE_COST_REDUCTION",
+  );
+  const expectedServiceCost = Math.max(0, baseServiceCost - serviceReduction);
+  const stayoverRoomIds = new Set(
+    Object.values(state.stayovers ?? {}).map((entry) => entry?.roomId),
+  );
+  if (typeof state.stayoverCleaningRequestChecked !== "boolean"
+    || !denseUniqueStrings(declinedRoomIds)
+    || !declinedRoomIds.every((roomId) => Boolean(data.indexes.rooms[roomId]))
+    || !declinedRoomIds.every((roomId) => stayoverRoomIds.has(roomId))
+    || !denseUniqueStrings(resolvedGuestIds)
+    || !resolvedGuestIds.every((guestId) => Boolean(data.indexes.guests[guestId]))
+    || !resolvedGuestIds.every((guestId) => Boolean(state.stayovers?.[guestId]))) {
+    return false;
+  }
+  if (request === null) return true;
+  if (!exactKeys(request, [
+    "requestId",
+    "guestId",
+    "roomId",
+    "cleanliness",
+    "serviceCost",
+    "acceptReputation",
+    "rejectReputation",
+  ])
+    || typeof request.requestId !== "string"
+    || request.requestId.length === 0
+    || !data.indexes.guests[request.guestId]
+    || !data.indexes.rooms[request.roomId]
+    || !Number.isFinite(request.cleanliness)
+    || request.cleanliness < 0
+    || request.cleanliness >= 100
+    || !nonNegativeSafeInteger(request.serviceCost)
+    || request.serviceCost !== expectedServiceCost
+    || !Number.isSafeInteger(request.acceptReputation)
+    || request.acceptReputation < 0
+    || request.acceptReputation !== Number(requestConfig?.accept_reputation)
+    || !Number.isSafeInteger(request.rejectReputation)
+    || request.rejectReputation > 0
+    || request.rejectReputation !== Number(requestConfig?.reject_reputation)
+    || state.stayoverCleaningRequestChecked !== true
+    || declinedRoomIds.includes(request.roomId)
+    || resolvedGuestIds.includes(request.guestId)
+    || state.roomConditions?.[request.roomId]?.cleanliness !== request.cleanliness
+    || state.stayovers?.[request.guestId]?.roomId !== request.roomId) {
+    return false;
+  }
+  return true;
 }
 
 function isFormalCampaign(data) {
@@ -530,6 +604,9 @@ function validState(data, state) {
     && (state.ownedDisplayRelicIds ?? []).every((id) => Boolean(data.indexes.displayRelics?.[id]))
     && nonNegativeSafeInteger(state.foresightRetryCount)
     && denseUniqueStrings(state.foresightDiscoveryIds)
+    && validRoomConditionMap(data, state.roomConditions)
+    && validLastRoomWear(data, state.lastRoomWear)
+    && validStayoverCleaningState(data, state)
     && (state.phase !== "RELIC_OFFER"
       || (Array.isArray(state.pendingDisplayRelicOffer?.relicIds)
         && state.pendingDisplayRelicOffer.relicIds.length > 0
@@ -668,13 +745,10 @@ function validRoomConditionMap(data, roomConditions) {
   if (!exactKeys(roomConditions, roomIds)) return false;
   return roomIds.every((roomId) => {
     const condition = roomConditions[roomId];
-    return exactKeys(condition, ["cleanliness", "durability"])
+    return exactKeys(condition, ["cleanliness"])
       && Number.isFinite(condition.cleanliness)
       && condition.cleanliness >= 0
-      && condition.cleanliness <= 100
-      && Number.isFinite(condition.durability)
-      && condition.durability >= 0
-      && condition.durability <= 100;
+      && condition.cleanliness <= 100;
   });
 }
 
@@ -698,14 +772,9 @@ function reconstructFormalPostNightState(data, checkpoint, result) {
     if (!guest || !data.indexes.rooms[roomId] || !condition) return null;
     const cleanlinessLoss = guest.room_wear?.cleanliness
       ?? (guest.cleanliness_impact ?? 1) * wearScale;
-    const durabilityLoss = guest.room_wear?.durability
-      ?? (guest.durability_impact ?? 0) * wearScale;
     if (!Number.isFinite(cleanlinessLoss)
-      || cleanlinessLoss < 0
-      || !Number.isFinite(durabilityLoss)
-      || durabilityLoss < 0) return null;
+      || cleanlinessLoss < 0) return null;
     condition.cleanliness = clampRoomCondition(condition.cleanliness - cleanlinessLoss);
-    condition.durability = clampRoomCondition(condition.durability - durabilityLoss);
 
     const existing = checkpoint.stayovers[guestId];
     if (existing) {
@@ -758,19 +827,15 @@ function validFormalCheckpointRoomState(data, state, checkpoint, position) {
   } catch {
     return false;
   }
-  const stayoverRoomIds = new Set(
-    Object.values(expected.stayovers).map((entry) => entry.roomId),
-  );
   let servicedRoomCount = 0;
   for (const room of data.rooms) {
     const before = expected.roomConditions[room.id];
     const live = state.roomConditions[room.id];
     if (sameJson(before, live)) continue;
-    const restored = live.cleanliness === 100 && live.durability === 100;
-    const neededService = before.cleanliness !== 100 || before.durability !== 100;
+    const restored = live.cleanliness === 100;
+    const neededService = before.cleanliness !== 100;
     if (!restored
       || !neededService
-      || stayoverRoomIds.has(room.id)
       || board.blockedRooms.has(room.id)) return false;
     servicedRoomCount += 1;
   }
@@ -835,18 +900,54 @@ function validFormalStageCheckpoint(data, state, checkpoint) {
   return position !== "PRE" || sameJson(checkpoint.campaignProgress, state.campaignProgress);
 }
 
+function migrateRoomConditionsToSchema7(data, roomConditions) {
+  if (!isPlainObject(roomConditions)) return roomConditions;
+  return Object.fromEntries(data.rooms.map((room) => [
+    room.id,
+    { cleanliness: roomConditions[room.id]?.cleanliness },
+  ]));
+}
+
+function migrateLastRoomWearToSchema7(lastRoomWear) {
+  if (!Array.isArray(lastRoomWear)) return lastRoomWear;
+  return lastRoomWear.map((entry) => {
+    if (!isPlainObject(entry)) return entry;
+    const {
+      durability: _durability,
+      durabilityLoss: _durabilityLoss,
+      ...cleanlinessWear
+    } = entry;
+    return cleanlinessWear;
+  });
+}
+
+function migrateStateToSchema7(data, state) {
+  if (!isPlainObject(state)) return state;
+  state.roomConditions = migrateRoomConditionsToSchema7(data, state.roomConditions);
+  state.lastRoomWear = migrateLastRoomWearToSchema7(state.lastRoomWear);
+  state.pendingStayoverCleaningRequest = null;
+  state.stayoverCleaningRequestChecked = false;
+  state.declinedStayoverCleaningRoomIds = [];
+  state.stayoverCleaningRequestGuestIds = [];
+  return state;
+}
+
 function normalizeRunSave(data, save) {
-  if (isFormalCampaign(data)) {
-    if (save?.schema_version !== RUN_SAVE_SCHEMA_VERSION) return null;
-    return clone(save);
-  }
-  if (![3, 4, 5, RUN_SAVE_SCHEMA_VERSION].includes(save?.schema_version)) return null;
+  if (save?.schema_version === RUN_SAVE_SCHEMA_VERSION) return clone(save);
+  if (isFormalCampaign(data) && save?.schema_version !== 6) return null;
+  if (![3, 4, 5, 6].includes(save?.schema_version)) return null;
   const normalized = clone(save);
   normalized.schema_version = RUN_SAVE_SCHEMA_VERSION;
+  normalized.data_schema_version = data.schema_version;
   normalized.profile_id = typeof save.profile_id === "string" ? save.profile_id : "default";
+  normalized.state = migrateStateToSchema7(data, normalized.state);
+  if (!isPlainObject(normalized.state)) return null;
   normalized.state.profileId = typeof save.state?.profileId === "string"
     ? save.state.profileId
     : normalized.profile_id;
+  if (normalized.stage_checkpoint !== null && normalized.stage_checkpoint !== undefined) {
+    normalized.stage_checkpoint = migrateStateToSchema7(data, normalized.stage_checkpoint);
+  }
   return normalized;
 }
 

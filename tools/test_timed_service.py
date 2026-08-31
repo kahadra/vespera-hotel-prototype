@@ -161,7 +161,7 @@ def assert_reservation_cardinality_gates(client: CdpClient) -> dict:
           const degradedRoomIds = [];
           for (const roomId of controller.roomCapacitySummary().usableRoomIds) {
             if (protectedRooms.has(roomId)) continue;
-            controller.state.roomConditions[roomId] = { cleanliness: 0, durability: 0 };
+            controller.state.roomConditions[roomId] = { cleanliness: 0 };
             degradedRoomIds.push(roomId);
             if (controller.roomCapacitySummary().physicalPlacementLimit < normal.accepted.length) break;
           }
@@ -289,7 +289,6 @@ def assert_facility_room_excluded_from_service(client: CdpClient) -> dict:
           controller.state.gold = 999;
           controller.state.roomConditions[candidate.roomId] = {
             cleanliness: 1,
-            durability: 1,
           };
           const { renderApp } = await import(new URL('./src/render.js', document.baseURI).href);
           renderApp(document.querySelector('#app'), controller);
@@ -721,6 +720,180 @@ def continue_through_renovation(
     return result
 
 
+def assert_stayover_cleaning_request_input_paths(
+    client: CdpClient,
+    guest_id: str,
+    room_id: str,
+) -> dict:
+    """Exercise both rendered request buttons through the live click handler."""
+
+    expression = """
+    (async () => {
+      const controller = window.__vesperaController;
+      const guestId = __GUEST_ID__;
+      const roomId = __ROOM_ID__;
+      if (controller.state.phase !== 'UPGRADE') return { ok: false, reason: 'NOT_UPGRADE' };
+      if (controller.state.stayovers[guestId]?.roomId !== roomId) {
+        return { ok: false, reason: 'NOT_CURRENT_STAYOVER' };
+      }
+      const { renderApp } = await import(new URL('./src/render.js', document.baseURI).href);
+      const snapshot = structuredClone(controller.state);
+      const selector = outcome => (
+        `[data-action="${outcome}-stayover-cleaning-request"]`
+      );
+      const capture = () => {
+        const latest = controller.state.nightResults.at(-1);
+        const request = controller.state.pendingStayoverCleaningRequest;
+        const controls = [
+          document.querySelector('[data-stayover-cleaning-request]'),
+          document.querySelector(selector('accept')),
+          document.querySelector(selector('reject')),
+        ];
+        return {
+          pending: Boolean(request),
+          requestVisible: Boolean(controls[0]),
+          controlsPresent: controls.every(Boolean),
+          controlsVisible: controls.every(element => {
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            return rect.top >= 0 && rect.bottom <= window.innerHeight;
+          }),
+          acceptDisabled: controls[1]?.disabled ?? null,
+          gold: controller.state.gold,
+          reputation: controller.state.hotelReputation,
+          cleanliness: controller.state.roomConditions[roomId].cleanliness,
+          declined: controller.state.declinedStayoverCleaningRoomIds.includes(roomId),
+          resolved: controller.state.stayoverCleaningRequestGuestIds.includes(guestId),
+          resultReputation: Number(latest?.reputationDelta ?? 0),
+          intermissionReputation: Number(latest?.intermissionReputationDelta ?? 0),
+          eventCount: latest?.intermissionEvents?.length ?? 0,
+          lastOutcome: latest?.intermissionEvents?.at(-1)?.outcome ?? null,
+        };
+      };
+      const prepare = () => {
+        controller.state = structuredClone(snapshot);
+        const config = controller.stayoverCleaningRequestConfig();
+        const serviceCost = controller.roomServiceCost();
+        const cleanliness = Math.min(72, controller.state.roomConditions[roomId].cleanliness);
+        controller.state.gold = Math.max(controller.state.gold, serviceCost + 20);
+        controller.state.roomConditions[roomId] = { cleanliness };
+        controller.state.stayoverCleaningRequestChecked = true;
+        controller.state.declinedStayoverCleaningRoomIds = [];
+        controller.state.stayoverCleaningRequestGuestIds = (
+          controller.state.stayoverCleaningRequestGuestIds ?? []
+        ).filter(id => id !== guestId);
+        controller.state.pendingStayoverCleaningRequest = {
+          requestId: `STAYOVER_CLEANING:${controller.currentNightNumber}:${guestId}:${roomId}`,
+          guestId,
+          roomId,
+          cleanliness,
+          serviceCost,
+          acceptReputation: config.acceptReputation,
+          rejectReputation: config.rejectReputation,
+        };
+        renderApp(document.querySelector('#app'), controller);
+        return {
+          ...capture(),
+          serviceCost,
+          acceptReputation: config.acceptReputation,
+          rejectReputation: config.rejectReputation,
+        };
+      };
+
+      let output;
+      try {
+        const acceptBefore = prepare();
+        document.querySelector(selector('accept'))?.click();
+        const acceptAfter = capture();
+        const rejectBefore = prepare();
+        document.querySelector(selector('reject'))?.click();
+        const rejectAfter = capture();
+        output = {
+          ok: true,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          acceptBefore,
+          acceptAfter,
+          rejectBefore,
+          rejectAfter,
+        };
+      } finally {
+        controller.state = structuredClone(snapshot);
+        controller.saveCheckpoint();
+        renderApp(document.querySelector('#app'), controller);
+      }
+      output.originalStateRestored = controller.state.phase === snapshot.phase
+        && controller.state.gold === snapshot.gold
+        && controller.state.hotelReputation === snapshot.hotelReputation;
+      return output;
+    })()
+    """.replace("__GUEST_ID__", json.dumps(guest_id)).replace(
+        "__ROOM_ID__", json.dumps(room_id)
+    )
+    result = client.evaluate(expression)
+    assert result["ok"], result
+    assert result["viewport"] == {"width": 1280, "height": 720}, result
+    assert result["originalStateRestored"] is True, result
+
+    accepted_before = result["acceptBefore"]
+    accepted = result["acceptAfter"]
+    rejected_before = result["rejectBefore"]
+    rejected = result["rejectAfter"]
+    for prepared in (accepted_before, rejected_before):
+        assert prepared["controlsPresent"] is True, result
+        assert prepared["controlsVisible"] is True, result
+        assert prepared["acceptDisabled"] is False, result
+
+    assert accepted["pending"] is False and accepted["requestVisible"] is False, accepted
+    assert accepted["gold"] == accepted_before["gold"] - accepted_before["serviceCost"], accepted
+    assert accepted["reputation"] == (
+        accepted_before["reputation"] + accepted_before["acceptReputation"]
+    ), accepted
+    assert accepted["cleanliness"] == 100, accepted
+    assert accepted["declined"] is False and accepted["resolved"] is True, accepted
+    assert accepted["resultReputation"] == (
+        accepted_before["resultReputation"] + accepted_before["acceptReputation"]
+    ), accepted
+    assert accepted["intermissionReputation"] == (
+        accepted_before["intermissionReputation"] + accepted_before["acceptReputation"]
+    ), accepted
+    assert accepted["eventCount"] == accepted_before["eventCount"] + 1, accepted
+    assert accepted["lastOutcome"] == "ACCEPTED", accepted
+
+    assert rejected["pending"] is False and rejected["requestVisible"] is False, rejected
+    assert rejected["gold"] == rejected_before["gold"], rejected
+    assert rejected["reputation"] == (
+        rejected_before["reputation"] + rejected_before["rejectReputation"]
+    ), rejected
+    assert rejected["cleanliness"] == rejected_before["cleanliness"], rejected
+    assert rejected["declined"] is True and rejected["resolved"] is True, rejected
+    assert rejected["resultReputation"] == (
+        rejected_before["resultReputation"] + rejected_before["rejectReputation"]
+    ), rejected
+    assert rejected["intermissionReputation"] == (
+        rejected_before["intermissionReputation"] + rejected_before["rejectReputation"]
+    ), rejected
+    assert rejected["eventCount"] == rejected_before["eventCount"] + 1, rejected
+    assert rejected["lastOutcome"] == "REJECTED", rejected
+
+    return {
+        "viewport": result["viewport"],
+        "controls_visible": True,
+        "accept": {
+            "charged": accepted_before["gold"] - accepted["gold"],
+            "cleanliness": accepted["cleanliness"],
+            "reputation": accepted_before["acceptReputation"],
+            "event": accepted["lastOutcome"],
+        },
+        "reject": {
+            "charged": rejected_before["gold"] - rejected["gold"],
+            "cleanliness": rejected["cleanliness"],
+            "reputation": rejected_before["rejectReputation"],
+            "event": rejected["lastOutcome"],
+        },
+        "original_state_restored": True,
+    }
+
+
 def run(url: str, port: int, seed: int = DEMO_SEED):
     target = debugger_target(port)
     client = CdpClient(target["webSocketDebuggerUrl"])
@@ -735,12 +908,17 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
     review_settlements: list[dict] = []
     elevator_context: dict | None = None
     checkpoint_reload: dict | None = None
+    stayover_cleaning_request_inputs: dict | None = None
     try:
         client.command("Runtime.enable")
         client.command("Page.enable")
         client.command("Log.enable")
         client.command("Network.enable")
         client.command("Network.setCacheDisabled", {"cacheDisabled": True})
+        client.command(
+            "Emulation.setDeviceMetricsOverride",
+            {"width": 1280, "height": 720, "deviceScaleFactor": 1, "mobile": False},
+        )
         client.command("Page.navigate", {"url": f"{seeded_url(url, seed)}&test_reset=bootstrap"})
         wait_for(client, "document.readyState !== 'loading'")
         client.command("Page.navigate", {"url": seeded_url(url, seed)})
@@ -1031,13 +1209,39 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         stayover_id, stayover_entry = next(iter(after_night3["stayovers"].items()))
         stayover_room = stayover_entry["roomId"]
 
-        # During the intermission the occupied stayover room cannot be serviced.
+        # During the intermission an occupied stayover room can be cleaned
+        # proactively before the guest needs to make a formal request.
         client.click('[data-action="continue-result"]')
         wait_for(client, "window.__vesperaController.state.phase === 'UPGRADE'")
-        blocked_service = client.evaluate(
+        stayover_cleaning_request_inputs = assert_stayover_cleaning_request_input_paths(
+            client,
+            stayover_id,
+            stayover_room,
+        )
+        before_stayover_state = controller_state(client)
+        before_stayover_service = before_stayover_state["roomConditions"][stayover_room]
+        assert before_stayover_service["cleanliness"] < 100
+        stayover_service_cost = client.evaluate(
+            "window.__vesperaController.roomServiceCost()"
+        )
+        proactive_service = client.evaluate(
             f"window.__vesperaController.serviceRoom({json.dumps(stayover_room)})"
         )
-        assert blocked_service is False
+        assert proactive_service is True
+        after_stayover_service = controller_state(client)
+        assert after_stayover_service["roomConditions"][stayover_room] == {
+            "cleanliness": 100,
+        }
+        assert after_stayover_service["gold"] == (
+            before_stayover_state["gold"] - stayover_service_cost
+        )
+        # Keep the rest of this long route comparable with its pre-cleanliness
+        # capacity and upgrade assertions; the probe above already verified the
+        # real charge, so only its test-local gold mutation is rolled back.
+        client.evaluate(
+            f"window.__vesperaController.state.gold = {before_stayover_state['gold']}; true"
+        )
+        rerender(client)
         blocked_renovation = assert_stayover_renovation_guard(
             client,
             stayover_room,
@@ -1056,7 +1260,7 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         capacity_audits.append(assert_capacity_contract(
             client,
             "night4",
-            expected_service_limit=8,
+            expected_service_limit=7,
         ))
         summary = client.evaluate("window.__vesperaController.reservationSummary()")
         assert stayover_id in summary["accepted"], summary
@@ -1112,20 +1316,24 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         wait_for(client, "window.__vesperaController.state.phase === 'UPGRADE'")
         facility_service_check = assert_facility_room_excluded_from_service(client)
         before_service = controller_state(client)["roomConditions"][stayover_room]
-        assert before_service != {"cleanliness": 100, "durability": 100}
+        assert before_service != {"cleanliness": 100}
         released_service = client.evaluate(
             f"window.__vesperaController.serviceRoom({json.dumps(stayover_room)})"
         )
         assert released_service is True
         assert controller_state(client)["roomConditions"][stayover_room] == {
             "cleanliness": 100,
-            "durability": 100,
         }
         released_renovation = assert_stayover_renovation_guard(
             client,
             stayover_room,
             expected_blocked=False,
             upgrade_id=blocked_renovation["upgradeId"],
+        )
+        # Stayover-cleaning requests have their own focused regression. Keep
+        # this legacy timed-service route on its original upgrade-flow scope.
+        client.evaluate(
+            "window.__vesperaController.state.stayoverCleaningRequestChecked = true; true"
         )
         renovation = choose_upgrade(client, prefer_expansion=True)
         upgrades.extend(renovation["chosenIds"])
@@ -1137,7 +1345,7 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
         capacity_audits.append(assert_capacity_contract(
             client,
             "night5",
-            expected_service_limit=8,
+            expected_service_limit=7,
         ))
         assert fifth["specialInviteGuestIds"]
         require_text(client, "SSR 왕실 특별 초청")
@@ -1238,7 +1446,9 @@ def run(url: str, port: int, seed: int = DEMO_SEED):
                 "room_id": stayover_room,
                 "capacity_counted": True,
                 "fixed_and_noncancellable": True,
-                "service_blocked_then_released": True,
+                "proactive_cleaning_during_stay": proactive_service is True,
+                "cleaning_request_input_paths": stayover_cleaning_request_inputs,
+                "service_after_release": released_service is True,
                 "renovation_blocked_then_released": {
                     "upgrade_id": blocked_renovation["upgradeId"],
                     "affected_rooms": blocked_renovation["affectedRoomIds"],

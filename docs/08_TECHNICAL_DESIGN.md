@@ -24,7 +24,7 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 ### 데스크톱 저장 최소 계약
 
 - Electron에서는 활성 런, 프로필 수첩, 실행 기록을 브라우저 캐시가 아닌 명시적 버전 파일로 분리했다. 브라우저 개발 경로는 같은 키·payload의 `localStorage` fallback을 유지한다.
-- 각 파일은 envelope 스키마 1, checksum, revision, 임시 파일 기록·동기화·원자 교체, 직전 정상 backup, 손상 격리와 삭제 tombstone을 사용한다. 이는 게임 payload의 세이브 스키마 6·프로필 스키마 1과 별개다.
+- 각 파일은 envelope 스키마 1, checksum, revision, 임시 파일 기록·동기화·원자 교체, 직전 정상 backup, 손상 격리와 삭제 tombstone을 사용한다. 이는 게임 payload의 세이브 스키마 7·프로필 스키마 1과 별개다.
 - Steam 미실행 또는 개발 실행은 OS별 `userData` 아래 `profiles/local`을 사용한다. 서로 다른 합성 `userData` 루트의 격리는 검증했지만 Steam ID 계정 경계는 아직 구현하지 않았다.
 - Steam Cloud 1차 연결은 파일 경로만 동기화하는 Auto-Cloud를 우선 검토하고, 업적·오버레이·명시적 계정 정보가 필요할 때 Steamworks API 브리지를 추가한다.
 - 기존 호스팅 웹의 `localStorage` 데이터는 Electron이 직접 읽지 못하므로 명시적 export/import 방식의 일회성 이전 대상으로 둔다. 아직 구현하지 않았으며 두 저장소를 동시에 권위로 사용하지 않는다.
@@ -56,8 +56,8 @@ Electron 선택은 엔진 이식이 아니라 기존 웹 코어에 파일·창·
 | `run.js` | 공통 런 지표 요약, 데이터 기반 종료 판정, 버전이 있는 로컬 실행 기록 |
 | `save.js` | 데이터·모드 버전을 검증하는 활성 런과 직전 영업 시작 체크포인트 생성·복구·삭제 |
 | `mode-hub.js` | 데스크톱의 허용 모드 목록, 모드별 활성 저장 요약, queryless 허브·모드 URL 정규화 |
-| `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 객실 상태, 발견, 예지 재시도, 누적 개선, 계약 한도 |
-| `render.js` | 초대장, 수첩, 예약 한도·기존 객실도, 객실 배정, 결산, 영업 준비·공사 계약, 종합 결과 |
+| `state.js` | 5영업 상태, 시드, 수용, 동적 응대·물리 객실 한도, 연박, 청결 단일 객실 상태, 연박 청소 요청, 발견, 예지 재시도, 누적 개선, 계약 한도 |
+| `render.js` | 초대장, 수첩, 예약 한도·기존 객실도, 규칙 출처별 객실 배정, 청결·연박 청소 요청, 결산, 영업 준비·공사 계약, 종합 결과 |
 | `input.js` | 손님 클릭 정보 열람, 드래그 전용 배정·교환·해제, 수용·거절, 정비·계약, 수첩과 주요 전환 |
 
 ### 데스크톱 어댑터 책임
@@ -88,7 +88,7 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
               └────── 아침 장부 재열람 ─────────────┘
 ```
 
-`PREPARATION_CONTRACT`는 플레이어에게 `영업 준비 / 공사 계약`으로 표시한다. 같은 화면에서 빈 객실을 정비하고 `동관 증축`과 `시설·인테리어`를 분리해 제안한다. 각 분류는 영업 사이 최대 1건 계약하며, 계약 여부와 관계없이 명시적인 `다음 영업` 행동으로 진행한다.
+`PREPARATION_CONTRACT`는 플레이어에게 `영업 준비 / 공사 계약`으로 표시한다. 같은 화면에서 더러워진 빈 객실과 연박 객실을 청소하고 `동관 증축`과 `시설·인테리어`를 분리해 제안한다. 각 분류는 영업 사이 최대 1건 계약하며, 계약 여부와 관계없이 명시적인 `다음 영업` 행동으로 진행한다.
 
 ### v2 핵심 상태
 
@@ -111,6 +111,10 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
   stayovers,
   lockedGuestIds,
   roomConditions,
+  pendingStayoverCleaningRequest,
+  stayoverCleaningRequestChecked,
+  declinedStayoverCleaningRoomIds,
+  stayoverCleaningRequestGuestIds,
   ownedUpgradeIds,
   currentUpgradeOfferIds,
   preparationContracts,
@@ -129,7 +133,8 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 
 - `rngState`는 매 선택 뒤 새 값으로 교체하므로 저장·재현 가능하다.
 - 연박은 `{ guestId: { roomId, remainingNights } }`로 첫 객실을 고정한다.
-- 객실 상태는 `{ roomId: { cleanliness, durability } }`로 영업 사이 유지한다.
+- 객실 상태는 `{ roomId: { cleanliness } }` 단일 형상으로 영업 사이 유지하며 내구도 키는 허용하지 않는다.
+- `pendingStayoverCleaningRequest`는 아직 응답하지 않은 단일 요청 또는 `null`, `stayoverCleaningRequestChecked`는 해당 막간의 추첨 완료 여부다. `declinedStayoverCleaningRoomIds`는 거절 뒤 같은 막간 수동 청소를 막고, `stayoverCleaningRequestGuestIds`는 같은 체류 중 손님당 1회 제한을 유지한다.
 - 공개 종족·등급은 첫 신청에서 `seen*Ids`에 기록하고, 종족×등급 숨은 선호는 결산에서만 `discoveredHiddenPreferenceIds`에 기록한다.
 - 숨은 선호는 별도 배열로 평가해 공개 `soft` 목록에 중복 합산하지 않는다.
 - 마지막 결산은 `completeRun()`을 통해서만 종료하며, 종료 조건·표시 문구는 `run_completion` 데이터에서 판정한다.
@@ -137,12 +142,12 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 실행 기록 스키마 6은 전체 상태를 복제하지 않고 모드·시드·엔딩 ID·계층, 종족·관계 인물 선택, 종족 엔딩에서 열린 지배인의 이후 선택지, 인과적으로 연결된 후일담과 핵심 지표만 최근 20개 보존한다. 형식 캠페인은 실제 완료 스테이지·진행 권위·활성 상한·트루 확장 여부·마지막 영업 ID와 수입·유지비·재가동·정비·상환·잔여 부채, day 56 부채 해결 및 운영자금 부족 증거도 기록한다. 같은 기록 ID의 중복 저장은 기존 항목을 대체한다.
 - 캠페인의 세이브·체크포인트·프로필 분리는 `24_SAVE_AND_RUN_STRUCTURE.md`의 계약을 따른다.
 - 현재 v2는 조작 뒤와 페이지 이탈 시 활성 런을 저장한다. 웹 개발 경로는 `localStorage`, Electron은 같은 동기식 Storage 계약에 파일 어댑터를 주입한다. Electron을 다시 열면 queryless 허브에서 모드를 고르고 해당 타이틀의 이어하기로 복구한다. 허브 복귀는 `TITLE`과 `FINAL`에서만 노출하고 저장을 지우지 않으며, 새 런 시작·확인된 엔딩 기록·재시작만 대상 모드의 활성 세이브를 제거한다. 프로필·운영 수첩·실행 기록은 공용 파일을 유지한다.
-- 활성 런 세이브 스키마 6은 모드별 키로 현재 상태와 `stage_checkpoint`를 보존한다. `SHOWCASE`는 예약·배치 시작 상태를, 시나리오 캠페인은 신청 생성 전 `DAY_OPENING` 상태를 캡처한다. 형식 캠페인은 결과 배열·실제 진행 기록·재정 원장·선택 상환을 일대일 교차검증하고, 현재·체크포인트의 접두부와 영업 ID 또는 현금·지출·부채 권위가 어긋난 저장을 거부한다. 별도 프로필 스키마 1은 모드가 공유하는 수첩 지식과 전시품 도감용 ID 집합만 저장한다.
+- 활성 런 세이브 스키마 7은 모드별 키로 현재 상태와 `stage_checkpoint`를 보존한다. 청결도만 있는 객실·마모 형상과 네 연박 청소 요청 상태 필드를 엄격히 검증한다. `SHOWCASE`는 예약·배치 시작 상태를, 시나리오 캠페인은 신청 생성 전 `DAY_OPENING` 상태를 캡처한다. 형식 캠페인은 결과 배열·실제 진행 기록·재정 원장·선택 상환을 일대일 교차검증하고, 현재·체크포인트의 접두부와 영업 ID 또는 현금·지출·부채 권위가 어긋난 저장을 거부한다. 별도 프로필 스키마 1은 모드가 공유하는 수첩 지식과 전시품 도감용 ID 집합만 저장한다.
 - `DAY_OPENING`과 `RESULT_REVIEW`는 시나리오 모드에서만 진입한다. `ENDLESS`는 결과 화면의 `이번 영업 다시`가 `retryCurrentStage()`를 직접 호출하고, `SHOWCASE`는 재검토 행동을 만들지 않는다.
 - `restartDayThroughSecretary()`는 마감 대화에서만 동작하며 골드·평판·난수·객실·연박·사건 상태를 아침 체크포인트로 되돌린다. 해당 경로에서 새로 확인한 숨은 선호 ID와 내부 재검토 횟수만 합쳐서 유지한다.
 - `secretaryPresentationId`는 `MALE` 또는 `FEMALE`만 허용하며 캠페인 상태 전환과 규칙 계산에는 사용하지 않는다.
 - 캠페인은 `NEW_GAME`과 `STORY` 상태를 추가한다. 플레이어·비서·관계 인물 표현 설정은 런에 고정하고, 마녀 관계 역할은 항상 `FEMALE`로 정규화한다.
-- 기존 비형식 스키마 3·4·5 및 과거 단일 키 `SHOWCASE` 저장은 읽을 때 스키마 6의 모드별 저장으로 정규화한다. 형식 캠페인은 스키마 6만 허용하고 이전 저장에서 진행·재정 권위를 추론하지 않는다. 손상 데이터나 프로필 ID가 다른 런은 재개하지 않는다.
+- 기존 비형식 스키마 3·4·5·6 및 과거 단일 키 `SHOWCASE` 저장은 읽을 때 스키마 7의 모드별 저장으로 정규화한다. 마이그레이션은 객실·마모에서 내구도 키를 버리고 청결도만 보존하며, 과거에 없던 연박 청소 요청 상태는 안전한 미추첨 기본값으로 초기화한다. 형식 캠페인은 진행·재정 권위를 추론하지 않기 위해 스키마 6만 스키마 7로 올릴 수 있다. 손상 데이터나 프로필 ID가 다른 런은 재개하지 않는다.
 
 ### 런타임 충실 경제 검산 — PASS · PROVISIONAL
 
@@ -151,7 +156,7 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - `tools/campaign_finance_js_oracle.mjs`는 복제한 JavaScript 계산 결과를 읽는 대신 실제 `src/campaign-finance.js`를 import한다. 공통 fixture 18경로에서 Python과 JavaScript의 전체 결과를 재귀 비교해 12개 수락·6개 거부, 원장 278행과 추적 851건의 일치를 확인했다. 엄격 fixture 로더 2건, Python 상태 검증기 5건, 공개 API 형상 4건의 별도 probe도 PASS했다.
 - 이 정합성의 범위는 선지급된 준비비와 이미 해결된 일일 입력을 소비하는 `RESOLVED_DAILY_FINANCE_TRANSITIONS`, 즉 재정 커널뿐이다. 손님 생성, 배치·점수, 공사 제안·실행 자격, 객실 상태 자격과 전체 `GameController` 롤백은 포함하지 않는다. 기존 Edge 재정 92개 거부 계약, 형식 56/70일 통합, 진행 회귀는 별도 PASS로 유지한다.
 - 정합성 PASS는 수치 밸런스 PASS가 아니다. fixture와 정책은 `PROVISIONAL`, 밸런스 판정은 `NOT_EVALUATED`를 유지한다. 그 위의 `tools/generate_campaign_economy_candidates.py`는 15개 phase trace, 상환 곡선 3개, 재가동비 배분 2개와 시작금·원금·기본 유지비·활성 단위 유지비·총 재가동비 5개 축을 90개 구조·450개 단일 축 관측으로 계산한다. `tools/test_campaign_economy_candidates.py`는 산출물 스키마·원본 감사 SHA-256·정의역 내부 인접 증인·현금 보존식·조기 종단·비선정 가드를 검증한다. 중심값은 10/15 trace였고 64개 셀은 다른 중심값을 고정한 채 축을 0으로 내려도 공통 경계를 만들 수 없었다. 이 개수는 확률·밸런스·공동 실행 가능 영역이 아니다.
-- 생성기가 기록한 3,642회는 memoization cache miss인 고유 시뮬레이션 telemetry다. 독립 검증기가 실행 횟수를 입증하거나 모든 후보를 JavaScript 오라클로 다시 실행했다는 뜻이 아니다. 정확한 수치 번들은 아직 생성·선택할 준비가 되지 않았다. 다음 게이트는 현재 런타임처럼 모든 보유 업그레이드를 공용 유지비 단위 하나로 계속 셀지 결정하는 것이다. 객실 정비·서비스비는 발생 규칙이 생길 때까지 중심 입력 0으로 유지하고 이후 별도 stress overlay로 추가한다. 정식 종족 방향과 특화 시설 표본도 별도 사용자 선택 전까지 경제 fixture의 고정 콘텐츠로 넣지 않는다.
+- 생성기가 기록한 3,642회는 memoization cache miss인 고유 시뮬레이션 telemetry다. 독립 검증기가 실행 횟수를 입증하거나 모든 후보를 JavaScript 오라클로 다시 실행했다는 뜻이 아니다. 정확한 수치 번들은 아직 생성·선택할 준비가 되지 않았다. 모든 보유 업그레이드는 현재 공용 유지비 단위 `1`로 센다. 객실 청소는 런타임에서 기본 `8G` 지출로 연결됐지만 기존 경제 후보 산출물은 새 청결·요청 행동의 발생 빈도를 재평가한 밸런스 결과가 아니므로 이후 별도 stress overlay를 다시 생성해야 한다. 정식 종족 방향과 특화 시설 표본도 별도 사용자 선택 전까지 경제 fixture의 고정 콘텐츠로 넣지 않는다.
 
 ### 시드 제안과 공정성
 
@@ -165,6 +170,15 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - `roomCapacitySummary()`는 완공 객실 수, 기본 5명+증축 객실 수의 `serviceLimit`, 구조·상태 차단을 제외한 `physicalPlacementLimit`, 연박 점유와 남은 빈 객실을 한 번에 계산한다.
 - `reservationSummary()`는 연박·사전 확정·신청 수용 명단을 중복 없이 합치고 응대 한도와 물리 객실 한도를 각각 검사한다. 필수 숙박 조건의 조합 가능성은 예약 단계에서 선판정하지 않는다.
 - 예약 객실도는 배치 화면을 재사용하지 않고 board state와 `stayovers`만 읽는 전용 읽기 뷰다. 미증축·사용 불가·연박 고정·빈 객실 상태를 객실당 하나만 표시한다.
+- `serviceRoom()`은 `UPGRADE` 막간에서 더러워진 빈 객실과 연박 객실을 모두 청결 `100`으로 회복한다. 기본 비용은 `8G`이고 `ROOM_SERVICE_COST_REDUCTION` 전시품 효과를 반영한 실제 비용을 차감하며, 형식 캠페인에서는 그 실제 금액을 해당 영업의 객실 정비 지출에 기록한다.
+- `openStayoverCleaningRequest()`는 실제 더러운 연박 객실 중 같은 체류에서 아직 요청하지 않은 손님만 정렬해 시드 난수로 추첨한다. 현재 확률 `0.35`, `max_per_intermission === 1`이며 `resolveStayoverCleaningRequest()`가 수락 `실제 청소 비용/100/+1` 또는 거절 `-1/상태 유지/같은 막간 재청소 차단`을 원자적으로 적용한다. 기본 청소 비용은 `8G`이고 전시품 감면을 반영한다. 전 수치는 `PROVISIONAL`이다.
+
+#### 예약 압력 소스 감사 — REVISE
+
+- `tools/audit_reservation_pressure.py`는 과거 고정 시드 `20260819` 전수조사 산출물의 큰 `variants` 배열을 스트리밍 집계한다. 수용 한도상 전원 수락이 가능한 7/7 도달 상태에서 전원 수락 유효 해법과 평균 평판·수입 우월성이 유지됐고, 유효 배치 17,872개 중 음의 평판 배치는 16개였다.
+- 이 결과는 현재 코드를 다시 실행한 브라우저 회귀가 아니다. 산출물이 당시 데이터·규칙 소스 해시를 저장하지 않아 현 코드 드리프트는 `POSSIBLE_NOT_VERIFIABLE`이다.
+- 현재 `applySpeciesEffects()`의 자동 종족 시너지는 배치된 동일 종족 `guestIds.length >= entry.count`만 검사하고 충돌 로직 전에는 층·인접·공유 공간이나 등급을 참조하지 않는다. 이 위치 독립 보상은 전원 수락 우월성의 구조적 후보 원인이다.
+- 다음 기술 게이트는 `공간 조건형 종족 시너지`와 `공개·공유 공간 경합`을 별도 데이터·평가기 경계로 설계하는 것이다. 수용 기회비용과 난도 곡선에 대한 사용자 결정을 받기 전 런타임에는 구현하지 않는다.
 
 ### 데이터 불변 조건
 
@@ -172,7 +186,10 @@ CAMPAIGN: DAY_OPENING → RESERVATION / PLACEMENT → RESULT → RESULT_REVIEW
 - 종족은 4개, 손님은 12명 이상, 공사 항목은 8개 이상이다.
 - 종족×등급 숨은 선호는 지원되는 soft 규칙, 고유 ID, 양수 점수만 허용한다.
 - 손님 객체의 개인 `hidden_*` 필드와 모든 숨은 hard/감점 형식을 거부한다.
-- 연박 객실 고정, 마모 기준, 공사 교차참조와 순환 선행조건을 검증한다.
+- 모든 손님은 `cleanliness_impact`만 가지며 `durability_impact`를 거부한다. 모든 객실 상태와 마모 결과도 청결도 키만 허용한다.
+- 성기사 종족 공통 필수 조건에는 소음 속성 금지가 없고, SR/SSR 등급의 `ROOM_NOT_HAS noisy`만 등급 출처로 합성한다. 종족·등급·개인 양수 요구와 필수 금지의 직접 모순은 데이터 로딩 단계에서 거부한다.
+- SSR 등급 공통 불호는 `ROOM_HAS sunny` 대신 `NEAR_FACILITY LOUNGE`를 사용한다. 종족·등급·종족×등급 공통층의 양수 조건과 종족·등급 공통 불호가 같은 `ruleConditionSignature`를 가지면 로딩을 거부하지만, 개인 선호·불호는 의도적인 인물 예외를 허용하기 위해 이 검사에 넣지 않는다.
+- 연박 객실 고정, 청결 단일 마모 기준, 청소 요청의 `max_per_intermission === 1`, 공사 교차참조와 순환 선행조건을 검증한다.
 - 완공된 증축 객실 한 실이 예약 응대 한도를 정확히 1명 높이고, 연박 손님이 응대 인원과 물리 점유에 각각 한 번만 포함되는지 검증한다.
 
 ## v1 보존 기록 — 2영업 기술 설계

@@ -361,7 +361,7 @@ def run(base_url: str, debug_port: int, seed: int):
               effects.state.ownedDisplayRelicIds = ['DISPLAY_RELIC_SILVER_MAINTENANCE_KIT'];
               effects.state.phase = 'UPGRADE';
               effects.state.gold = 20;
-              effects.state.roomConditions['F1-A'] = { cleanliness: 80, durability: 90 };
+              effects.state.roomConditions['F1-A'] = { cleanliness: 80 };
               const serviceCost = effects.roomServiceCost();
               const serviced = effects.serviceRoom('F1-A');
               const serviceGold = effects.state.gold;

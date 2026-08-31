@@ -151,7 +151,7 @@ def run(base_url: str, debug_port: int, seed: int):
           }
           formalData.indexes = createIndexes(formalData);
 
-          assert(RUN_SAVE_SCHEMA_VERSION === 6, 'formal saves must use schema 6');
+          assert(RUN_SAVE_SCHEMA_VERSION === 7, 'formal saves must use schema 7');
           assert(formalData.scenarios.length === 5, 'fixture must retain five templates');
           assert(
             formalData.campaign.formal_progress.scenario_template_count
@@ -426,7 +426,7 @@ def run(base_url: str, debug_port: int, seed: int):
           const preSaveDebt = base.state.campaignFinance.remainingDebt;
           assert(base.saveCheckpoint(), 'RESULT_REVIEW save must succeed');
           const cleanStageSixSave = JSON.parse(storage.getItem(formalKey));
-          assert(cleanStageSixSave.schema_version === 6, 'formal save must use schema 6');
+          assert(cleanStageSixSave.schema_version === 7, 'formal save must use schema 7');
           assert(cleanStageSixSave.state.campaignSelectedRepayment === 1,
             'RESULT_REVIEW save must include selected repayment');
           assert(cleanStageSixSave.state.campaignFinance.ledger.length === 5,
@@ -1005,7 +1005,7 @@ def run(base_url: str, debug_port: int, seed: int):
             'day 56 selection must not clear debt before acceptance');
           assert(trueRun.saveCheckpoint(), 'day 56 RESULT_REVIEW save must succeed');
           const trueBoundarySave = JSON.parse(trueStorage.getItem(formalKey));
-          assert(trueBoundarySave.schema_version === 6
+          assert(trueBoundarySave.schema_version === 7
             && trueBoundarySave.state.campaignSelectedRepayment === 50
             && trueBoundarySave.state.campaignFinance.ledger.length === 55,
           'day 56 boundary save must preserve the pending settlement');
@@ -1106,8 +1106,8 @@ def run(base_url: str, debug_port: int, seed: int):
           });
           assert(same(
             expenseRun.state.roomConditions['F1-A'],
-            { cleanliness: 92, durability: 98 },
-          ), 'stage 1 guest stay must produce real 92/98 room wear');
+            { cleanliness: 92 },
+          ), 'stage 1 guest stay must produce real cleanliness 92 room wear');
           acceptReview(expenseRun, 0);
           assert(expenseRun.state.phase === 'UPGRADE',
             'expense fixture must reach stage 1 upgrade');
@@ -1118,8 +1118,8 @@ def run(base_url: str, debug_port: int, seed: int):
             '8G room service must be purchasable');
           assert(same(
             expenseRun.state.roomConditions['F1-A'],
-            { cleanliness: 100, durability: 100 },
-          ), 'room service must restore actual guest wear');
+            { cleanliness: 100 },
+          ), 'room service must restore actual guest cleanliness wear');
           assert(expenseRun.state.gold === 1
             && expenseRun.state.campaignFinance.cash === 14
             && expenseRun.state.campaignPendingExpenses.reactivation === 5
@@ -1152,7 +1152,6 @@ def run(base_url: str, debug_port: int, seed: int):
           const extraRoomSave = clone(cleanExpenseSave);
           extraRoomSave.state.roomConditions['NOT_A_ROOM'] = {
             cleanliness: 100,
-            durability: 100,
           };
           assert(readActiveRunSave(
             expenseData,
@@ -1303,7 +1302,7 @@ def run(base_url: str, debug_port: int, seed: int):
               upkeep: expenseEntry.upkeep,
               freeUpgradeRejected: true,
               freeServiceRejected: true,
-              realWear: [92, 98],
+              realWear: { cleanliness: 92 },
             },
             corruptions,
             authorityDrifts,
@@ -1432,7 +1431,7 @@ def run(base_url: str, debug_port: int, seed: int):
             "upkeep": 3,
             "freeUpgradeRejected": True,
             "freeServiceRejected": True,
-            "realWear": [92, 98],
+            "realWear": {"cleanliness": 92},
         }, contracts["expense"]
         assert all(contracts["corruptions"].values()), contracts["corruptions"]
         assert all(contracts["authorityDrifts"].values()), contracts["authorityDrifts"]

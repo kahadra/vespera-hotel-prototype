@@ -16,12 +16,13 @@
 | `docs/99_DECISION_LOG.md` | 확정 결정과 변경 이유 | 작성됨 |
 | `PROTOTYPE_CONCEPTS.md` | 아이디어 탐색과 보류 후보 기록 | 보존 |
 | `docs/10_IMPLEMENTATION_REPORT.md` | 세로 단면 구현 범위와 내부 검증 결과 | v2·캠페인·무한 영업 GREYBOX 검증됨 |
-| `docs/11_ROOM_CONDITION_AND_STAYS.md` | 청결도·내구도·연박·정비의 시간축 퍼즐 | 방향 확정·다음 프로토타입 |
+| `docs/11_ROOM_CONDITION_AND_STAYS.md` | 단일 청결도·연박·선제 청소·손님 요청의 시간축 퍼즐 | 청결 단일축 구현·요청 규칙 PROVISIONAL |
 | `docs/12_SUBMISSION_PLAN.md` | 플레이 링크·3분 영상·썸네일·Codex 활용 설명·제출 게이트 | 제출 입력값 준비 완료 |
 | `docs/13_CODEX_USAGE.md` | Codex 활용 네 문항 최종 원고·개발 이력 선택 문구·근거 | 제출 원고 완료 |
 | `docs/29_DEVELOPMENT_CHRONICLE.md` | 사용자 입력부터 판단·변경·검증·커밋까지의 시간순 개발 과정 | ACTIVE · 작업/지시마다 누적 |
 | `docs/30_DESKTOP_RUNTIME_SPIKE.md` | Electron 임시 셸, 세 모드 시작 허브, OS 사용자 파일 저장, 보안·패키징·출시 전 한계 | 기능 스파이크·모드 라우팅·회색 상자 파일 재개·격리 PASS · 네이티브 예외 사건 재개 · 출시 준비 전 |
 | `artifacts/v2-core-playtest/REPORT.md` | v2 유효 배치 전수조사, 내부 만족도·후기·평판·평가 재검증 | 인과 모델 재감사 완료·난도 판단 대기 |
+| `tools/audit_reservation_pressure.py` | 과거 고정 시드 전수조사에서 전원 수락의 해법·평균 우월성·음수 평판 배치와 현재 자동 종족 시너지의 위치 독립성을 요약 | 감사 PASS · 현 코드 재실행 아님 · 예약 압력 REVISE 근거 |
 
 ## B. 세로 단면 전에 필요한 설계 문서
 
@@ -32,7 +33,7 @@
 | 3 | `docs/05_GUEST_DATA_SPEC.md` | 손님 데이터 필드, 종족·등급·개인 특성 합성 | 작성·검산됨 |
 | 4 | `docs/06_FIRST_PUZZLES.md` | 최초 퍼즐 2개의 전체 데이터와 최고점 검산 | 작성·검산됨 |
 | 5 | `docs/07_UI_FLOW_AND_WIREFRAMES.md` | 예약, 배치, 정산, 시설 선택, 결과 화면 | 작성됨 |
-| 6 | `docs/08_TECHNICAL_DESIGN.md` | 엔진, 상태 모델, 규칙 평가기, 저장, RNG | 작성됨 |
+| 6 | `docs/08_TECHNICAL_DESIGN.md` | 엔진, 상태 모델, 규칙 평가기, 저장, RNG | 작성됨 · 활성 런 세이브 schema 7 |
 | 7 | `docs/09_TEST_PLAN.md` | 핵심 가설, 플레이테스트 관찰표, 중단 조건 | 작성됨 |
 
 ## C. 코어 재미 검증 뒤 필요한 시스템 문서
