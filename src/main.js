@@ -6,6 +6,8 @@ import {
   renderModeHub,
 } from "./render.js";
 import {
+  browserHubUrl,
+  browserModeUrl,
   desktopHubUrl,
   desktopModeUrl,
   DESKTOP_MODE_OPTIONS,
@@ -30,15 +32,27 @@ function isDesktopRuntime() {
   return globalThis.vesperaDesktop?.platform === "electron";
 }
 
-function navigateToDesktopMode(modeId) {
-  window.location.assign(desktopModeUrl(window.location.href, modeId));
+function runtimeModeUrl(modeId) {
+  return isDesktopRuntime()
+    ? desktopModeUrl(window.location.href, modeId)
+    : browserModeUrl(window.location.href, modeId);
 }
 
-function navigateToDesktopHub() {
-  window.location.replace(desktopHubUrl(window.location.href));
+function runtimeHubUrl() {
+  return isDesktopRuntime()
+    ? desktopHubUrl(window.location.href)
+    : browserHubUrl(window.location.href);
 }
 
-async function bootDesktopModeHub(storage) {
+function navigateToMode(modeId) {
+  window.location.assign(runtimeModeUrl(modeId));
+}
+
+function navigateToModeHub() {
+  window.location.replace(runtimeHubUrl());
+}
+
+async function bootModeHub(storage) {
   const validatedCheckpoints = new Map(await Promise.all(
     DESKTOP_MODE_OPTIONS.map(async (option) => {
       const data = await loadGameData({ mode: option.id });
@@ -50,11 +64,11 @@ async function bootDesktopModeHub(storage) {
   app.addEventListener("click", (event) => {
     const target = event.target.closest("[data-mode-id]");
     if (!target) return;
-    navigateToDesktopMode(target.dataset.modeId);
+    navigateToMode(target.dataset.modeId);
   });
   window.__vesperaModeHub = Object.freeze({
     modes: Object.freeze(modes.map((mode) => Object.freeze({ ...mode }))),
-    open: navigateToDesktopMode,
+    open: navigateToMode,
   });
 }
 
@@ -64,8 +78,8 @@ async function boot() {
     const requestedMode = params.get("mode");
     const requestedScope = params.get("scope");
     const storage = runtimeStorage();
-    if (isDesktopRuntime() && !isDesktopModeId(requestedMode)) {
-      await bootDesktopModeHub(storage);
+    if (!isDesktopModeId(requestedMode)) {
+      await bootModeHub(storage);
       return;
     }
     const data = await loadGameData({ mode: requestedMode, scope: requestedScope });
@@ -76,7 +90,7 @@ async function boot() {
     });
     const rerender = () => renderApp(app, controller);
     setupInput(app, controller, rerender, {
-      onReturnToModeHub: isDesktopRuntime() ? navigateToDesktopHub : null,
+      onReturnToModeHub: navigateToModeHub,
     });
     window.__vesperaController = controller;
     window.addEventListener("pagehide", () => controller.saveCheckpoint());

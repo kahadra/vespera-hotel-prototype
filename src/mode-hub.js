@@ -153,3 +153,25 @@ export function desktopHubUrl(currentHref) {
   url.hash = "";
   return url.href;
 }
+
+export function browserModeUrl(currentHref, id) {
+  if (!isDesktopModeId(id)) throw new TypeError("id must be a supported browser mode id");
+  const url = parsedDesktopUrl(currentHref);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new TypeError("browser mode URLs require http or https");
+  }
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("mode", id);
+  return url.href;
+}
+
+export function browserHubUrl(currentHref) {
+  const url = parsedDesktopUrl(currentHref);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new TypeError("browser hub URLs require http or https");
+  }
+  url.search = "";
+  url.hash = "";
+  return url.href;
+}
