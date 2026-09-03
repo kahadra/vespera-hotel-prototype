@@ -6,9 +6,11 @@ function upgradeIndex(data) {
     ?? Object.fromEntries(data.upgrades.map((upgrade) => [upgrade.id, upgrade]));
 }
 
-export function renovationRoomIds(upgrade) {
+export function renovationRoomIds(upgrade, facilityPlacements = {}) {
   if (!upgrade) return [];
   return [...new Set([
+    ...(upgrade.room_unlocks ?? []),
+    ...(facilityPlacements?.[upgrade.id]?.roomIds ?? []),
     ...(upgrade.blocked_rooms ?? []),
     ...(upgrade.room_attribute_changes ?? []).map((change) => change.room_id),
     ...(upgrade.room_bonuses ?? []).map((bonus) => bonus.room_id),

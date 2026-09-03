@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 6,
   "prototype_mode": {
     "type": "SHOWCASE",
     "total_nights": 5,
@@ -10,12 +10,49 @@
     "notice": "정식 개장 전 다섯 밤 동안 호텔의 운영을 점검하는 초청 행사입니다.",
     "production_progression_note": "정식판의 등급과 시설은 여러 챕터와 런에 걸쳐 해금됩니다."
   },
+  "run_completion": {
+    "record_namespace": "vespera.preopening.v2",
+    "ending_rules": [
+      {
+        "id": "PREOPENING_COMPLETE",
+        "priority": 100,
+        "outcome": "COMPLETE",
+        "title": "개장 전 초청 영업 완료",
+        "description": "다섯 번의 초청 영업을 모두 마치고 정식 개장을 위한 운영 기록을 남겼습니다.",
+        "conditions": [
+          {"metric": "completed_nights", "operator": "GTE", "value": 5}
+        ]
+      }
+    ],
+    "fallback_ending": {
+      "id": "PREOPENING_INCOMPLETE",
+      "priority": 0,
+      "outcome": "INCOMPLETE",
+      "title": "초청 영업 미완료",
+      "description": "종료 조건을 충족하지 못했습니다."
+    }
+  },
   "balance": {
     "room_service_cost": 8,
     "minimum_cleanliness": 40,
-    "minimum_durability": 35,
+    "cleanliness_satisfaction_bands": [
+      {"minimum": 90, "points": 0, "label": "정돈된 객실"},
+      {"minimum": 75, "points": -1, "label": "청소가 필요한 기색"},
+      {"minimum": 50, "points": -3, "label": "눈에 띄게 정돈되지 않은 객실"},
+      {"minimum": 0, "points": -6, "label": "방치된 객실"}
+    ],
+    "stayover_cleaning_request": {
+      "status": "PROVISIONAL",
+      "chance": 0.35,
+      "accept_reputation": 1,
+      "reject_reputation": -1,
+      "max_per_intermission": 1
+    },
     "booking_capacity_per_expansion_room": 1,
+    "max_species_synergy_points_per_guest": 4,
     "wear_scale": 1,
+    "prestige_satisfaction_per_tier": 1,
+    "evaluation_grade_thresholds": {"good": 50, "excellent": 80},
     "revisit_bonus_thresholds": [
       {"min_satisfaction": 0, "points": 1},
       {"min_satisfaction": 5, "points": 2},
@@ -52,9 +89,9 @@
       "id": "VAMPIRE", "name": "뱀파이어", "icon": "☾", "color": "#9A6075",
       "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "sunny", "label": "햇빛이 들지 않는 객실"}],
       "soft_preferences": [{"type": "ROOM_HAS", "attribute": "quiet", "points": 2, "label": "조용한 객실"}],
-      "synergy_thresholds": [
-        {"count": 2, "points": 2, "label": "밤의 담화"},
-        {"count": 3, "points": 5, "label": "혈족 응대"}
+      "synergies": [
+        {"id": "VAMPIRE_VERTICAL_COURT", "scope": "VERTICAL_ADJACENT", "minimum_participants": 2, "points_per_guest": 2, "label": "밤의 첨탑"},
+        {"id": "VAMPIRE_FLOOR_COURT", "scope": "SAME_FLOOR_GROUP", "minimum_participants": 3, "points_per_guest": 2, "label": "혈족 응대"}
       ],
       "hidden_preferences_by_rank": {
         "N": [],
@@ -67,9 +104,9 @@
       "id": "BEASTKIN", "name": "수인", "icon": "△", "color": "#B1844E",
       "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "noisy", "label": "소음이 없는 객실"}],
       "soft_preferences": [{"type": "ROOM_HAS", "attribute": "sunny", "points": 2, "label": "햇빛 객실"}],
-      "synergy_thresholds": [
-        {"count": 2, "points": 2, "label": "무리의 안도"},
-        {"count": 3, "points": 5, "label": "무리 환대"}
+      "synergies": [
+        {"id": "BEASTKIN_NEIGHBOR_PACK", "scope": "HORIZONTAL_ADJACENT", "minimum_participants": 2, "points_per_guest": 2, "label": "무리의 안도"},
+        {"id": "BEASTKIN_FLOOR_PACK", "scope": "SAME_FLOOR_GROUP", "minimum_participants": 3, "points_per_guest": 2, "label": "무리 환대"}
       ],
       "hidden_preferences_by_rank": {
         "N": [],
@@ -82,9 +119,9 @@
       "id": "WITCH", "name": "마녀", "icon": "✧", "color": "#8B6AC1",
       "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "sunny", "label": "직사광선이 들지 않는 객실"}],
       "soft_preferences": [{"type": "ROOM_HAS", "attribute": "quiet", "points": 2, "label": "주문을 외우기 좋은 조용한 객실"}],
-      "synergy_thresholds": [
-        {"count": 2, "points": 2, "label": "작은 회합"},
-        {"count": 3, "points": 5, "label": "밤의 살롱"}
+      "synergies": [
+        {"id": "WITCH_VERTICAL_CIRCLE", "scope": "VERTICAL_ADJACENT", "minimum_participants": 2, "points_per_guest": 2, "label": "겹친 마법진"},
+        {"id": "WITCH_FLOOR_SALON", "scope": "SAME_FLOOR_GROUP", "minimum_participants": 3, "points_per_guest": 2, "label": "밤의 살롱"}
       ],
       "hidden_preferences_by_rank": {
         "N": [],
@@ -95,11 +132,11 @@
     },
     {
       "id": "PALADIN", "name": "성기사", "icon": "♙", "color": "#C4A45D",
-      "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "quiet", "label": "훈련 소리가 허용되는 객실"}],
+      "hard_constraints": [],
       "soft_preferences": [{"type": "ROOM_HAS", "attribute": "sunny", "points": 2, "label": "햇빛 객실"}],
-      "synergy_thresholds": [
-        {"count": 2, "points": 2, "label": "교대 경계"},
-        {"count": 3, "points": 5, "label": "기사단 주둔"}
+      "synergies": [
+        {"id": "PALADIN_PATROL_PAIR", "scope": "HORIZONTAL_ADJACENT", "minimum_participants": 2, "points_per_guest": 2, "label": "2인 순찰"},
+        {"id": "PALADIN_VERTICAL_WATCH", "scope": "VERTICAL_ADJACENT", "minimum_participants": 2, "points_per_guest": 2, "label": "층간 교대 경계"}
       ],
       "hidden_preferences_by_rank": {
         "N": [],
@@ -117,51 +154,64 @@
     {
       "id": "N", "order": 0, "name": "일반", "symbol": "•", "color": "#8B9099",
       "unlock_stage": 1, "min_reputation": 0,
+      "reputation_influence": 1, "reputation_influence_label": "미미함", "positive_satisfaction_threshold": 2,
       "description": "별도의 등급 필수 조건이 없습니다.",
-      "hard_constraints": [], "soft_preferences": []
+      "hard_constraints": [], "soft_preferences": [], "soft_dislikes": []
     },
     {
       "id": "R", "order": 1, "name": "명사", "symbol": "◆", "color": "#4D91D1",
       "unlock_stage": 2, "min_reputation": 4,
+      "reputation_influence": 2, "reputation_influence_label": "낮음", "positive_satisfaction_threshold": 4,
       "description": "동행과 같은 층에 머물기를 요구하지만 객실을 추가로 비울 필요는 없습니다.",
       "hard_constraints": [{"type": "MUST_SHARE_FLOOR", "label": "같은 층에 다른 손님이 있을 것"}],
-      "soft_preferences": [{"type": "ROOM_HAS", "attribute": "quiet", "points": 2, "label": "차분한 응대 동선"}]
+      "soft_preferences": [{"type": "ROOM_HAS", "attribute": "quiet", "points": 2, "label": "차분한 동선"}],
+      "soft_dislikes": [{"type": "ROOM_HAS", "attribute": "noisy", "points": -2, "ignored_at_prestige_gap": 1, "label": "소란스러운 객실"}]
     },
     {
       "id": "SR", "order": 2, "name": "귀빈", "symbol": "✦", "color": "#9A68D1",
       "unlock_stage": 3, "min_reputation": 8,
+      "reputation_influence": 4, "reputation_influence_label": "높음", "positive_satisfaction_threshold": 7,
       "description": "소음 없는 객실이 필요하며, 양옆이 비면 높은 사생활 만족을 얻습니다.",
       "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "noisy", "label": "소음이 없는 객실"}],
-      "soft_preferences": [{"type": "NO_OCCUPIED_ADJACENT", "points": 6, "label": "양옆 객실이 비어 있을 것"}]
+      "soft_preferences": [{"type": "NO_OCCUPIED_ADJACENT", "points": 6, "label": "양옆 객실이 비어 있을 것"}],
+      "soft_dislikes": [
+        {"type": "FLOOR_IS", "floor": 1, "points": -2, "ignored_at_prestige_gap": 1, "label": "로비와 가까운 1층"},
+        {"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 0, "points": -2, "ignored_at_prestige_gap": 2, "label": "엘리베이터 바로 옆"}
+      ]
     },
     {
       "id": "SSR", "order": 3, "name": "왕실", "symbol": "♛", "color": "#D7AA4E",
       "unlock_stage": 5, "min_reputation": 18,
+      "reputation_influence": 7, "reputation_influence_label": "매우 높음", "positive_satisfaction_threshold": 10,
       "description": "왕실은 소음 없는 객실을 요구하며 독립된 동선과 높은 층에 큰 가치를 둡니다.",
       "hard_constraints": [{"type": "ROOM_NOT_HAS", "attribute": "noisy", "label": "소음이 없는 객실"}],
       "soft_preferences": [
         {"type": "NO_OCCUPIED_ADJACENT", "points": 9, "label": "양옆 객실이 비어 있을 것"},
         {"type": "FLOOR_IS", "floor": 3, "points": 4, "label": "최상층"}
+      ],
+      "soft_dislikes": [
+        {"type": "FLOOR_AT_MOST", "floor": 2, "points": -3, "ignored_at_prestige_gap": 1, "label": "최상층이 아닌 객실"},
+        {"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 1, "points": -2, "ignored_at_prestige_gap": 2, "label": "붐비는 중앙 동선"}
       ]
     }
   ],
   "guests": [
     {
       "id": "G01_LUNE", "name": "Lune", "species": "VAMPIRE", "rank": "N",
-      "base_fee": 6, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "높은 층"}]
     },
     {
       "id": "G02_MORROW", "name": "Morrow", "species": "VAMPIRE", "rank": "N",
-      "base_fee": 6, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 2, "label": "엘리베이터에서 떨어진 방"}]
     },
     {
       "id": "G03_LADY_NOX", "name": "Lady Nox", "species": "VAMPIRE", "rank": "SR",
-      "base_fee": 15, "satisfied_reputation": 4, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 10, "durability_impact": 3,
+      "base_fee": 15, "reject_reputation": -4, "cancel_reputation": -7,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 10,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 4, "label": "엘리베이터에서 떨어진 방"},
@@ -170,24 +220,23 @@
     },
     {
       "id": "G08_QUEEN_UMBRA", "name": "Queen Umbra", "species": "VAMPIRE", "rank": "SSR",
-      "base_fee": 27, "satisfied_reputation": 7, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "base_fee": 27, "reject_reputation": -7, "cancel_reputation": -11,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "showcase_only": true, "special_invitation": true, "hard_constraints": [],
       "soft_preferences": [
-        {"type": "NEAR_FACILITY", "facility_id": "ROYAL_SUITE", "points": 6, "label": "왕실 스위트 동선"},
         {"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 2, "points": 4, "label": "로비에서 떨어진 방"}
       ]
     },
     {
       "id": "G04_ARU", "name": "Aru", "species": "BEASTKIN", "rank": "N",
-      "base_fee": 6, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [], "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 3, "label": "낮은 층"}]
     },
     {
       "id": "G05_FEN", "name": "Fen", "species": "BEASTKIN", "rank": "N",
-      "base_fee": 5, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "base_fee": 5, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [],
       "soft_preferences": [
         {"type": "ADJACENT_GUEST", "guest_id": "G04_ARU", "points": 4, "label": "Aru의 옆방"},
@@ -196,126 +245,126 @@
     },
     {
       "id": "G06_GARR", "name": "Garr", "species": "BEASTKIN", "rank": "SR",
-      "base_fee": 14, "satisfied_reputation": 4, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 18, "durability_impact": 8,
+      "base_fee": 14, "reject_reputation": -4, "cancel_reputation": -7,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 18,
       "hard_constraints": [],
       "soft_preferences": [
-        {"type": "NEAR_FACILITY", "facility_id": "LOUNGE", "points": 5, "label": "라운지 옆"},
         {"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 0, "points": 5, "label": "엘리베이터 바로 옆"},
         {"type": "FLOOR_IS", "floor": 2, "points": 3, "label": "2층"}
       ]
     },
     {
       "id": "G07_MOONCLAW", "name": "Moonclaw", "species": "BEASTKIN", "rank": "R",
-      "base_fee": 10, "satisfied_reputation": 2, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 16, "durability_impact": 7,
+      "base_fee": 10, "reject_reputation": -2, "cancel_reputation": -5,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 16,
       "hard_constraints": [],
       "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 4, "label": "정원과 가까운 1층"}]
     },
     {
       "id": "G09_ELOWEN", "name": "Elowen", "species": "WITCH", "rank": "N",
-      "base_fee": 6, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8, "durability_impact": 2,
+      "base_fee": 6, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 8,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 1, "points": 3, "label": "로비에서 떨어진 방"}]
     },
     {
       "id": "G10_MIRE", "name": "Mire", "species": "WITCH", "rank": "R",
-      "base_fee": 10, "satisfied_reputation": 2, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 9, "durability_impact": 3,
+      "base_fee": 10, "reject_reputation": -2, "cancel_reputation": -5,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 9,
       "hard_constraints": [],
-      "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "MOON_GARDEN", "points": 5, "label": "달빛 정원 옆"}]
+      "soft_preferences": [{"type": "FLOOR_IS", "floor": 2, "points": 3, "label": "약재를 옮기기 좋은 2층"}]
     },
     {
       "id": "G11_CIRCE", "name": "Circe", "species": "WITCH", "rank": "SR",
-      "base_fee": 16, "satisfied_reputation": 4, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12, "durability_impact": 5,
+      "base_fee": 16, "reject_reputation": -4, "cancel_reputation": -7,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 12,
       "hard_constraints": [],
       "soft_preferences": [
-        {"type": "NEAR_FACILITY", "facility_id": "SECRET_PASSAGE", "points": 5, "label": "비밀 통로가 있는 객실"},
         {"type": "FLOOR_IS", "floor": 3, "points": 3, "label": "최상층"}
       ]
     },
     {
       "id": "G12_OPHELIA", "name": "Ophelia", "species": "WITCH", "rank": "SSR",
-      "base_fee": 25, "satisfied_reputation": 7, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 14, "durability_impact": 6,
+      "base_fee": 25, "reject_reputation": -7, "cancel_reputation": -11,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 14,
       "hard_constraints": [],
-      "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "MOON_GARDEN", "points": 7, "label": "달빛 정원 옆"}]
+      "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_LEAST", "distance": 2, "points": 5, "label": "방해받지 않는 복도 끝"}]
     },
     {
       "id": "G13_ROWAN", "name": "Rowan", "species": "PALADIN", "rank": "N",
-      "base_fee": 7, "satisfied_reputation": 1, "reject_reputation": -1, "cancel_reputation": -3,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 10, "durability_impact": 4,
+      "base_fee": 7, "reject_reputation": -1, "cancel_reputation": -3,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 10,
       "hard_constraints": [], "soft_preferences": [{"type": "ELEVATOR_DISTANCE_AT_MOST", "distance": 0, "points": 3, "label": "출동하기 좋은 엘리베이터 옆"}]
     },
     {
       "id": "G14_ASTER", "name": "Aster", "species": "PALADIN", "rank": "R",
-      "base_fee": 11, "satisfied_reputation": 2, "reject_reputation": -2, "cancel_reputation": -5,
-      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 11, "durability_impact": 5,
+      "base_fee": 11, "reject_reputation": -2, "cancel_reputation": -5,
+      "stay_nights": 1, "stayover_locks_initial_room": true, "cleanliness_impact": 11,
       "hard_constraints": [],
       "soft_preferences": [{"type": "FLOOR_IS", "floor": 1, "points": 4, "label": "로비와 가까운 1층"}]
     },
     {
       "id": "G15_AURELIA", "name": "Aurelia", "species": "PALADIN", "rank": "SR",
-      "base_fee": 16, "satisfied_reputation": 4, "reject_reputation": -4, "cancel_reputation": -7,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 13, "durability_impact": 6,
+      "base_fee": 16, "reject_reputation": -4, "cancel_reputation": -7,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 13,
       "hard_constraints": [],
-      "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "GRAND_BALLROOM", "points": 6, "label": "공식 행사장 옆"}]
+      "soft_preferences": [{"type": "FLOOR_AT_LEAST", "floor": 2, "points": 4, "label": "경계에 알맞은 높은 층"}]
     },
     {
       "id": "G16_CAELUM", "name": "King Caelum", "species": "PALADIN", "rank": "SSR",
-      "base_fee": 28, "satisfied_reputation": 7, "reject_reputation": -7, "cancel_reputation": -11,
-      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 15, "durability_impact": 9,
+      "base_fee": 28, "reject_reputation": -7, "cancel_reputation": -11,
+      "stay_nights": 2, "stayover_locks_initial_room": true, "cleanliness_impact": 15,
       "hard_constraints": [],
-      "soft_preferences": [{"type": "NEAR_FACILITY", "facility_id": "GRAND_BALLROOM", "points": 7, "label": "대연회장 옆"}]
+      "soft_preferences": [{"type": "FLOOR_IS", "floor": 3, "points": 5, "label": "전망이 트인 최상층"}]
     }
   ],
   "facilities": [
     {
       "id": "SOUNDPROOFING", "name": "방음 객실", "icon": "▤", "rarity": "N", "stackable": true, "cost": 25,
-      "description": "F2-A의 소음을 없애고 조용한 객실로 바꿉니다.",
-      "room_attribute_changes": [{"room_id": "F2-A", "remove": ["noisy"], "add": ["quiet"]}],
-      "blocked_rooms": [], "adjacency_links": [], "room_bonuses": []
+      "description": "선택한 시끄러운 객실을 방음해 조용한 객실로 바꿉니다.",
+      "installation": {"target_count": 1, "occupies_target": false, "reserves_target": true, "relation": "ANY", "required_attributes": ["noisy"], "legacy_room_ids": ["F2-A"]},
+      "effects": [{"type": "ROOM_ATTRIBUTES", "scope": "TARGETS", "remove": ["noisy"], "add": ["quiet"], "label": "방음 객실"}]
     },
     {
       "id": "BLACKOUT_CURTAINS", "name": "암막 객실", "icon": "◐", "rarity": "N", "stackable": true, "cost": 22,
-      "description": "F1-C의 햇빛을 차단하고 조용한 객실로 바꿉니다.",
-      "room_attribute_changes": [{"room_id": "F1-C", "remove": ["sunny"], "add": ["quiet"]}],
-      "blocked_rooms": [], "adjacency_links": [], "room_bonuses": []
+      "description": "선택한 햇빛 객실에 암막을 설치해 어두운 객실로 바꿉니다.",
+      "installation": {"target_count": 1, "occupies_target": false, "reserves_target": true, "relation": "ANY", "required_attributes": ["sunny"], "legacy_room_ids": ["F1-C"]},
+      "effects": [{"type": "ROOM_ATTRIBUTES", "scope": "TARGETS", "remove": ["sunny"], "add": ["dark"], "label": "암막 객실"}]
     },
     {
       "id": "LOUNGE", "name": "라운지", "icon": "◉", "rarity": "R", "stackable": true, "cost": 30,
-      "description": "F2-B를 라운지로 바꾸고 주변 시설 선호를 제공합니다.",
-      "room_attribute_changes": [], "blocked_rooms": ["F2-B"], "adjacency_links": [], "room_bonuses": []
+      "description": "선택한 객실을 라운지로 바꾸고 같은 층 양옆 객실에 휴식 효과를 제공합니다.",
+      "installation": {"target_count": 1, "occupies_target": true, "reserves_target": true, "relation": "ANY", "required_attributes": [], "legacy_room_ids": ["F2-B"]},
+      "effects": [{"type": "SATISFACTION", "scope": "HORIZONTAL_NEIGHBORS", "points": 2, "label": "라운지 휴식"}]
     },
     {
       "id": "SERVICE_STAIRS", "name": "서비스 계단", "icon": "⇅", "rarity": "R", "stackable": true, "cost": 32,
-      "description": "F1-A와 F2-A를 가까운 동선으로 연결하고 양끝에 만족을 제공합니다.",
-      "room_attribute_changes": [], "blocked_rooms": [], "adjacency_links": [["F1-A", "F2-A"]],
-      "room_bonuses": [{"room_id": "F1-A", "points": 2, "label": "서비스 계단"}, {"room_id": "F2-A", "points": 2, "label": "서비스 계단"}]
+      "description": "위아래로 맞닿은 두 객실을 가까운 동선으로 연결합니다.",
+      "installation": {"target_count": 2, "occupies_target": false, "reserves_target": false, "relation": "VERTICAL_ADJACENT", "required_attributes": [], "legacy_room_ids": ["F1-A", "F2-A"]},
+      "effects": [{"type": "ADJACENCY_LINK", "scope": "TARGET_PAIR", "label": "서비스 계단 연결"}]
     },
     {
       "id": "SECRET_PASSAGE", "name": "비밀 통로", "icon": "⇄", "rarity": "SR", "stackable": true, "cost": 35,
-      "description": "F1-B와 F3-C를 이웃으로 연결하고 양끝 손님에게 +3을 줍니다.",
-      "room_attribute_changes": [], "blocked_rooms": [], "adjacency_links": [["F1-B", "F3-C"]],
-      "room_bonuses": [{"room_id": "F1-B", "points": 3, "label": "비밀 이동로"}, {"room_id": "F3-C", "points": 3, "label": "비밀 이동로"}]
+      "description": "서로 이웃하지 않은 두 객실을 비밀 통로로 연결하고 양끝 객실에 은밀한 이동 효과를 제공합니다.",
+      "installation": {"target_count": 2, "occupies_target": false, "reserves_target": false, "relation": "NON_ADJACENT", "required_attributes": [], "legacy_room_ids": ["F1-B", "F3-C"]},
+      "effects": [{"type": "ADJACENCY_LINK", "scope": "TARGET_PAIR", "label": "비밀 통로 연결"}, {"type": "SATISFACTION", "scope": "PAIR_ENDPOINTS", "points": 2, "label": "비밀 이동로"}]
     },
     {
       "id": "MOON_GARDEN", "name": "달빛 정원", "icon": "✧", "rarity": "SR", "stackable": true, "cost": 38,
-      "description": "F3-B를 정원으로 바꾸고 양옆 객실에 달빛 정원 만족을 제공합니다.",
-      "room_attribute_changes": [], "blocked_rooms": ["F3-B"], "adjacency_links": [],
-      "room_bonuses": [{"room_id": "F3-A", "points": 3, "label": "달빛 정원 조망"}, {"room_id": "F3-C", "points": 3, "label": "달빛 정원 조망"}]
+      "description": "선택한 객실을 달빛 정원으로 바꾸고 같은 층 양옆 객실에 달빛 휴식 효과를 제공합니다.",
+      "installation": {"target_count": 1, "occupies_target": true, "reserves_target": true, "relation": "ANY", "required_attributes": [], "legacy_room_ids": ["F3-B"]},
+      "effects": [{"type": "SATISFACTION", "scope": "HORIZONTAL_NEIGHBORS", "points": 3, "label": "달빛 정원 조망"}]
     },
     {
       "id": "ROYAL_SUITE", "name": "왕실 스위트", "icon": "♛", "rarity": "SSR", "stackable": true, "cost": 50,
-      "description": "F3-C를 왕실 응대 객실로 꾸며 투숙객에게 +6을 제공합니다.",
-      "room_attribute_changes": [], "blocked_rooms": [], "adjacency_links": [], "room_bonuses": [{"room_id": "F3-C", "points": 6, "label": "왕실 스위트"}]
+      "description": "선택한 객실을 왕실 스위트로 꾸며 그 객실의 투숙 만족을 높입니다.",
+      "installation": {"target_count": 1, "occupies_target": false, "reserves_target": true, "relation": "ANY", "required_attributes": [], "legacy_room_ids": ["F3-C"]},
+      "effects": [{"type": "SATISFACTION", "scope": "TARGETS", "points": 4, "label": "왕실 스위트"}]
     },
     {
       "id": "GRAND_BALLROOM", "name": "대연회장", "icon": "◈", "rarity": "SSR", "stackable": true, "cost": 55,
-      "description": "F1-B를 대연회장으로 바꾸고 양옆 객실에 공식 행사 만족을 제공합니다.",
-      "room_attribute_changes": [], "blocked_rooms": ["F1-B"], "adjacency_links": [],
-      "room_bonuses": [{"room_id": "F1-A", "points": 5, "label": "대연회장 동선"}, {"room_id": "F1-C", "points": 5, "label": "대연회장 동선"}]
+      "description": "선택한 객실을 대연회장으로 바꾸고 같은 층 양옆 객실에 행사 동선 효과를 제공합니다.",
+      "installation": {"target_count": 1, "occupies_target": true, "reserves_target": true, "relation": "ANY", "required_attributes": [], "legacy_room_ids": ["F1-B"]},
+      "effects": [{"type": "SATISFACTION", "scope": "HORIZONTAL_NEIGHBORS", "points": 3, "label": "대연회장 동선"}]
     }
   ],
   "upgrades": [

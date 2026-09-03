@@ -20,11 +20,13 @@ function normalizeHotelContext(context = {}) {
 
 export function createBoardState(data, sourceContext = {}) {
   const context = normalizeHotelContext(sourceContext);
-  const ownedFacilityIds = [...new Set(context.ownedFacilityIds ?? [])];
-  const facilityIndex = data.indexes.upgrades ?? data.indexes.facilities ?? {};
-  const facilities = ownedFacilityIds
-    .map((id) => facilityIndex[id])
+  const ownedUpgradeIds = [...new Set(context.ownedFacilityIds ?? [])];
+  const upgradeIndex = data.indexes.upgrades ?? data.indexes.facilities ?? {};
+  const ownedUpgrades = ownedUpgradeIds
+    .map((id) => upgradeIndex[id])
     .filter(Boolean);
+  const facilities = ownedUpgrades.filter((upgrade) => upgrade.kind === "FACILITY" || upgrade.facility_id);
+  const facilityPlacements = context.facilityPlacements ?? {};
   const rooms = Object.fromEntries(
     data.rooms.map((room) => [
       room.id,
@@ -38,21 +40,10 @@ export function createBoardState(data, sourceContext = {}) {
   const blockedReasons = new Map();
   const extraLinks = new Set();
   const roomBonuses = [];
+  const installedFacilities = [];
 
-  for (const facility of facilities) {
-    for (const roomId of facility.room_unlocks ?? []) unlockedRooms.add(roomId);
-    for (const change of facility.room_attribute_changes ?? []) {
-      const room = rooms[change.room_id];
-      if (!room) continue;
-      for (const value of change.remove ?? []) room.attributes.delete(value);
-      for (const value of change.add ?? []) room.attributes.add(value);
-    }
-    for (const [left, right] of facility.adjacency_links ?? []) {
-      extraLinks.add(pairKey(left, right));
-    }
-    for (const bonus of facility.room_bonuses ?? []) {
-      roomBonuses.push({ ...bonus, facility_id: facility.id });
-    }
+  for (const upgrade of ownedUpgrades) {
+    for (const roomId of upgrade.room_unlocks ?? []) unlockedRooms.add(roomId);
   }
 
   for (const room of data.rooms) {
@@ -63,6 +54,85 @@ export function createBoardState(data, sourceContext = {}) {
   }
 
   for (const facility of facilities) {
+    const targetRoomIds = [
+      ...(facilityPlacements[facility.id]?.roomIds
+        ?? facility.installation?.legacy_room_ids
+        ?? []),
+    ];
+    const affectedRoomIds = new Set();
+    const effectLabels = [];
+
+    for (const effect of facility.effects ?? []) {
+      effectLabels.push(effect.label);
+      if (effect.type === "ROOM_ATTRIBUTES") {
+        for (const roomId of targetRoomIds) {
+          const room = rooms[roomId];
+          if (!room) continue;
+          for (const value of effect.remove ?? []) room.attributes.delete(value);
+          for (const value of effect.add ?? []) room.attributes.add(value);
+          affectedRoomIds.add(roomId);
+        }
+      } else if (effect.type === "ADJACENCY_LINK" && targetRoomIds.length === 2) {
+        extraLinks.add(pairKey(targetRoomIds[0], targetRoomIds[1]));
+        targetRoomIds.forEach((roomId) => affectedRoomIds.add(roomId));
+      } else if (effect.type === "SATISFACTION") {
+        let bonusRoomIds = [];
+        if (effect.scope === "TARGETS") {
+          bonusRoomIds = targetRoomIds;
+        } else if (effect.scope === "PAIR_ENDPOINTS") {
+          bonusRoomIds = targetRoomIds.slice(0, 2);
+        } else if (effect.scope === "HORIZONTAL_NEIGHBORS") {
+          bonusRoomIds = targetRoomIds.flatMap((targetRoomId) => {
+            const target = rooms[targetRoomId];
+            if (!target) return [];
+            return Object.values(rooms)
+              .filter((room) => room.floor === target.floor && Math.abs(room.wing - target.wing) === 1)
+              .map((room) => room.id);
+          });
+        }
+        for (const roomId of [...new Set(bonusRoomIds)]) {
+          if (!rooms[roomId] || !unlockedRooms.has(roomId)) continue;
+          roomBonuses.push({
+            facility_id: facility.id,
+            facility_name: facility.name,
+            label: effect.label,
+            points: effect.points,
+            room_id: roomId,
+          });
+          affectedRoomIds.add(roomId);
+        }
+      }
+    }
+
+    if (facility.installation?.occupies_target) {
+      for (const roomId of targetRoomIds) {
+        if (!rooms[roomId]) continue;
+        blockedRooms.add(roomId);
+        blockedReasons.set(roomId, `${facility.name} 설치`);
+      }
+    }
+
+    installedFacilities.push({
+      facility_id: facility.id,
+      name: facility.name,
+      icon: facility.icon,
+      target_room_ids: targetRoomIds,
+      affected_room_ids: [...affectedRoomIds],
+      effect_labels: [...new Set(effectLabels)],
+      occupies_target: Boolean(facility.installation?.occupies_target),
+    });
+
+    // Legacy fixed-position facilities remain readable during old-save migration.
+    for (const change of facility.room_attribute_changes ?? []) {
+      const room = rooms[change.room_id];
+      if (!room) continue;
+      for (const value of change.remove ?? []) room.attributes.delete(value);
+      for (const value of change.add ?? []) room.attributes.add(value);
+    }
+    for (const [left, right] of facility.adjacency_links ?? []) extraLinks.add(pairKey(left, right));
+    for (const bonus of facility.room_bonuses ?? []) {
+      roomBonuses.push({ ...bonus, facility_id: facility.id, facility_name: facility.name });
+    }
     for (const roomId of facility.blocked_rooms ?? []) {
       blockedRooms.add(roomId);
       blockedReasons.set(roomId, `${facility.name} 사용 중`);
@@ -70,7 +140,6 @@ export function createBoardState(data, sourceContext = {}) {
   }
 
   const minimumCleanliness = data.balance?.minimum_cleanliness ?? 40;
-  const minimumDurability = data.balance?.minimum_durability ?? 35;
   const protectedRoomIds = new Set(context.protectedRoomIds ?? []);
   for (const [roomId, condition] of Object.entries(context.roomConditions ?? {})) {
     if (!rooms[roomId]) continue;
@@ -78,9 +147,6 @@ export function createBoardState(data, sourceContext = {}) {
     if ((condition.cleanliness ?? 100) < minimumCleanliness) {
       blockedRooms.add(roomId);
       blockedReasons.set(roomId, "청소 필요");
-    } else if ((condition.durability ?? 100) < minimumDurability) {
-      blockedRooms.add(roomId);
-      blockedReasons.set(roomId, "수리 필요");
     }
   }
 
@@ -90,7 +156,9 @@ export function createBoardState(data, sourceContext = {}) {
     blockedReasons,
     extraLinks,
     facilities,
-    facilityIds: ownedFacilityIds,
+    facilityIds: facilities.map((facility) => facility.id),
+    facilityPlacements,
+    installedFacilities,
     roomBonuses,
     unlockedRooms,
     roomConditions: context.roomConditions ?? {},
@@ -104,6 +172,22 @@ export function areAdjacent(leftId, rightId, board) {
   const right = board.rooms[rightId];
   if (!left || !right) return false;
   return left.floor === right.floor && Math.abs(left.wing - right.wing) === 1;
+}
+
+export function areHorizontalAdjacent(leftId, rightId, board) {
+  if (!leftId || !rightId || leftId === rightId) return false;
+  const left = board.rooms[leftId];
+  const right = board.rooms[rightId];
+  if (!left || !right) return false;
+  return left.floor === right.floor && Math.abs(left.wing - right.wing) === 1;
+}
+
+export function areVerticalAdjacent(leftId, rightId, board) {
+  if (!leftId || !rightId || leftId === rightId) return false;
+  const left = board.rooms[leftId];
+  const right = board.rooms[rightId];
+  if (!left || !right) return false;
+  return left.wing === right.wing && Math.abs(left.floor - right.floor) === 1;
 }
 
 function hardViolation(rule, guestId, placements, data, board) {
@@ -246,9 +330,33 @@ function preferenceMatched(rule, guestId, placements, data, board) {
 }
 
 function addScoreItem(guestScores, guestId, item) {
-  if (!guestScores[guestId]) guestScores[guestId] = { total: 0, items: [] };
+  if (!guestScores[guestId]) guestScores[guestId] = { total: 0, preferenceTotal: 0, items: [] };
   guestScores[guestId].items.push(item);
   guestScores[guestId].total += item.points;
+  if (!["prestige", "dislike", "cleanliness"].includes(item.source)) {
+    guestScores[guestId].preferenceTotal += item.points;
+  }
+}
+
+function cleanlinessSatisfactionBand(data, cleanliness) {
+  const bands = data.balance?.cleanliness_satisfaction_bands ?? [];
+  return [...bands]
+    .filter((entry) => cleanliness >= entry.minimum)
+    .sort((left, right) => right.minimum - left.minimum)[0] ?? null;
+}
+
+export function hotelPrestigeTierFor(data, reputation) {
+  const safeReputation = Math.max(0, Number(reputation) || 0);
+  return [...data.ranks]
+    .sort((left, right) => left.order - right.order)
+    .filter((rank) => rank.min_reputation <= safeReputation)
+    .at(-1)?.order ?? 0;
+}
+
+function expectationReputationFor(hotelContext, guestId) {
+  const snapshot = hotelContext.expectationReputationByGuest?.[guestId];
+  if (Number.isFinite(snapshot)) return snapshot;
+  return Number(hotelContext.hotelReputation) || 0;
 }
 
 export function revisitBonusFor(data, history) {
@@ -274,36 +382,108 @@ function applySpeciesEffects(data, acceptedGuestIds, placements, board, guestSco
     bySpecies.get(speciesId).push(guestId);
   }
 
+  const configuredCap = Number(data.balance?.max_species_synergy_points_per_guest ?? 4);
+  const synergyCap = Number.isFinite(configuredCap) ? Math.max(0, configuredCap) : 4;
+  const awardedSynergyByGuest = new Map();
+
+  const connectedComponents = (guestIds, relation) => {
+    const remaining = new Set(guestIds);
+    const components = [];
+    while (remaining.size) {
+      const seed = remaining.values().next().value;
+      remaining.delete(seed);
+      const component = [seed];
+      const queue = [seed];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const candidate of [...remaining]) {
+          if (!relation(current, candidate)) continue;
+          remaining.delete(candidate);
+          component.push(candidate);
+          queue.push(candidate);
+        }
+      }
+      components.push(component);
+    }
+    return components;
+  };
+
+  const synergyComponents = (synergy, guestIds) => {
+    const relation = synergy.scope === "HORIZONTAL_ADJACENT"
+      ? (leftId, rightId) => areHorizontalAdjacent(
+        placements[leftId],
+        placements[rightId],
+        board,
+      )
+      : synergy.scope === "VERTICAL_ADJACENT"
+        ? (leftId, rightId) => areVerticalAdjacent(
+          placements[leftId],
+          placements[rightId],
+          board,
+        )
+        : synergy.scope === "SAME_FLOOR_GROUP"
+          ? (leftId, rightId) => (
+            board.rooms[placements[leftId]]?.floor
+              === board.rooms[placements[rightId]]?.floor
+          )
+          : null;
+    if (!relation) throw new Error(`알 수 없는 종족 시너지 범위: ${synergy.scope}`);
+    return connectedComponents(guestIds, relation)
+      .filter((component) => component.length >= synergy.minimum_participants);
+  };
+
   for (const [speciesId, guestIds] of bySpecies.entries()) {
     const species = data.indexes.species[speciesId];
-    const active = [...(species.synergy_thresholds ?? [])]
-      .filter((entry) => guestIds.length >= entry.count)
-      .sort((a, b) => b.count - a.count)[0];
-    if (!active) continue;
-    const points = active.points_per_guest ?? active.points ?? 0;
-    for (const guestId of guestIds) {
-      addScoreItem(guestScores, guestId, {
-        label: active.label ?? `${species.name} ${guestIds.length}인 시너지`,
-        points,
-        source: "synergy",
+    for (const synergy of species.synergies ?? []) {
+      const participants = [...new Set(
+        synergyComponents(synergy, guestIds).flat(),
+      )];
+      if (!participants.length) continue;
+
+      const awardedGuestIds = [];
+      let effectPoints = 0;
+      for (const guestId of participants) {
+        const alreadyAwarded = awardedSynergyByGuest.get(guestId) ?? 0;
+        const remaining = Math.max(0, synergyCap - alreadyAwarded);
+        const points = Math.min(synergy.points_per_guest, remaining);
+        if (!(points > 0)) continue;
+        awardedSynergyByGuest.set(guestId, alreadyAwarded + points);
+        awardedGuestIds.push(guestId);
+        effectPoints += points;
+        addScoreItem(guestScores, guestId, {
+          label: synergy.label ?? `${species.name} 공간 시너지`,
+          points,
+          source: "synergy",
+          effectId: synergy.id,
+          scope: synergy.scope,
+        });
+      }
+      if (!awardedGuestIds.length) continue;
+
+      groupEffects.push({
+        type: "synergy",
+        effectId: synergy.id,
+        scope: synergy.scope,
+        speciesIds: [speciesId],
+        guestIds: awardedGuestIds,
+        roomIds: [...new Set(awardedGuestIds.map((guestId) => placements[guestId]))],
+        points: effectPoints,
+        label: synergy.label ?? `${species.name} 공간 시너지`,
       });
     }
-    groupEffects.push({
-      type: "synergy",
-      speciesIds: [speciesId],
-      guestIds: [...guestIds],
-      points: points * guestIds.length,
-      label: active.label ?? `${species.name} 시너지`,
-    });
   }
 
   const explicitConflicts = (data.species_conflicts ?? []).map((conflict) => ({
+    effectId: conflict.id ?? null,
+    scope: conflict.scope ?? "SAME_FLOOR",
     leftId: conflict.species[0],
     rightId: conflict.species[1],
     points: conflict.points,
     label: conflict.label,
   }));
   const embeddedConflicts = data.species.flatMap((species) => (species.rivals ?? []).map((rival) => ({
+    effectId: rival.id ?? null,
+    scope: "SAME_FLOOR",
     leftId: species.id,
     rightId: rival.species_id,
     points: rival.same_floor_penalty,
@@ -332,13 +512,23 @@ function applySpeciesEffects(data, acceptedGuestIds, placements, board, guestSco
       const leftName = data.indexes.species[conflict.leftId]?.name ?? conflict.leftId;
       const rightName = data.indexes.species[conflict.rightId]?.name ?? conflict.rightId;
       const label = conflict.label ?? `${leftName}·${rightName} 같은 층 충돌`;
+      const effectId = conflict.effectId ?? `CONFLICT:${key}`;
       for (const guestId of affected) {
-        addScoreItem(guestScores, guestId, { label, points, source: "conflict" });
+        addScoreItem(guestScores, guestId, {
+          label,
+          points,
+          source: "conflict",
+          effectId,
+          scope: conflict.scope,
+        });
       }
       groupEffects.push({
         type: "conflict",
+        effectId,
+        scope: conflict.scope,
         speciesIds: [conflict.leftId, conflict.rightId],
         guestIds: [...affected],
+        roomIds: [...new Set([...affected].map((guestId) => placements[guestId]))],
         points: points * affected.size,
         label,
       });
@@ -354,7 +544,21 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
   for (const guestId of acceptedGuestIds) {
     const guest = data.indexes.guests[guestId];
     if (!guest) continue;
-    guestScores[guestId] = { total: 0, items: [] };
+    const rank = data.indexes.ranks[guest.rank];
+    const expectationReputation = expectationReputationFor(hotelContext, guestId);
+    const hotelPrestigeTier = hotelPrestigeTierFor(data, expectationReputation);
+    const prestigeGap = hotelPrestigeTier - rank.order;
+    guestScores[guestId] = {
+      total: 0,
+      preferenceTotal: 0,
+      items: [],
+      expectationReputation,
+      hotelPrestigeTier,
+      guestRankOrder: rank.order,
+      prestigeGap,
+      activeDislikes: [],
+      ignoredDislikes: [],
+    };
     if (!placements[guestId]) {
       violations.push({
         guestId,
@@ -389,6 +593,42 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
           source: "preference",
         });
       }
+    }
+    for (const rule of rules.dislikes ?? []) {
+      if (prestigeGap >= rule.ignored_at_prestige_gap) {
+        guestScores[guestId].ignoredDislikes.push({
+          label: rule.label,
+          ignoredAtPrestigeGap: rule.ignored_at_prestige_gap,
+        });
+      } else if (preferenceMatched(rule, guestId, placements, data, board)) {
+        const item = {
+          label: rule.label,
+          points: rule.points,
+          source: "dislike",
+          ignoredAtPrestigeGap: rule.ignored_at_prestige_gap,
+        };
+        guestScores[guestId].activeDislikes.push(item);
+        addScoreItem(guestScores, guestId, item);
+      }
+    }
+    const roomCondition = board.roomConditions[placements[guestId]] ?? { cleanliness: 100 };
+    const cleanlinessBand = cleanlinessSatisfactionBand(
+      data,
+      Number(roomCondition.cleanliness ?? 100),
+    );
+    if (cleanlinessBand?.points) {
+      addScoreItem(guestScores, guestId, {
+        label: cleanlinessBand.label,
+        points: cleanlinessBand.points,
+        source: "cleanliness",
+      });
+    }
+    if (prestigeGap > 0) {
+      addScoreItem(guestScores, guestId, {
+        label: "기대보다 높은 호텔의 격",
+        points: prestigeGap * (data.balance?.prestige_satisfaction_per_tier ?? 1),
+        source: "prestige",
+      });
     }
     for (let index = 0; index < (rules.hiddenPreferences ?? []).length; index += 1) {
       const rule = rules.hiddenPreferences[index];
@@ -435,6 +675,8 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
 
   const groupEffects = applySpeciesEffects(data, acceptedGuestIds, placements, board, guestScores);
   const placementScore = Object.values(guestScores)
+    .reduce((sum, score) => sum + score.preferenceTotal, 0);
+  const satisfactionTotal = Object.values(guestScores)
     .reduce((sum, score) => sum + score.total, 0);
   const hiddenMatches = Object.entries(guestScores).flatMap(([guestId, score]) =>
     score.items.filter((item) => item.source === "hidden").map((item) => ({ guestId, ...item })),
@@ -447,6 +689,7 @@ export function evaluatePlacement(data, acceptedGuestIds, placements, hotelConte
     groupEffects,
     hiddenMatches,
     placementScore,
+    satisfactionTotal,
     board,
   };
 }

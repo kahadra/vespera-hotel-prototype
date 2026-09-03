@@ -1,6 +1,202 @@
+import { validateEndlessData } from "./endless.js";
+import {
+  validateCampaignCalendar,
+  validateCampaignCalendarPrefix,
+} from "./campaign-calendar.js";
+import {
+  validateCampaignChapterPrefix,
+  validateCampaignChapterSchedule,
+} from "./campaign-chapters.js";
+import {
+  createDevelopmentCampaignOperationPlan,
+  projectCampaignOperationPlanBase,
+  validateCampaignOperationPlan,
+  validateCampaignOperationPlanBaseProjection,
+  validateCampaignOperationPlanProgressAlignment,
+} from "./campaign-operation-plan.js";
+import {
+  FORMAL_CAMPAIGN_PROGRESS_CONFIG,
+} from "./campaign-progress.js";
+import {
+  CAMPAIGN_FINANCE_BALANCE_VERDICT,
+  CAMPAIGN_FINANCE_CONTRACT_STATUS,
+  validateCampaignFinanceConfig,
+} from "./campaign-finance.js";
+
 const DATA_URL = "./data/prototype_v1.json";
 
-export async function loadGameData() {
+function commonDisplayRelics() {
+  return [
+    {
+      id: "DISPLAY_RELIC_DAWN_BELL",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "새벽의 종",
+      icon: "♢",
+      description: "하루의 첫 객실 재배치에 드는 시간을 2초 줄입니다.",
+      trigger_description: "영업 중 처음으로 배정을 바꿀 때 발동",
+      effect_id: "FIRST_RELOCATION_TIME_REDUCTION",
+      effect_params: { value: 2000 },
+      stack_group: "RELOCATION_TIME",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_SILVER_MAINTENANCE_KIT",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "은빛 정비함",
+      icon: "▣",
+      description: "막간의 객실 정비 비용을 3G 줄입니다.",
+      trigger_description: "더러워진 객실을 실제로 청소할 때 발동",
+      effect_id: "ROOM_SERVICE_COST_REDUCTION",
+      effect_params: { value: 3 },
+      stack_group: "ROOM_SERVICE_COST",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+    {
+      id: "DISPLAY_RELIC_UNBLEMISHED_LEDGER",
+      type: "DISPLAY_RELIC",
+      pool_type: "COMMON",
+      name: "무흠 장부",
+      icon: "▤",
+      description: "수용한 손님을 한 명도 취소하지 않고 영업을 마치면 3G를 더 받습니다.",
+      trigger_description: "손님을 수용한 유효 영업에서 취소가 없을 때 발동",
+      effect_id: "NO_CANCELLATION_GOLD_BONUS",
+      effect_params: { value: 3 },
+      stack_group: "RESULT_GOLD",
+      offer_weight: 1,
+      status: "PROVISIONAL",
+    },
+  ];
+}
+
+function formalCampaignCalendar(includeTrueExtension = false) {
+  const seasons = [
+    { id: "SPRING", label: "봄", weight: 1, effects: {} },
+    { id: "SUMMER", label: "여름", weight: 1, effects: {} },
+    { id: "AUTUMN", label: "가을", weight: 1, effects: {} },
+    { id: "WINTER", label: "겨울", weight: 1, effects: {} },
+  ];
+  if (includeTrueExtension) {
+    seasons.push({
+      id: "TRUE_EXTENSION_SEASON",
+      label: "추가 계절",
+      weight: 1,
+      effects: {},
+    });
+  }
+  return {
+    calendar_id: includeTrueExtension ? "CAMPAIGN_TRUE_EXTENSION" : "CAMPAIGN_BASE_YEAR",
+    calendar_version: 1,
+    total_stages: includeTrueExtension ? 70 : 56,
+    week_length: 7,
+    weekend_days: [6, 7],
+    weekend_effects: {
+      applicant_bonus: 1,
+      rank_multipliers: {},
+      species_multipliers: {},
+    },
+    seasons,
+    holidays: [],
+    events: [],
+  };
+}
+
+function formalCampaignChapterSchedule(includeTrueExtension = false) {
+  const chapters = [
+    {
+      id: "CHAPTER_1_FOUNDATION_WEEK",
+      number: 1,
+      label: "인수 첫 주",
+      start_stage: 1,
+      end_stage: 7,
+      season_id: "SPRING",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_1",
+      },
+    },
+    {
+      id: "CHAPTER_2_SPRING_SETTLEMENT",
+      number: 2,
+      label: "봄의 결산",
+      start_stage: 8,
+      end_stage: 14,
+      season_id: "SPRING",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_2",
+      },
+    },
+    {
+      id: "CHAPTER_3_SUMMER_ACCORD",
+      number: 3,
+      label: "여름의 협약",
+      start_stage: 15,
+      end_stage: 28,
+      season_id: "SUMMER",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_3",
+      },
+    },
+    {
+      id: "CHAPTER_4_AUTUMN_RECKONING",
+      number: 4,
+      label: "가을의 심사",
+      start_stage: 29,
+      end_stage: 42,
+      season_id: "AUTUMN",
+      hidden: false,
+      debt_settlement: {
+        kind: "CUMULATIVE_MINIMUM",
+        target_id: "DEBT_TARGET_CHAPTER_4",
+      },
+    },
+    {
+      id: "CHAPTER_5_WINTER_CLEARANCE",
+      number: 5,
+      label: "겨울의 상속 결산",
+      start_stage: 43,
+      end_stage: 56,
+      season_id: "WINTER",
+      hidden: false,
+      debt_settlement: {
+        kind: "FINAL_CLEARANCE",
+        target_id: "DEBT_TARGET_FINAL_CLEARANCE",
+      },
+    },
+  ];
+  if (includeTrueExtension) {
+    chapters.push({
+      id: "CHAPTER_6_TRUE_EXTENSION",
+      number: 6,
+      label: "추가 계절",
+      start_stage: 57,
+      end_stage: 70,
+      season_id: "TRUE_EXTENSION_SEASON",
+      hidden: true,
+      entry_gate_id: "BASE_DEBT_CLEARED_AT_STAGE_56",
+      debt_settlement: {
+        kind: "NONE",
+      },
+    });
+  }
+  return {
+    id: includeTrueExtension ? "CAMPAIGN_TRUE_CHAPTERS" : "CAMPAIGN_BASE_CHAPTERS",
+    calendar_id: includeTrueExtension ? "CAMPAIGN_TRUE_EXTENSION" : "CAMPAIGN_BASE_YEAR",
+    version: 1,
+    total_stages: includeTrueExtension ? 70 : 56,
+    chapters,
+  };
+}
+
+export async function loadGameData(options = {}) {
   const response = await fetch(DATA_URL, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`데이터를 불러오지 못했습니다: ${DATA_URL} (${response.status})`);
@@ -8,6 +204,707 @@ export async function loadGameData() {
   const data = await response.json();
   const indexes = createIndexes(data);
   validateData(data, indexes);
+  const loaded = { ...data, indexes };
+  const mode = String(options.mode ?? "").toUpperCase();
+  const scope = String(options.scope ?? "").toLowerCase();
+  if (mode === "CAMPAIGN" && scope === "formal-dev") {
+    return createFormalCampaignDevelopmentData(loaded);
+  }
+  if (mode === "CAMPAIGN") return createCampaignGreyboxData(loaded);
+  if (mode === "ENDLESS") return createEndlessGreyboxData(loaded);
+  return loaded;
+}
+
+export function createCampaignGreyboxData(source) {
+  const { indexes: _sourceIndexes, ...serializable } = source;
+  const data = JSON.parse(JSON.stringify(serializable));
+  const formalSpecies = [
+    {
+      id: "HUMAN",
+      metric_id: "human",
+      label: "인족",
+      relationship_role_id: "RELATIONSHIP_HUMAN",
+      ending_title: "인간의 등불을 지키는 베스페라",
+      ending_description: "인간 사회와 이종족 사이의 안전한 관문으로 베스페라를 남겼습니다.",
+      manager_outcome: {
+        id: "REMAIN_HUMAN_STEWARD",
+        title: "인간 지배인으로 남는다",
+        description: "태어난 종족을 바꾸지 않고 두 세계를 잇는 인간 지배인으로 살아갈 수 있습니다.",
+      },
+    },
+    {
+      id: "VAMPIRE",
+      metric_id: "vampire",
+      label: "뱀파이어",
+      relationship_role_id: "RELATIONSHIP_VAMPIRE",
+      ending_title: "피와 밤의 베스페라",
+      ending_description: "뱀파이어와의 가장 강한 협약 아래 밤의 손님을 위한 베스페라를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_VAMPIRE_TRANSFORMATION",
+        title: "밤의 혈족이 될 선택",
+        description: "인간으로 남거나, 합의된 전환을 받아 뱀파이어의 긴 밤을 함께 살아갈 수 있습니다.",
+      },
+    },
+    {
+      id: "WEREWOLF",
+      metric_id: "werewolf",
+      label: "늑대인간",
+      relationship_role_id: "RELATIONSHIP_WEREWOLF",
+      ending_title: "달과 무리의 베스페라",
+      ending_description: "늑대인간 무리와의 가장 강한 협약 아래 달밤의 안식처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_WEREWOLF_TRANSFORMATION",
+        title: "무리의 일원이 될 선택",
+        description: "인간으로 남거나, 합의된 물림과 의식을 거쳐 늑대인간 무리의 일원이 될 수 있습니다.",
+      },
+    },
+    {
+      id: "WITCH",
+      metric_id: "witch",
+      label: "마녀",
+      relationship_role_id: "RELATIONSHIP_WITCH",
+      ending_title: "약초와 마법의 베스페라",
+      ending_description: "마녀회와의 가장 강한 협약 아래 약학과 마법이 보호받는 피난처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_WITCH_AWAKENING",
+        title: "인간으로 남거나 마녀로 각성할 선택",
+        description: "인간인 채 약초학과 마법을 전수받거나 마녀로 각성할 수 있습니다. 여성 지배인은 그대로 마녀가 되고, 남성 지배인은 각성 의식에서 여성의 몸으로 다시 빚어집니다.",
+      },
+    },
+    {
+      id: "DREAM_DEMON",
+      metric_id: "dream_demon",
+      label: "몽마",
+      relationship_role_id: "RELATIONSHIP_DREAM_DEMON",
+      minimum_guest_rank_id: "SR",
+      other_species_occupancy_preferences: {
+        SR: 2,
+        SSR: 3,
+        UR: 4,
+        provisional: true,
+      },
+      requires_cross_species_network: true,
+      ending_title: "꿈이 순환하는 베스페라",
+      ending_description: "몽마와 타종족이 합의한 꿈·정기 교류망을 바탕으로 공존하는 밤의 안식처를 완성했습니다.",
+      manager_outcome: {
+        id: "OPTIONAL_DREAM_DEMON_REINCARNATION",
+        title: "꿈을 건너 다시 태어날 선택",
+        description: "인간의 삶을 유지하거나, 특별한 의식과 동의를 거쳐 먼 훗날 몽마로 전생할 수 있습니다.",
+      },
+    },
+  ];
+  const relationshipRoles = formalSpecies.map((species) => ({
+    id: species.relationship_role_id,
+    species_id: species.id,
+    label: `${species.label} 관계 인물`,
+    starting_role: "GUEST",
+  }));
+  const progress = (npcStage, endingReady = false, options = {}) => ({
+    epilogue_unlocked: true,
+    npc_stage: npcStage,
+    event_count: options.event_count ?? 1,
+    ending_ready: endingReady,
+    hotel_dependency: options.hotel_dependency ?? "INDEPENDENT",
+  });
+  const allRoleProgress = Object.fromEntries(relationshipRoles.map((role) => [
+    role.id,
+    progress("COLLABORATOR", true, { event_count: 5 }),
+  ]));
+  data.display_relics = commonDisplayRelics();
+  data.prototype_mode = {
+    ...data.prototype_mode,
+    type: "CAMPAIGN",
+    total_nights: data.scenarios.length,
+    accelerated: false,
+    notice: "정식 캠페인의 저장·장면·성공·실패 연결을 검증하는 회색 상자 개발 모드입니다.",
+  };
+  data.campaign = {
+    id: "CAMPAIGN_GREYBOX_01",
+    status: "GREYBOX",
+    objective: {
+      title: "상속 유지 조건",
+      description: "다섯 번의 영업이 끝날 때 80G 이상과 호텔 평판 0 이상을 유지합니다.",
+      target_gold: 80,
+      minimum_reputation: 0,
+      provisional: true,
+    },
+    new_game_defaults: {
+      player_gender_id: "MALE",
+      relationship_gender_preset: "ALL_FEMALE",
+      secretary_presentation_id: "FEMALE",
+      greybox_ending_route_id: "NORMAL",
+    },
+    formal_species: formalSpecies,
+    formal_rank_ids: ["N", "R", "SR", "SSR", "UR"],
+    relationship_roles: relationshipRoles,
+    relationship_role_ids: relationshipRoles.map((role) => role.id),
+    ending_thresholds: {
+      species_affinity: 5,
+      truth_evidence: 3,
+      dream_demon_other_species_affinity: 3,
+      dream_demon_other_species_count: 2,
+      provisional: true,
+    },
+    calendar: {
+      status: "PROVISIONAL",
+      base_year: formalCampaignCalendar(false),
+      true_extension: formalCampaignCalendar(true),
+      notes: [
+        "1스테이지는 하루이자 영업 1회입니다.",
+        "주말 신청 손님 +1은 경제·수요 시뮬레이션 전의 개발 기준값입니다.",
+        "공휴일·특별 행사일 데이터는 일정 생성기 연결 뒤 추가합니다.",
+      ],
+    },
+    chapters: {
+      status: "PROVISIONAL",
+      manual_extra_payment_phase: "RESULT_REVIEW",
+      base_year: formalCampaignChapterSchedule(false),
+      true_extension: formalCampaignChapterSchedule(true),
+      notes: [
+        "본편 5개 챕터를 유지하기 위해 봄 14일을 7일씩 두 챕터로 나눕니다.",
+        "챕터 종료의 누적 최소 상환액과 시작 운전자금은 경제 시뮬레이션 뒤 확정합니다.",
+        "추가 상환은 매일 정산 회고에서 허용하고 트루 추가 계절은 상환 유예로 사용하지 않습니다.",
+      ],
+    },
+    operation_plan: createDevelopmentCampaignOperationPlan(
+      data.scenarios.map((scenario) => scenario.id),
+    ),
+    ending_preview_routes: [
+      {
+        id: "BAD",
+        label: "배드",
+        description: "챕터 핵심 허들을 넘지 못한 상태를 검증합니다.",
+        chapter_hurdle_failures: 1,
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("REGULAR_GUEST"),
+          RELATIONSHIP_VAMPIRE: progress("LIAISON", false, { event_count: 2 }),
+        },
+      },
+      {
+        id: "NORMAL",
+        label: "노말",
+        description: "호텔은 지키지만 특정 종족·진상 분기를 열지 않습니다.",
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("REGULAR_GUEST"),
+          RELATIONSHIP_VAMPIRE: progress("REGULAR_GUEST"),
+        },
+      },
+      {
+        id: "SPECIES_VAMPIRE",
+        label: "종족",
+        description: "뱀파이어 우호도와 전용 호텔 협약을 검증합니다.",
+        species_affinity_by_id: { VAMPIRE: 6 },
+        species_ending_trigger_ids: ["VAMPIRE"],
+        species_ending_commitment_id: "VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_VAMPIRE: progress("LIAISON", false, { event_count: 3 }),
+        },
+      },
+      {
+        id: "SPECIES_HEROINE_VAMPIRE",
+        label: "종족 히로인",
+        description: "뱀파이어 종족 엔딩과 관계 인물의 모든 필수 사건 완료를 검증합니다.",
+        species_affinity_by_id: { VAMPIRE: 6 },
+        species_ending_trigger_ids: ["VAMPIRE"],
+        species_ending_commitment_id: "VAMPIRE",
+        selected_ending_relationship_role_id: "RELATIONSHIP_VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_VAMPIRE: progress("COLLABORATOR", true, { event_count: 5 }),
+        },
+      },
+      {
+        id: "TRUE_VAMPIRE",
+        label: "트루",
+        description: "악신의 단서와 전 종족 평화 조건, 선택 가능한 관계 인물을 검증합니다.",
+        truth_evidence_count: 3,
+        peace_alliance_complete: true,
+        selected_ending_relationship_role_id: "RELATIONSHIP_VAMPIRE",
+        relationship_progress_by_role: {
+          RELATIONSHIP_HUMAN: progress("COLLABORATOR", true, { event_count: 5 }),
+          RELATIONSHIP_VAMPIRE: progress("COLLABORATOR", true, { event_count: 5 }),
+          RELATIONSHIP_WEREWOLF: progress("LIAISON", false, { event_count: 3 }),
+          RELATIONSHIP_WITCH: progress("LIAISON", false, { event_count: 3 }),
+          RELATIONSHIP_DREAM_DEMON: progress("LIAISON", false, { event_count: 3 }),
+        },
+      },
+      {
+        id: "TRUE_HAREM",
+        label: "트루 하렘",
+        description: "트루 분기의 추가 기회로 모든 관계 인물 엔딩 조건을 채운 상태를 검증합니다.",
+        truth_evidence_count: 3,
+        peace_alliance_complete: true,
+        relationship_progress_by_role: allRoleProgress,
+      },
+    ],
+    story_nodes: [
+      {
+        id: "CAMPAIGN_PROLOGUE",
+        eyebrow: "PROLOGUE · THE INHERITED HOTEL",
+        title: "베스페라의 새 인간 지배인",
+        paragraphs: [
+          "선대의 유언은 호텔을 넘기는 대신 다섯 번의 시험 영업 기록을 요구했습니다.",
+          "인간 지배인의 지시를 보좌하는 비서 오토마타가 첫 장부를 펼칩니다. 지금은 호텔을 지킬 수 있는지 증명해야 합니다.",
+        ],
+        continuation: { action: "BEGIN_DAY", night_index: 0 },
+      },
+      {
+        id: "CAMPAIGN_CHAPTER_ONE_REVIEW",
+        eyebrow: "CHAPTER 1 · OPERATIONS REVIEW",
+        title: "첫 장부의 검토",
+        paragraphs: [
+          "두 번의 영업 기록이 선대의 봉인 장부에 추가되었습니다.",
+          "호텔은 아직 불안정하지만 서로 다른 종족이 같은 규정 아래 머물 수 있다는 첫 증거가 남았습니다.",
+        ],
+        continuation: { action: "OPEN_UPGRADE" },
+      },
+      {
+        id: "CAMPAIGN_CHAPTER_TWO_REVIEW",
+        eyebrow: "CHAPTER 2 · TERMS OF SUCCESSION",
+        title: "상속 조건의 마지막 조항",
+        paragraphs: [
+          "남은 영업은 한 번입니다. 장부의 자금과 평판이 상속 유지 조건을 결정합니다.",
+          "마지막 투숙을 받기 전에 어떤 공사에 투자할지 선택해야 합니다.",
+        ],
+        continuation: { action: "OPEN_UPGRADE" },
+      },
+    ],
+    story_after_nights: {
+      "2": "CAMPAIGN_CHAPTER_ONE_REVIEW",
+      "4": "CAMPAIGN_CHAPTER_TWO_REVIEW",
+    },
+    display_relic_offer_schedule: [
+      {
+        id: "CAMPAIGN_START_COMMON_RELIC",
+        after_story_id: "CAMPAIGN_PROLOGUE",
+        pool_ids: ["COMMON"],
+        offer_size: 3,
+      },
+    ],
+  };
+  const calendarValidationOptions = {
+    rankIds: data.campaign.formal_rank_ids,
+    speciesIds: formalSpecies.map((species) => species.id),
+  };
+  validateCampaignCalendar(data.campaign.calendar.base_year, calendarValidationOptions);
+  validateCampaignCalendar(data.campaign.calendar.true_extension, calendarValidationOptions);
+  validateCampaignCalendarPrefix(
+    data.campaign.calendar.base_year,
+    data.campaign.calendar.true_extension,
+    calendarValidationOptions,
+  );
+  const chapterValidationOptions = { calendarValidationOptions };
+  validateCampaignChapterSchedule(
+    data.campaign.chapters.base_year,
+    data.campaign.calendar.base_year,
+    chapterValidationOptions,
+  );
+  validateCampaignChapterSchedule(
+    data.campaign.chapters.true_extension,
+    data.campaign.calendar.true_extension,
+    chapterValidationOptions,
+  );
+  validateCampaignChapterPrefix(
+    data.campaign.chapters.base_year,
+    data.campaign.chapters.true_extension,
+    data.campaign.calendar.base_year,
+    data.campaign.calendar.true_extension,
+    chapterValidationOptions,
+  );
+  const knownCampaignScenarioIds = data.scenarios.map((scenario) => scenario.id);
+  validateCampaignOperationPlan(data.campaign.operation_plan, knownCampaignScenarioIds);
+  const baseOperationPlan = projectCampaignOperationPlanBase(
+    data.campaign.operation_plan,
+    knownCampaignScenarioIds,
+  );
+  validateCampaignOperationPlanBaseProjection(
+    data.campaign.operation_plan,
+    baseOperationPlan,
+    knownCampaignScenarioIds,
+  );
+  data.run_completion = {
+    record_namespace: "vespera.campaign.greybox.v2",
+    ending_rules: [
+      {
+        id: "BAD_MAINTENANCE_SHORTFALL",
+        ending_tier: "BAD",
+        priority: 1100,
+        outcome: "FAILURE",
+        title: "오토마타의 불빛이 꺼지다",
+        description: "당일 수입과 운전자금으로 오토마타 유지비를 감당하지 못해 호텔 영업이 즉시 중단되었습니다.",
+        conditions: [
+          { metric: "campaign_operating_cash_shortfall", operator: "GTE", value: 1 },
+        ],
+      },
+      {
+        id: "BAD_CHAPTER_HURDLE",
+        ending_tier: "BAD",
+        priority: 1000,
+        outcome: "FAILURE",
+        title: "상속 심사에서 퇴장하다",
+        description: "챕터의 핵심 운영 허들을 회복하지 못해 베스페라의 상속권을 잃었습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "chapter_hurdle_failures", operator: "GTE", value: 1 },
+        ],
+      },
+      {
+        id: "TRUE_HAREM",
+        ending_tier: "TRUE_HAREM",
+        priority: 900,
+        outcome: "COMPLETE",
+        title: "모든 밤이 머무는 베스페라",
+        description: "악신의 개입을 끝내고 모든 종족과 관계 인물의 미래를 하나의 호텔에 연결했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: "truth_evidence", operator: "GTE", value: 3 },
+          { metric: "peace_alliance", operator: "EQ", value: 1 },
+          { metric: "all_relationship_endings_ready", operator: "EQ", value: 1 },
+        ],
+      },
+      {
+        id: "TRUE_PEACE",
+        ending_tier: "TRUE",
+        priority: 800,
+        outcome: "COMPLETE",
+        title: "다섯 종족의 밤을 잇다",
+        description: "악신의 존재를 밝혀내고 베스페라를 모든 종족이 안심하고 찾는 평화의 협약지로 남겼습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: "truth_evidence", operator: "GTE", value: 3 },
+          { metric: "peace_alliance", operator: "EQ", value: 1 },
+        ],
+      },
+      ...formalSpecies.map((species) => ({
+        id: `SPECIES_HEROINE_${species.id}`,
+        ending_tier: "SPECIES_HEROINE",
+        species_id: species.id,
+        relationship_role_id: species.relationship_role_id,
+        priority: 700,
+        outcome: "COMPLETE",
+        title: `${species.label} 관계 인물과 함께 지키는 베스페라`,
+        description: `${species.ending_description} 관계 인물의 모든 필수 사건도 함께 완성했습니다.`,
+        manager_outcome: species.manager_outcome,
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: `dominant_species_${species.metric_id}`, operator: "EQ", value: 1 },
+          { metric: `relationship_ready_${species.metric_id}`, operator: "EQ", value: 1 },
+          ...(species.requires_cross_species_network
+            ? [{ metric: "dream_demon_other_species_network", operator: "EQ", value: 1 }]
+            : []),
+        ],
+      })),
+      ...formalSpecies.map((species) => ({
+        id: `SPECIES_${species.id}`,
+        ending_tier: "SPECIES",
+        species_id: species.id,
+        priority: 600,
+        outcome: "COMPLETE",
+        title: species.ending_title,
+        description: species.ending_description,
+        manager_outcome: species.manager_outcome,
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+          { metric: `dominant_species_${species.metric_id}`, operator: "EQ", value: 1 },
+          ...(species.requires_cross_species_network
+            ? [{ metric: "dream_demon_other_species_network", operator: "EQ", value: 1 }]
+            : []),
+        ],
+      })),
+      {
+        id: "NORMAL_STEWARDSHIP",
+        ending_tier: "NORMAL",
+        priority: 500,
+        outcome: "COMPLETE",
+        title: "베스페라의 평범한 인간 지배인",
+        description: "목표 자금과 평판을 지켜냈지만 특정 종족 협약이나 숨은 진상에는 도달하지 않았습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+          { metric: "final_gold", operator: "GTE", value: 80 },
+          { metric: "final_reputation", operator: "GTE", value: 0 },
+        ],
+      },
+      {
+        id: "BAD_OPERATIONAL",
+        ending_tier: "BAD",
+        priority: 100,
+        outcome: "FAILURE",
+        title: "상속 조건을 채우지 못하다",
+        description: "시험 영업은 끝났지만 자금 또는 평판 조건을 충족하지 못해 호텔을 지키지 못했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: data.scenarios.length },
+        ],
+      },
+    ],
+    fallback_ending: {
+      id: "CAMPAIGN_INTERRUPTED",
+      ending_tier: "BAD",
+      priority: 0,
+      outcome: "FAILURE",
+      title: "상속 심사가 중단되다",
+      description: "캠페인 종료 조건에 도달하지 못했습니다.",
+    },
+  };
+  const indexes = createIndexes(data);
+  return { ...data, indexes };
+}
+
+export function createFormalCampaignDevelopmentData(source) {
+  const data = createCampaignGreyboxData(source);
+  const formalProgress = JSON.parse(JSON.stringify(FORMAL_CAMPAIGN_PROGRESS_CONFIG));
+  const financeShared = {
+    version: 1,
+    contract_status: CAMPAIGN_FINANCE_CONTRACT_STATUS,
+    debt_deadline_stage: 56,
+    debt_gate_id: formalProgress.true_entry_gate_id,
+    starting_cash: 10,
+    principal: 200,
+    chapter_cumulative_targets: {
+      7: 28,
+      14: 50,
+      28: 100,
+      42: 150,
+      56: 200,
+    },
+  };
+  const baseFinance = {
+    ...financeShared,
+    id: "FORMAL_CAMPAIGN_FINANCE_DEVELOPMENT_BASE",
+    total_stages: 56,
+  };
+  const trueFinance = {
+    ...financeShared,
+    chapter_cumulative_targets: { ...financeShared.chapter_cumulative_targets },
+    id: "FORMAL_CAMPAIGN_FINANCE_DEVELOPMENT_TRUE",
+    total_stages: 70,
+  };
+  validateCampaignFinanceConfig(baseFinance);
+  validateCampaignFinanceConfig(trueFinance);
+
+  data.prototype_mode = {
+    ...data.prototype_mode,
+    type: "FORMAL_CAMPAIGN",
+    total_nights: 56,
+    notice: "개발 전용 56/70일 기능 경로입니다. 현재 다섯 시나리오를 반복하며 콘텐츠와 경제 밸런스는 완성 판정 전입니다.",
+  };
+  data.campaign = {
+    ...data.campaign,
+    formal_progress: formalProgress,
+    formal_finance: {
+      base_year: baseFinance,
+      true_extension: trueFinance,
+      runtime_policy: {
+        id: "FORMAL_CAMPAIGN_FINANCE_DEVELOPMENT_POLICY",
+        version: 1,
+        status: CAMPAIGN_FINANCE_CONTRACT_STATUS,
+        balance_verdict: CAMPAIGN_FINANCE_BALANCE_VERDICT,
+        base_daily_upkeep: 2,
+        upkeep_per_owned_upgrade: 1,
+      },
+    },
+  };
+  validateCampaignOperationPlanProgressAlignment(
+    data.campaign.operation_plan,
+    data.campaign.formal_progress,
+    data.scenarios,
+  );
+
+  data.run_completion = JSON.parse(JSON.stringify(data.run_completion));
+  data.run_completion.record_namespace = "vespera.campaign.formal-development.v1";
+  for (const ending of data.run_completion.ending_rules) {
+    for (const condition of ending.conditions ?? []) {
+      if (condition.metric !== "completed_nights") continue;
+      if (ending.ending_tier === "BAD") condition.value = 1;
+      else if (["TRUE", "TRUE_HAREM"].includes(ending.ending_tier)) condition.value = 70;
+      else condition.value = 56;
+    }
+  }
+  data.indexes = createIndexes(data);
+  return data;
+}
+
+export function createEndlessGreyboxData(source) {
+  const { indexes: _sourceIndexes, ...serializable } = source;
+  const data = JSON.parse(JSON.stringify(serializable));
+  const endlessRooms = [
+    {
+      id: "F1-E",
+      floor: 1,
+      wing: 4,
+      attributes: ["quiet"],
+      built_from_start: false,
+      introduced_in_save_schema: 8,
+    },
+    {
+      id: "F2-E",
+      floor: 2,
+      wing: 4,
+      attributes: ["sunny"],
+      built_from_start: false,
+      introduced_in_save_schema: 8,
+    },
+    {
+      id: "F3-E",
+      floor: 3,
+      wing: 4,
+      attributes: ["quiet"],
+      built_from_start: false,
+      introduced_in_save_schema: 8,
+    },
+  ];
+  const endlessExpansions = [
+    {
+      id: "EXPAND_F1_E",
+      name: "외곽관 1층 증축",
+      description: "새 객실 F1-E를 열어 별도의 상층 증축 기반을 만듭니다.",
+      icon: "▥",
+      kind: "EXPANSION",
+      room_unlocks: ["F1-E"],
+      rarity: "N",
+      cost: 26,
+      unlock_stage: 2,
+      minimum_reputation: 0,
+      requires: [],
+      offer_weight: 4,
+      stackable: true,
+    },
+    {
+      id: "EXPAND_F2_E",
+      name: "외곽관 2층 증축",
+      description: "F1-E 위에 새 객실 F2-E를 추가합니다.",
+      icon: "▥",
+      kind: "EXPANSION",
+      room_unlocks: ["F2-E"],
+      rarity: "R",
+      cost: 36,
+      unlock_stage: 3,
+      minimum_reputation: 4,
+      requires: ["EXPAND_F1_E"],
+      offer_weight: 3,
+      stackable: true,
+    },
+    {
+      id: "EXPAND_F3_E",
+      name: "외곽관 3층 증축",
+      description: "F1-E와 F2-E 위에 최상층 객실 F3-E를 추가합니다.",
+      icon: "▥",
+      kind: "EXPANSION",
+      room_unlocks: ["F3-E"],
+      rarity: "SR",
+      cost: 48,
+      unlock_stage: 4,
+      minimum_reputation: 8,
+      requires: ["EXPAND_F2_E"],
+      offer_weight: 2,
+      stackable: true,
+    },
+  ];
+  data.rooms.push(...endlessRooms);
+  data.upgrades.push(...endlessExpansions);
+  const endlessGuestIds = new Set(
+    data.guests.filter((guest) => guest.showcase_only !== true).map((guest) => guest.id),
+  );
+  data.scenarios = data.scenarios.map((scenario) => ({
+    ...scenario,
+    name: scenario.special_invite_showcase_only
+      ? "다섯 번째 영업 · 높은 기대"
+      : scenario.name,
+    fixed_guests: (scenario.fixed_guests ?? []).filter((id) => endlessGuestIds.has(id)),
+    applicants: (scenario.applicants ?? []).filter((id) => endlessGuestIds.has(id)),
+    applicant_pool: (scenario.applicant_pool ?? []).filter((id) => endlessGuestIds.has(id)),
+    special_invite_guest_ids: [],
+    special_invite_showcase_only: false,
+  }));
+  data.display_relics = commonDisplayRelics();
+  data.prototype_mode = {
+    ...data.prototype_mode,
+    type: "ENDLESS",
+    total_nights: 7,
+    accelerated: false,
+    upgrade_offer_sizes: {
+      ...data.prototype_mode.upgrade_offer_sizes,
+      EXPANSION: 2,
+    },
+    notice: "일곱 번의 영업마다 공개된 감사 평판을 넘겨 호텔 운영을 이어가는 무한 영업 회색 상자입니다.",
+  };
+  data.endless = {
+    id: "ENDLESS_GREYBOX_01",
+    status: "GREYBOX",
+    season_length: 7,
+    configuration_fixture: {
+      profile_id: "ENDLESS_SPATIAL_CONFIGURATION_FIXTURE_V1",
+      zone_id: "ENDLESS_ZONE_GREYBOX_01",
+      status: "PROVISIONAL",
+      operation_count: 14,
+      starting_active_room_ids: data.rooms
+        .filter((room) => room.built_from_start !== false)
+        .map((room) => room.id),
+      validation_room_ids: data.rooms.map((room) => room.id),
+    },
+    result_history_limit: 20,
+    audit_history_limit: 12,
+    audit: {
+      policy_id: "PROVISIONAL_REPUTATION_WITH_EMERGENCY_PENALTY",
+      metric_id: "DEVELOPMENT_AUDIT_SCORE",
+      initial_target: 0,
+      target_step_per_cleared_season: 2,
+      max_target: 4,
+      reachability_gain_per_remaining_operation: 4,
+      emergency_penalty: 1,
+      provisional: true,
+      description: "이번 시즌 평판 변화 합계에서 마감 긴급 처리 1회당 1점을 차감하는 개발용 감사 점수입니다.",
+    },
+    run_fame: {
+      policy_id: "PROVISIONAL_CLEARED_SEASON_COUNT",
+      fame_per_cleared_season: 1,
+      provisional: true,
+    },
+    risk: {
+      policy_id: "PROVISIONAL_CLEARED_SEASON_TIER",
+      initial_tier: 1,
+      tier_per_cleared_season: 1,
+      provisional: true,
+    },
+    relic_offer: {
+      id: "ENDLESS_COMMON_RELIC",
+      pool_ids: ["COMMON"],
+      offer_size: 3,
+    },
+  };
+  data.run_completion = {
+    record_namespace: "vespera.endless.greybox.v1",
+    ending_rules: [
+      {
+        id: "ENDLESS_HOTEL_CLOSED",
+        ending_tier: "ENDLESS_CLOSED",
+        priority: 100,
+        outcome: "FAILURE",
+        title: "베스페라의 무한 영업이 끝나다",
+        description: "시즌 감사 목표에 미달해 이번 가능 세계의 호텔 운영 기록을 마감했습니다.",
+        conditions: [
+          { metric: "completed_nights", operator: "GTE", value: 1 },
+          { metric: "endless_closed", operator: "EQ", value: 1 },
+        ],
+      },
+    ],
+    fallback_ending: {
+      id: "ENDLESS_RUN_INTERRUPTED",
+      ending_tier: "ENDLESS_INCOMPLETE",
+      priority: 0,
+      outcome: "INCOMPLETE",
+      title: "무한 영업 기록이 중단되다",
+      description: "폐업 또는 자발적 마감 조건에 도달하지 않은 실행 기록입니다.",
+    },
+  };
+  const indexes = createIndexes(data);
+  validateEndlessData(data);
   return { ...data, indexes };
 }
 
@@ -35,6 +932,7 @@ export function createIndexes(data) {
     facilities,
     upgrades,
     scenarios: byId(data.scenarios),
+    displayRelics: byId(data.display_relics ?? []),
   };
 }
 
@@ -52,6 +950,131 @@ function assert(condition, message) {
 function assertReferences(ids, index, owner, label) {
   for (const id of ids) {
     if (!index[id]) throw new Error(`${owner}가 존재하지 않는 ${label} ${id}을 참조합니다.`);
+  }
+}
+
+function assertExactKeys(value, expectedKeys, owner) {
+  assert(value && typeof value === "object" && !Array.isArray(value), `${owner}는 객체여야 합니다.`);
+  const actual = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  assert(
+    actual.length === expected.length && actual.every((key, index) => key === expected[index]),
+    `${owner}의 필드는 ${expected.join(", ")}만 사용할 수 있습니다.`,
+  );
+}
+
+function horizontalRoomNeighbors(left, right) {
+  return left.floor === right.floor && Math.abs(left.wing - right.wing) === 1;
+}
+
+function verticalRoomNeighbors(left, right) {
+  return left.wing === right.wing && Math.abs(left.floor - right.floor) === 1;
+}
+
+function validateFacilityContract(facility, indexes, expectedRanks) {
+  assert(expectedRanks.has(facility.rarity), `${facility.id}의 시설 등급이 잘못되었습니다.`);
+  assert(facility.stackable === true, `${facility.id}는 다른 시설과 함께 보유 가능해야 합니다.`);
+  for (const legacyField of [
+    "room_bonuses",
+    "blocked_rooms",
+    "room_attribute_changes",
+    "adjacency_links",
+  ]) {
+    assert(!Object.hasOwn(facility, legacyField), `${facility.id}는 구 시설 필드 ${legacyField}를 사용할 수 없습니다.`);
+  }
+
+  const installation = facility.installation;
+  assertExactKeys(
+    installation,
+    [
+      "target_count",
+      "occupies_target",
+      "reserves_target",
+      "relation",
+      "required_attributes",
+      "legacy_room_ids",
+    ],
+    `${facility.id}.installation`,
+  );
+  assert([1, 2].includes(installation.target_count), `${facility.id} 설치 대상 수는 1개 또는 2개여야 합니다.`);
+  assert(typeof installation.occupies_target === "boolean", `${facility.id} occupies_target은 불리언이어야 합니다.`);
+  assert(typeof installation.reserves_target === "boolean", `${facility.id} reserves_target은 불리언이어야 합니다.`);
+  assert(
+    !installation.occupies_target || installation.reserves_target,
+    `${facility.id}가 객실을 점유하면 해당 위치도 전용으로 예약해야 합니다.`,
+  );
+  const supportedRelations = installation.target_count === 1
+    ? new Set(["ANY"])
+    : new Set(["VERTICAL_ADJACENT", "NON_ADJACENT"]);
+  assert(supportedRelations.has(installation.relation), `${facility.id}의 설치 관계가 대상 수와 맞지 않습니다.`);
+  assert(
+    Array.isArray(installation.required_attributes)
+      && installation.required_attributes.every((attribute) => typeof attribute === "string" && attribute.length > 0),
+    `${facility.id} required_attributes가 잘못되었습니다.`,
+  );
+  assert(
+    new Set(installation.required_attributes).size === installation.required_attributes.length,
+    `${facility.id} required_attributes가 중복되었습니다.`,
+  );
+  assert(
+    Array.isArray(installation.legacy_room_ids)
+      && installation.legacy_room_ids.length === installation.target_count
+      && new Set(installation.legacy_room_ids).size === installation.legacy_room_ids.length,
+    `${facility.id} legacy_room_ids는 중복 없이 설치 대상 수와 일치해야 합니다.`,
+  );
+  assertReferences(installation.legacy_room_ids, indexes.rooms, facility.id, "객실");
+  const legacyRooms = installation.legacy_room_ids.map((roomId) => indexes.rooms[roomId]);
+  for (const room of legacyRooms) {
+    assert(
+      installation.required_attributes.every((attribute) => room.attributes?.includes(attribute)),
+      `${facility.id}의 기존 설치 객실 ${room.id}가 요구 속성을 충족하지 않습니다.`,
+    );
+  }
+  if (installation.relation === "VERTICAL_ADJACENT") {
+    assert(verticalRoomNeighbors(...legacyRooms), `${facility.id}의 기존 설치 위치가 수직 인접하지 않습니다.`);
+  } else if (installation.relation === "NON_ADJACENT") {
+    assert(
+      !horizontalRoomNeighbors(...legacyRooms) && !verticalRoomNeighbors(...legacyRooms),
+      `${facility.id}의 기존 설치 위치는 물리적으로 인접할 수 없습니다.`,
+    );
+  }
+
+  assert(Array.isArray(facility.effects) && facility.effects.length > 0, `${facility.id}에는 시설 효과가 필요합니다.`);
+  for (const effect of facility.effects) {
+    assert(typeof effect.label === "string" && effect.label.length > 0, `${facility.id} 시설 효과 문구가 없습니다.`);
+    if (effect.type === "ROOM_ATTRIBUTES") {
+      assertExactKeys(effect, ["type", "scope", "remove", "add", "label"], `${facility.id} ROOM_ATTRIBUTES`);
+      assert(effect.scope === "TARGETS", `${facility.id} ROOM_ATTRIBUTES 범위는 TARGETS여야 합니다.`);
+      for (const field of ["remove", "add"]) {
+        assert(
+          Array.isArray(effect[field])
+            && effect[field].every((attribute) => typeof attribute === "string" && attribute.length > 0)
+            && new Set(effect[field]).size === effect[field].length,
+          `${facility.id} ROOM_ATTRIBUTES ${field}가 잘못되었습니다.`,
+        );
+      }
+      assert(effect.remove.length + effect.add.length > 0, `${facility.id} ROOM_ATTRIBUTES에는 변경 내용이 필요합니다.`);
+      assert(
+        effect.remove.every((attribute) => !effect.add.includes(attribute)),
+        `${facility.id} ROOM_ATTRIBUTES는 같은 속성을 동시에 제거하고 추가할 수 없습니다.`,
+      );
+    } else if (effect.type === "SATISFACTION") {
+      assertExactKeys(effect, ["type", "scope", "points", "label"], `${facility.id} SATISFACTION`);
+      assert(
+        ["TARGETS", "HORIZONTAL_NEIGHBORS", "PAIR_ENDPOINTS"].includes(effect.scope),
+        `${facility.id} SATISFACTION 범위가 잘못되었습니다.`,
+      );
+      assert(Number.isFinite(effect.points) && effect.points > 0, `${facility.id} SATISFACTION 점수는 양수여야 합니다.`);
+      if (effect.scope === "PAIR_ENDPOINTS") {
+        assert(installation.target_count === 2, `${facility.id} PAIR_ENDPOINTS는 설치 대상 두 개가 필요합니다.`);
+      }
+    } else if (effect.type === "ADJACENCY_LINK") {
+      assertExactKeys(effect, ["type", "scope", "label"], `${facility.id} ADJACENCY_LINK`);
+      assert(effect.scope === "TARGET_PAIR", `${facility.id} ADJACENCY_LINK 범위는 TARGET_PAIR여야 합니다.`);
+      assert(installation.target_count === 2, `${facility.id} ADJACENCY_LINK는 설치 대상 두 개가 필요합니다.`);
+    } else {
+      throw new Error(`${facility.id}에 지원하지 않는 시설 효과 ${effect.type}이 있습니다.`);
+    }
   }
 }
 
@@ -84,7 +1107,6 @@ function validateHiddenPreference(rule, owner, indexes, seenIds) {
     "NO_OCCUPIED_ADJACENT",
     "ADJACENT_SPECIES",
     "SAME_FLOOR_SPECIES",
-    "NEAR_FACILITY",
   ]);
   assert(typeof rule.id === "string" && rule.id.length > 0, `${owner}의 숨은 선호에 ID가 없습니다.`);
   assert(!seenIds.has(rule.id), `숨은 선호 ID가 중복되었습니다: ${rule.id}`);
@@ -104,25 +1126,156 @@ function validateHiddenPreference(rule, owner, indexes, seenIds) {
     assertReferences([rule.guest_id], indexes.guests, rule.id, "손님");
   } else if (["ADJACENT_SPECIES", "SAME_FLOOR_SPECIES"].includes(rule.type)) {
     assertReferences([rule.species_id], indexes.species, rule.id, "종족");
-  } else if (rule.type === "NEAR_FACILITY") {
-    assertReferences([rule.facility_id], indexes.facilities, rule.id, "시설");
+  }
+}
+
+function validateDislike(rule, owner, indexes) {
+  const supportedTypes = new Set([
+    "ROOM_HAS",
+    "ROOM_NOT_HAS",
+    "FLOOR_IS",
+    "FLOOR_AT_LEAST",
+    "FLOOR_AT_MOST",
+    "ELEVATOR_DISTANCE_AT_LEAST",
+    "ELEVATOR_DISTANCE_AT_MOST",
+    "ADJACENT_GUEST",
+    "NO_OCCUPIED_ADJACENT",
+    "ADJACENT_SPECIES",
+    "SAME_FLOOR_SPECIES",
+  ]);
+  assert(supportedTypes.has(rule.type), `${owner}의 불호에 지원하지 않는 규칙 ${rule.type}이 있습니다.`);
+  assert(Number.isFinite(rule.points) && rule.points < 0, `${owner}의 불호는 음의 만족도여야 합니다.`);
+  assert(
+    Number.isInteger(rule.ignored_at_prestige_gap) && rule.ignored_at_prestige_gap >= 1,
+    `${owner}의 불호에 호텔 격차 무시 기준이 필요합니다.`,
+  );
+  assert(typeof rule.label === "string" && rule.label.length > 0, `${owner}의 불호에 설명이 없습니다.`);
+  if (rule.guest_id) assertReferences([rule.guest_id], indexes.guests, owner, "손님");
+  if (rule.species_id) assertReferences([rule.species_id], indexes.species, owner, "종족");
+}
+
+function ruleConditionSignature(rule) {
+  return JSON.stringify({
+    type: rule.type,
+    attribute: rule.attribute ?? null,
+    floor: rule.floor ?? null,
+    distance: rule.distance ?? null,
+    guest_id: rule.guest_id ?? null,
+    species_id: rule.species_id ?? null,
+    facility_id: rule.facility_id ?? null,
+  });
+}
+
+function assertNoFacilityPreference(rules, owner) {
+  for (const rule of rules ?? []) {
+    assert(
+      rule.type !== "NEAR_FACILITY",
+      `${owner}에는 시설 이름을 손님 선호·불호 조건으로 직접 사용할 수 없습니다. 시설 효과 데이터로 옮기세요.`,
+    );
   }
 }
 
 export function validateData(data, indexes = createIndexes(data)) {
   const rankIds = ["N", "R", "SR", "SSR"];
   const expectedRanks = new Set(rankIds);
+  assert(data.schema_version === 6, "쇼케이스 데이터는 schema_version 6이어야 합니다.");
   assert(data.prototype_mode?.type === "SHOWCASE", "프로토타입 모드는 SHOWCASE여야 합니다.");
   assert(data.prototype_mode?.total_nights === 5, "쇼케이스는 정확히 5회 영업이어야 합니다.");
   assert(data.prototype_mode?.accelerated === true, "쇼케이스의 압축 성장 표시가 필요합니다.");
   assert(Boolean(data.prototype_mode?.notice), "쇼케이스 안내 문구가 필요합니다.");
+  assert(typeof data.run_completion?.record_namespace === "string", "실행 기록 네임스페이스가 필요합니다.");
+  assert(Array.isArray(data.run_completion?.ending_rules) && data.run_completion.ending_rules.length > 0, "종료 규칙이 필요합니다.");
+  const endingMetrics = new Set([
+    "completed_nights",
+    "total_income",
+    "reputation_delta",
+    "final_gold",
+    "final_reputation",
+    "accepted_guests",
+    "rejected_guests",
+    "canceled_guests",
+    "purchased_upgrades",
+    "emergency_nights",
+    "foresight_retries",
+    "expected_nights",
+  ]);
+  const endingIds = new Set();
+  for (const ending of data.run_completion.ending_rules) {
+    assert(typeof ending.id === "string" && !endingIds.has(ending.id), `종료 ID가 없거나 중복되었습니다: ${ending.id}`);
+    endingIds.add(ending.id);
+    assert(Number.isFinite(ending.priority), `${ending.id}의 우선순위가 필요합니다.`);
+    assert(["COMPLETE", "FAILURE"].includes(ending.outcome), `${ending.id}의 결과 유형이 잘못되었습니다.`);
+    assert(typeof ending.title === "string" && typeof ending.description === "string", `${ending.id}의 표시 문구가 필요합니다.`);
+    assert(Array.isArray(ending.conditions) && ending.conditions.length > 0, `${ending.id}의 종료 조건이 필요합니다.`);
+    for (const condition of ending.conditions) {
+      assert(["GTE", "LTE", "EQ"].includes(condition.operator), `${ending.id}의 비교 연산자가 잘못되었습니다.`);
+      assert(endingMetrics.has(condition.metric) && Number.isFinite(condition.value), `${ending.id}의 조건 값이 잘못되었습니다.`);
+    }
+  }
+  const fallbackEnding = data.run_completion?.fallback_ending;
+  assert(typeof fallbackEnding?.id === "string", "종료 규칙 누락 시 대체 결말이 필요합니다.");
+  assert(!endingIds.has(fallbackEnding.id), "대체 결말 ID는 종료 규칙과 달라야 합니다.");
+  assert(["INCOMPLETE", "FAILURE"].includes(fallbackEnding.outcome), "대체 결말의 결과 유형이 잘못되었습니다.");
+  assert(typeof fallbackEnding.title === "string" && typeof fallbackEnding.description === "string", "대체 결말의 표시 문구가 필요합니다.");
   assert(data.prototype_mode?.upgrade_offer_sizes?.EXPANSION === 1, "영업 준비에는 증축 제안 1개가 필요합니다.");
   assert(data.prototype_mode?.upgrade_offer_sizes?.FACILITY >= 2, "영업 준비에는 시설·인테리어 제안이 최소 2개 필요합니다.");
   assert(data.stayover_rules?.locks_initial_room === true, "연박 손님은 첫 배정 객실을 유지해야 합니다.");
+  assert(
+    Number.isFinite(data.balance?.max_species_synergy_points_per_guest)
+      && data.balance.max_species_synergy_points_per_guest > 0,
+    "손님별 종족 시너지 점수 상한이 필요합니다.",
+  );
   assert(Number.isFinite(data.balance?.room_service_cost) && data.balance.room_service_cost >= 0, "객실 정비 비용이 잘못되었습니다.");
-  assert(Number.isFinite(data.balance?.minimum_cleanliness), "최소 청결 기준이 필요합니다.");
-  assert(Number.isFinite(data.balance?.minimum_durability), "최소 내구 기준이 필요합니다.");
+  assert(
+    Number.isFinite(data.balance?.minimum_cleanliness)
+      && data.balance.minimum_cleanliness >= 0
+      && data.balance.minimum_cleanliness <= 100,
+    "최소 청결 기준은 0 이상 100 이하여야 합니다.",
+  );
+  assert(data.balance?.minimum_durability === undefined, "schema_version 6에서는 최소 내구 기준을 사용하지 않습니다.");
+  const cleanlinessBands = data.balance?.cleanliness_satisfaction_bands;
+  assert(Array.isArray(cleanlinessBands) && cleanlinessBands.length > 0, "청결 만족도 구간이 필요합니다.");
+  cleanlinessBands.forEach((band, index) => {
+    assert(
+      Number.isInteger(band.minimum) && band.minimum >= 0 && band.minimum <= 100,
+      `청결 만족도 ${index + 1}구간의 minimum은 0 이상 100 이하 정수여야 합니다.`,
+    );
+    assert(Number.isFinite(band.points) && band.points <= 0, `청결 만족도 ${index + 1}구간의 points는 0 이하여야 합니다.`);
+    assert(typeof band.label === "string" && band.label.length > 0, `청결 만족도 ${index + 1}구간의 label이 필요합니다.`);
+    if (index > 0) {
+      assert(
+        band.minimum < cleanlinessBands[index - 1].minimum,
+        "청결 만족도 구간의 minimum은 엄격한 내림차순이어야 합니다.",
+      );
+      assert(
+        band.points <= cleanlinessBands[index - 1].points,
+        "청결도가 낮은 구간의 만족도 점수는 이전 구간보다 높을 수 없습니다.",
+      );
+    }
+  });
+  assert(cleanlinessBands.at(-1).minimum === 0, "청결 만족도 구간은 minimum 0까지 포함해야 합니다.");
+  const cleaningRequest = data.balance?.stayover_cleaning_request;
+  assert(cleaningRequest?.status === "PROVISIONAL", "연박 청소 요청은 PROVISIONAL 상태여야 합니다.");
+  assert(
+    Number.isFinite(cleaningRequest?.chance) && cleaningRequest.chance >= 0 && cleaningRequest.chance <= 1,
+    "연박 청소 요청 확률은 0 이상 1 이하여야 합니다.",
+  );
+  assert(
+    Number.isInteger(cleaningRequest?.accept_reputation) && cleaningRequest.accept_reputation >= 0,
+    "연박 청소 요청 수락 평판은 0 이상의 정수여야 합니다.",
+  );
+  assert(
+    Number.isInteger(cleaningRequest?.reject_reputation) && cleaningRequest.reject_reputation <= 0,
+    "연박 청소 요청 거절 평판은 0 이하의 정수여야 합니다.",
+  );
+  assert(
+    cleaningRequest?.max_per_intermission === 1,
+    "현재 연박 청소 요청은 막간별 최대 1건이어야 합니다.",
+  );
   assert(data.balance?.booking_capacity_per_expansion_room === 1, "증축 객실당 응대 한도는 1명씩 늘어야 합니다.");
+  assert(Number.isFinite(data.balance?.prestige_satisfaction_per_tier), "호텔 격차 만족도 계수가 필요합니다.");
+  assert(Number.isFinite(data.balance?.evaluation_grade_thresholds?.good), "좋은 운영 평가 기준이 필요합니다.");
+  assert(Number.isFinite(data.balance?.evaluation_grade_thresholds?.excellent), "훌륭한 운영 평가 기준이 필요합니다.");
 
   [
     [data.rooms, "객실"],
@@ -151,9 +1304,25 @@ export function validateData(data, indexes = createIndexes(data)) {
     assert(Number.isInteger(rank.min_reputation) && rank.min_reputation >= 0, `${rank.id} min_reputation이 잘못되었습니다.`);
     assert(Boolean(rank.symbol), `${rank.id} 등급 기호가 없습니다.`);
     assert(/^#[0-9a-f]{6}$/i.test(rank.color), `${rank.id} 등급 색상이 잘못되었습니다.`);
+    assert(Number.isFinite(rank.reputation_influence) && rank.reputation_influence > 0, `${rank.id} 평판 영향력이 잘못되었습니다.`);
+    assert(Boolean(rank.reputation_influence_label), `${rank.id} 평판 영향 설명이 없습니다.`);
+    assert(Number.isFinite(rank.positive_satisfaction_threshold) && rank.positive_satisfaction_threshold > 0, `${rank.id} 호평 만족도 기준이 잘못되었습니다.`);
+    assert(Array.isArray(rank.soft_dislikes), `${rank.id} 불호 규칙 배열이 필요합니다.`);
+    assertNoFacilityPreference([
+      ...rank.hard_constraints,
+      ...rank.soft_preferences,
+      ...rank.soft_dislikes,
+    ], `등급 ${rank.id}`);
+    rank.soft_dislikes.forEach((rule) => validateDislike(rule, rank.id, indexes));
     if (index > 0) {
       assert(rank.unlock_stage >= orderedRanks[index - 1].unlock_stage, "상위 등급의 단계 잠금이 하위 등급보다 빨라서는 안 됩니다.");
       assert(rank.min_reputation >= orderedRanks[index - 1].min_reputation, "상위 등급의 평판 조건이 하위 등급보다 낮아서는 안 됩니다.");
+      assert(rank.reputation_influence > orderedRanks[index - 1].reputation_influence, "상위 등급의 평판 영향력은 더 커야 합니다.");
+      assert(
+        rank.soft_preferences.length + rank.soft_dislikes.length
+          >= orderedRanks[index - 1].soft_preferences.length + orderedRanks[index - 1].soft_dislikes.length,
+        "상위 등급의 선호·불호 조건 수가 하위 등급보다 적어서는 안 됩니다.",
+      );
     }
   });
 
@@ -172,15 +1341,40 @@ export function validateData(data, indexes = createIndexes(data)) {
   }
 
   const hiddenPreferenceIds = new Set();
+  const synergyIds = new Set();
+  const supportedSynergyScopes = new Set([
+    "HORIZONTAL_ADJACENT",
+    "VERTICAL_ADJACENT",
+    "SAME_FLOOR_GROUP",
+  ]);
   for (const species of data.species) {
     assert(Boolean(species.icon), `${species.id}의 아이콘이 없습니다.`);
-    assert(Array.isArray(species.synergy_thresholds) && species.synergy_thresholds.length > 0, `${species.id}의 종족 시너지가 없습니다.`);
-    let previousCount = 1;
-    for (const threshold of species.synergy_thresholds) {
-      assert(Number.isInteger(threshold.count) && threshold.count > previousCount, `${species.id}의 시너지 인원 구간이 잘못되었습니다.`);
-      assert(Number.isFinite(threshold.points) && threshold.points > 0, `${species.id}의 시너지 점수가 잘못되었습니다.`);
-      previousCount = threshold.count;
+    assert(species.synergy_thresholds === undefined, `${species.id}는 위치와 무관한 구 시너지 문턱을 사용할 수 없습니다.`);
+    assert(Array.isArray(species.synergies) && species.synergies.length >= 2, `${species.id}에는 공간형 종족 시너지가 최소 2개 필요합니다.`);
+    const speciesScopes = new Set();
+    for (const synergy of species.synergies) {
+      assert(typeof synergy.id === "string" && synergy.id.length > 0, `${species.id} 시너지 ID가 없습니다.`);
+      assert(!synergyIds.has(synergy.id), `종족 시너지 ID가 중복되었습니다: ${synergy.id}`);
+      synergyIds.add(synergy.id);
+      assert(supportedSynergyScopes.has(synergy.scope), `${synergy.id}의 공간 범위가 잘못되었습니다.`);
+      assert(!speciesScopes.has(synergy.scope), `${species.id}에 같은 공간 시너지 범위가 중복되었습니다: ${synergy.scope}`);
+      speciesScopes.add(synergy.scope);
+      assert(Number.isInteger(synergy.minimum_participants) && synergy.minimum_participants >= 2, `${synergy.id}의 최소 참여 인원이 잘못되었습니다.`);
+      if (synergy.scope !== "SAME_FLOOR_GROUP") {
+        assert(synergy.minimum_participants === 2, `${synergy.id}의 인접 쌍은 정확히 2명 조건이어야 합니다.`);
+      }
+      assert(Number.isFinite(synergy.points_per_guest) && synergy.points_per_guest > 0, `${synergy.id}의 1인당 점수가 잘못되었습니다.`);
+      assert(
+        synergy.points_per_guest <= data.balance.max_species_synergy_points_per_guest,
+        `${synergy.id}의 점수가 손님별 시너지 상한을 넘습니다.`,
+      );
+      assert(typeof synergy.label === "string" && synergy.label.length > 0, `${synergy.id}의 표시 문구가 없습니다.`);
     }
+    assertNoFacilityPreference([
+      ...species.hard_constraints,
+      ...species.soft_preferences,
+      ...(species.soft_dislikes ?? []),
+    ], `종족 ${species.id}`);
     const forbiddenHiddenFields = Object.keys(species).filter(
       (field) => field.startsWith("hidden_") && field !== "hidden_preferences_by_rank",
     );
@@ -193,6 +1387,7 @@ export function validateData(data, indexes = createIndexes(data)) {
       assert(Array.isArray(hiddenPreferences), `${species.id}:${rankId} 숨은 선호는 배열이어야 합니다.`);
       if (rankId === "N") assert(hiddenPreferences.length === 0, `${species.id}:N에는 숨은 선호를 두지 않습니다.`);
       else assert(hiddenPreferences.length > 0, `${species.id}:${rankId}에는 숨은 선호가 필요합니다.`);
+      assertNoFacilityPreference(hiddenPreferences, `종족 ${species.id}:${rankId} 숨은 선호`);
       for (const rule of hiddenPreferences) {
         validateHiddenPreference(rule, `${species.id}:${rankId}`, indexes, hiddenPreferenceIds);
       }
@@ -212,32 +1407,73 @@ export function validateData(data, indexes = createIndexes(data)) {
     if (!indexes.ranks[guest.rank]) {
       throw new Error(`${guest.id}의 등급 ${guest.rank}이 존재하지 않습니다.`);
     }
+    assert(guest.satisfied_reputation === undefined, `${guest.id}는 유효 배치만으로 고정 평판을 얻을 수 없습니다.`);
     if (Math.abs(guest.cancel_reputation) <= Math.abs(guest.reject_reputation)) {
       throw new Error(`${guest.id}의 막판 취소 손실은 거절 손실보다 커야 합니다.`);
     }
     assert(Number.isInteger(guest.stay_nights) && guest.stay_nights >= 1, `${guest.id}의 stay_nights가 잘못되었습니다.`);
     assert(guest.stayover_locks_initial_room === true, `${guest.id}는 연박 시 첫 객실을 유지해야 합니다.`);
-    for (const field of ["cleanliness_impact", "durability_impact"]) {
-      assert(Number.isInteger(guest[field]) && guest[field] >= 0, `${guest.id}의 ${field}가 잘못되었습니다.`);
+    assert(
+      Number.isInteger(guest.cleanliness_impact) && guest.cleanliness_impact >= 0,
+      `${guest.id}의 cleanliness_impact가 잘못되었습니다.`,
+    );
+    assert(guest.durability_impact === undefined, `${guest.id}는 schema_version 6에서 durability_impact를 사용할 수 없습니다.`);
+    assertNoFacilityPreference([
+      ...guest.hard_constraints,
+      ...guest.soft_preferences,
+      ...(guest.soft_dislikes ?? []),
+    ], `손님 ${guest.id}`);
+    const species = indexes.species[guest.species];
+    const rank = indexes.ranks[guest.rank];
+    const mergedHardRules = [
+      ...species.hard_constraints,
+      ...rank.hard_constraints,
+      ...guest.hard_constraints,
+    ];
+    const mergedPositiveRules = [
+      ...species.soft_preferences,
+      ...rank.soft_preferences,
+      ...guest.soft_preferences,
+      ...(species.hidden_preferences_by_rank?.[guest.rank] ?? []),
+    ];
+    const commonPositiveRules = [
+      ...species.soft_preferences,
+      ...rank.soft_preferences,
+      ...(species.hidden_preferences_by_rank?.[guest.rank] ?? []),
+    ];
+    const commonDislikeRules = [
+      ...(species.soft_dislikes ?? []),
+      ...rank.soft_dislikes,
+    ];
+    const forbiddenAttributes = new Set(
+      mergedHardRules
+        .filter((rule) => rule.type === "ROOM_NOT_HAS")
+        .map((rule) => rule.attribute),
+    );
+    for (const rule of mergedPositiveRules) {
+      assert(
+        !(rule.type === "ROOM_HAS" && rule.points > 0 && forbiddenAttributes.has(rule.attribute)),
+        `${guest.id}는 필수 금지 속성 ${rule.attribute}을 동시에 양수 선호할 수 없습니다.`,
+      );
     }
-    for (const rule of [...guest.hard_constraints, ...guest.soft_preferences]) {
+    const commonPositiveConditions = new Set(commonPositiveRules.map(ruleConditionSignature));
+    for (const rule of commonDislikeRules) {
+      assert(
+        !commonPositiveConditions.has(ruleConditionSignature(rule)),
+        `${guest.id}는 공통 계층에서 같은 조건을 선호와 불호로 동시에 가질 수 없습니다: ${rule.label}`,
+      );
+    }
+    for (const rule of [...guest.hard_constraints, ...guest.soft_preferences, ...(guest.soft_dislikes ?? [])]) {
       if (rule.guest_id) assertReferences([rule.guest_id], indexes.guests, guest.id, "손님");
       if (rule.facility_id) assertReferences([rule.facility_id], indexes.facilities, guest.id, "시설");
     }
+    (guest.soft_dislikes ?? []).forEach((rule) => validateDislike(rule, guest.id, indexes));
     const hiddenFields = Object.keys(guest).filter((field) => field.startsWith("hidden_"));
     assert(hiddenFields.length === 0, `${guest.id}에는 개인 숨은 규칙을 둘 수 없습니다: ${hiddenFields.join(", ")}`);
   }
 
   for (const facility of data.facilities) {
-    assert(expectedRanks.has(facility.rarity), `${facility.id}의 시설 등급이 잘못되었습니다.`);
-    assert(facility.stackable === true, `${facility.id}는 다른 시설과 함께 보유 가능해야 합니다.`);
-    assertReferences(facility.blocked_rooms ?? [], indexes.rooms, facility.id, "객실");
-    assertReferences((facility.room_attribute_changes ?? []).map((change) => change.room_id), indexes.rooms, facility.id, "객실");
-    assertReferences((facility.room_bonuses ?? []).map((bonus) => bonus.room_id), indexes.rooms, facility.id, "객실");
-    for (const link of facility.adjacency_links ?? []) {
-      assert(link.length === 2, `${facility.id}의 이웃 연결은 객실 두 개여야 합니다.`);
-      assertReferences(link, indexes.rooms, facility.id, "객실");
-    }
+    validateFacilityContract(facility, indexes, expectedRanks);
   }
 
   const upgradeRarities = new Set();
@@ -325,6 +1561,9 @@ export function getGuestRules(data, guestId) {
   const commonPreferences = [...species.soft_preferences];
   const rankPreferences = [...rank.soft_preferences];
   const personalPreferences = [...guest.soft_preferences];
+  const commonDislikes = [...(species.soft_dislikes ?? [])];
+  const rankDislikes = [...(rank.soft_dislikes ?? [])];
+  const personalDislikes = [...(guest.soft_dislikes ?? [])];
   const hiddenPreferences = [...(species.hidden_preferences_by_rank?.[guest.rank] ?? [])];
   return {
     commonRequired,
@@ -333,8 +1572,12 @@ export function getGuestRules(data, guestId) {
     commonPreferences,
     rankPreferences,
     personalPreferences,
+    commonDislikes,
+    rankDislikes,
+    personalDislikes,
     hiddenPreferences,
     hard: [...commonRequired, ...rankRequired, ...personalRequired],
     soft: [...commonPreferences, ...rankPreferences, ...personalPreferences],
+    dislikes: [...commonDislikes, ...rankDislikes, ...personalDislikes],
   };
 }
